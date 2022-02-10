@@ -1,0 +1,52 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+jobs:
+  macos:
+    name: Build for MacOS
+    runs-on: macos-10.15
+    env:
+      CARGO_TERM_COLOR: always
+
+    steps:
+      - uses: actions/checkout@v2
+
+      - name: Get version
+        id: get_version
+        run: echo ::set-output name=version::${GITHUB_REF/refs\/tags\/v/}
+
+      - name: Install Rust
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+          profile: minimal
+          components: clippy
+
+      - name: Run tests
+        run: cargo test
+
+      - name: Build Release Mac
+        run: |
+          cargo build --release
+          strip target/release/spr
+          tar vczC target/release/ spr >spr-${{ steps.get_version.outputs.version }}-macos.tar.gz
+          ls -lh spr-*.tar.gz
+
+      - name: Extract release notes
+        id: release_notes
+        uses: ffurrer2/extract-release-notes@v1
+
+      - name: Release
+        uses: softprops/action-gh-release@v1
+        with:
+          body: ${{ steps.release_notes.outputs.release_notes }}
+          prerelease: ${{ contains(github.ref, '-') }}
+          files: |
+            ./spr-*.tar.gz
+
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
