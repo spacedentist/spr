@@ -51,7 +51,7 @@ pub fn parse_message(
     msg: &str,
     top_section: MessageSection,
 ) -> MessageSectionsMap {
-    let regex = lazy_regex::regex!(r#"\s*([\w\s]+?)\s*:\s*(.*)$"#);
+    let regex = lazy_regex::regex!(r#"^\s*([\w\s]+?)\s*:\s*(.*)$"#);
 
     let mut section = top_section;
     let mut lines_in_section = Vec::<&str>::new();
@@ -274,14 +274,18 @@ Test plan: testzzz
 Summary:
 here is
 the
-summary
+summary (it's not a "Test plan:"!)
 
 Reviewer:    a, b, c"#,
                 MessageSection::Title
             ),
             [
                 (MessageSection::Title, "Hello".to_string()),
-                (MessageSection::Summary, "here is\nthe\nsummary".to_string()),
+                (
+                    MessageSection::Summary,
+                    "here is\nthe\nsummary (it's not a \"Test plan:\"!)"
+                        .to_string()
+                ),
                 (MessageSection::TestPlan, "testzzz".to_string()),
                 (MessageSection::Reviewers, "a, b, c".to_string()),
             ]
