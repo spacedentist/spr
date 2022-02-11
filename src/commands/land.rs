@@ -174,6 +174,8 @@ pub async fn land(
             .arg("--")
             .arg(&config.remote_name)
             .arg(&pull_request.head)
+            .stdout(async_process::Stdio::null())
+            .stderr(async_process::Stdio::null())
             .spawn()?;
 
     // Rebase us on top of the now-landed commit
