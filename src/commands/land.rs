@@ -167,6 +167,15 @@ pub async fn land(
         return Err(merge.message.map(Error::new).unwrap_or(Error::empty()));
     }
 
+    let mut remove_old_branch_child_process =
+        async_process::Command::new("git")
+            .arg("push")
+            .arg("--delete")
+            .arg("--")
+            .arg(&config.remote_name)
+            .arg(&pull_request.head)
+            .spawn()?;
+
     // Rebase us on top of the now-landed commit
     if let Some(sha) = merge.sha {
         // Try this up to three times, because fetching the very moment after
@@ -201,6 +210,11 @@ pub async fn land(
             "The automatic rebase failed - please rebase manually!"
         ))?;
     }
+
+    // Wait for the "git push" to delete the old Pull Request branch to finish,
+    // but ignore the result. GitHub may be configured to delete the branch
+    // automatically, in which case it's gone already and this command fails.
+    remove_old_branch_child_process.status().await?;
 
     Ok(())
 }
