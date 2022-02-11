@@ -114,6 +114,52 @@ impl Git {
         Ok(())
     }
 
+    pub async fn rebase_commits(
+        &self,
+        commits: &mut [PreparedCommit],
+        mut new_parent_oid: git2::Oid,
+    ) -> Result<()> {
+        if commits.is_empty() {
+            return Ok(());
+        }
+
+        let repo = self.repo.lock().await;
+
+        for prepared_commit in commits.iter_mut() {
+            let new_parent_commit = repo.find_commit(new_parent_oid)?;
+            let commit = repo.find_commit(prepared_commit.oid)?;
+
+            let mut index =
+                repo.cherrypick_commit(&commit, &new_parent_commit, 0, None)?;
+            if index.has_conflicts() {
+                return Err(Error::new("Rebase failed due to merge conflicts"));
+            }
+
+            let tree_oid = index.write_tree_to(&repo)?;
+            if tree_oid == new_parent_commit.tree_id() {
+                // Rebasing makes this an empty commit. We skip it, i.e. don't
+                // add it to the rebased branch.
+                continue;
+            }
+            let tree = repo.find_tree(tree_oid)?;
+
+            new_parent_oid = repo.commit(
+                None,
+                &commit.author(),
+                &commit.committer(),
+                String::from_utf8_lossy(commit.message_bytes()).as_ref(),
+                &tree,
+                &[&new_parent_commit],
+            )?;
+        }
+
+        repo.find_reference("HEAD")?
+            .resolve()?
+            .set_target(new_parent_oid, "spr rebased")?;
+
+        Ok(())
+    }
+
     pub async fn resolve_reference(&self, reference: &str) -> Result<Oid> {
         let repo = self.repo.lock().await;
 

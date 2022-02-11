@@ -3,7 +3,7 @@ use indoc::formatdoc;
 use std::io::Write;
 
 use crate::{
-    error::{Error, Result},
+    error::{Error, Result, ResultExt},
     github::{PullRequestState, ReviewStatus},
     message::{build_github_body_for_merging, MessageSection},
     output::{output, write_commit_title},
@@ -20,15 +20,13 @@ pub async fn land(
 ) -> Result<()> {
     let mut prepared_commits = git.get_prepared_commits(config).await?;
 
-    let prepared_commit = match prepared_commits.pop() {
+    let prepared_commit = match prepared_commits.last_mut() {
         Some(c) => c,
         None => {
             output("👋", "Branch is empty - nothing to do. Good bye!")?;
             return Ok(());
         }
     };
-
-    drop(prepared_commits);
 
     write_commit_title(&prepared_commit)?;
 
@@ -56,6 +54,12 @@ pub async fn land(
         None
     };
     let pull_request = pull_request.await??;
+
+    if pull_request.state != PullRequestState::Open {
+        return Err(Error::new(formatdoc!(
+            "This Pull Request is already closed!",
+        )));
+    }
 
     if let Some(stacked_on_pull_request) = stacked_on_pull_request {
         if stacked_on_pull_request.state == PullRequestState::Open {
@@ -113,7 +117,7 @@ pub async fn land(
 
     if !git_fetch.status.success() {
         console::Term::stderr().write_all(&git_fetch.stderr)?;
-        return Err(Error::new("git push failed"));
+        return Err(Error::new("git fetch failed"));
     }
 
     let current_master =
@@ -144,17 +148,59 @@ pub async fn land(
         )));
     }
 
-    octocrab::instance()
+    let merge = octocrab::instance()
         .pulls(&config.owner, &config.repo)
         .merge(pull_request_number)
         .method(octocrab::params::pulls::MergeMethod::Squash)
         .title(pull_request.title)
         .message(build_github_body_for_merging(&pull_request.sections))
+        .sha(format!("{}", pull_request.head_oid))
         .send()
         .compat()
         .await?;
 
-    output("🛬", "Landed!")?;
+    if merge.merged {
+        output("🛬", "Landed!")?;
+    } else {
+        output("❌", "GitHub Pull Request merge failed")?;
+
+        return Err(merge.message.map(Error::new).unwrap_or(Error::empty()));
+    }
+
+    // Rebase us on top of the now-landed commit
+    if let Some(sha) = merge.sha {
+        // Try this up to three times, because fetching the very moment after
+        // the merge might still not find the new commit.
+        for i in 0..3 {
+            // Fetch current master and the merge commit from GitHub.
+            let git_fetch = async_process::Command::new("git")
+                .arg("fetch")
+                .arg("--no-write-fetch-head")
+                .arg("--")
+                .arg(&config.remote_name)
+                .arg(&config.master_ref)
+                .arg(&sha)
+                .stdout(async_process::Stdio::null())
+                .stderr(async_process::Stdio::piped())
+                .output()
+                .await?;
+            if git_fetch.status.success() {
+                break;
+            } else if i == 2 {
+                console::Term::stderr().write_all(&git_fetch.stderr)?;
+                return Err(Error::new("git fetch failed"));
+            }
+        }
+        drop(prepared_commit);
+        git.rebase_commits(
+            &mut prepared_commits[..],
+            git2::Oid::from_str(&sha)?,
+        )
+        .await
+        .context(format!(
+            "The automatic rebase failed - please rebase manually!"
+        ))?;
+    }
 
     Ok(())
 }
