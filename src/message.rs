@@ -51,7 +51,7 @@ pub fn parse_message(
     msg: &str,
     top_section: MessageSection,
 ) -> MessageSectionsMap {
-    let regex = lazy_regex::regex!(r#"\s*([\w\s]+?)\s*:\s*(.*)$"#);
+    let regex = lazy_regex::regex!(r#"^\s*([\w\s]+?)\s*:\s*(.*)$"#);
 
     let mut section = top_section;
     let mut lines_in_section = Vec::<&str>::new();
@@ -121,7 +121,7 @@ pub fn build_message(
     sections: &[MessageSection],
 ) -> String {
     let mut result = String::new();
-    let mut first_section = true;
+    let mut display_label = false;
 
     for section in sections {
         let value = section_texts.get(section);
@@ -129,7 +129,16 @@ pub fn build_message(
             if !result.is_empty() {
                 result.push('\n');
             }
-            if !first_section || section != &MessageSection::Title {
+
+            if section != &MessageSection::Title
+                && section != &MessageSection::Summary
+            {
+                // Once we encounter a section that's neither Title nor Summary,
+                // we start displaying the labels.
+                display_label = true;
+            }
+
+            if display_label {
                 let label = message_section_label(section);
                 result.push_str(label);
                 result.push_str(
@@ -140,10 +149,10 @@ pub fn build_message(
                     },
                 );
             }
+
             result.push_str(text);
             result.push('\n');
         }
-        first_section = false;
     }
 
     result
@@ -274,14 +283,18 @@ Test plan: testzzz
 Summary:
 here is
 the
-summary
+summary (it's not a "Test plan:"!)
 
 Reviewer:    a, b, c"#,
                 MessageSection::Title
             ),
             [
                 (MessageSection::Title, "Hello".to_string()),
-                (MessageSection::Summary, "here is\nthe\nsummary".to_string()),
+                (
+                    MessageSection::Summary,
+                    "here is\nthe\nsummary (it's not a \"Test plan:\"!)"
+                        .to_string()
+                ),
                 (MessageSection::TestPlan, "testzzz".to_string()),
                 (MessageSection::Reviewers, "a, b, c".to_string()),
             ]
