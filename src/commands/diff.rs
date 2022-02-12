@@ -407,8 +407,8 @@ pub async fn diff(
             output(
                 "✨",
                 &format!(
-                    "Created new Pull Request https://github.com/{}/{}/pull/{}",
-                    config.owner, config.repo, pull_request_number
+                    "Created new Pull Request: {}",
+                    config.pull_request_url(pull_request_number)
                 ),
             )?;
             message.insert(
