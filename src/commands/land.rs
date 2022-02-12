@@ -28,7 +28,7 @@ pub async fn land(
         }
     };
 
-    write_commit_title(&prepared_commit)?;
+    write_commit_title(prepared_commit)?;
 
     let pull_request_number =
         if let Some(number) = prepared_commit.pull_request_number {
@@ -164,8 +164,19 @@ pub async fn land(
     } else {
         output("❌", "GitHub Pull Request merge failed")?;
 
-        return Err(merge.message.map(Error::new).unwrap_or(Error::empty()));
+        return Err(merge.message.map(Error::new).unwrap_or_else(Error::empty));
     }
+
+    let mut remove_old_branch_child_process =
+        async_process::Command::new("git")
+            .arg("push")
+            .arg("--delete")
+            .arg("--")
+            .arg(&config.remote_name)
+            .arg(&pull_request.head)
+            .stdout(async_process::Stdio::null())
+            .stderr(async_process::Stdio::null())
+            .spawn()?;
 
     // Rebase us on top of the now-landed commit
     if let Some(sha) = merge.sha {
@@ -191,16 +202,20 @@ pub async fn land(
                 return Err(Error::new("git fetch failed"));
             }
         }
-        drop(prepared_commit);
         git.rebase_commits(
             &mut prepared_commits[..],
             git2::Oid::from_str(&sha)?,
         )
         .await
-        .context(format!(
-            "The automatic rebase failed - please rebase manually!"
-        ))?;
+        .context(
+            "The automatic rebase failed - please rebase manually!".to_string(),
+        )?;
     }
+
+    // Wait for the "git push" to delete the old Pull Request branch to finish,
+    // but ignore the result. GitHub may be configured to delete the branch
+    // automatically, in which case it's gone already and this command fails.
+    remove_old_branch_child_process.status().await?;
 
     Ok(())
 }

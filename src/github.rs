@@ -20,7 +20,6 @@ pub struct GitHub {
 }
 struct Inner {
     pull_request_cache: HashMap<u64, SharedFuture<Result<PullRequest>>>,
-    logged_in_user_cache: Option<SharedFuture<Result<UserWithName>>>,
     user_cache: HashMap<String, SharedFuture<Result<UserWithName>>>,
     reviewers_cache: Option<SharedFuture<Result<ReviewersMap>>>,
 }
@@ -84,7 +83,6 @@ impl Inner {
     pub fn new() -> Self {
         Self {
             pull_request_cache: Default::default(),
-            logged_in_user_cache: None,
             user_cache: Default::default(),
             reviewers_cache: Default::default(),
         }
@@ -98,37 +96,6 @@ impl GitHub {
             inner: std::rc::Rc::new(async_lock::Mutex::new(Inner::new())),
         }
     }
-
-    pub fn get_logged_in_git_hub_user(&self) -> Future<Result<UserWithName>> {
-        let (p, f) = Future::new_promise();
-        let inner = self.inner.clone();
-
-        spawn(async move {
-            let mut inner = inner.lock().await;
-            let shared = inner
-                .logged_in_user_cache
-                .get_or_insert_with(|| {
-                    Future::new(async {
-                        octocrab::instance()
-                            .get::<UserWithName, _, _>("user", None::<&()>)
-                            .compat()
-                            .await
-                            .map_err(Error::from)
-                    })
-                    .shared()
-                })
-                .clone();
-
-            drop(inner);
-            if let Ok(result) = shared.await {
-                p.set(result).ok();
-            }
-        })
-        .detach();
-
-        f
-    }
-
     pub fn get_github_user(
         &self,
         login: String,

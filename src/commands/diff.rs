@@ -28,6 +28,10 @@ pub struct DiffOptions {
     #[clap(long, short = 'm')]
     message: Option<String>,
 
+    /// Stack this Pull Request onto another one. Valid values are a Pull
+    /// Request number, or 'parent' to look up the Pull Request number from the
+    /// parent commit. To turn an existing Pull Request into one that is not
+    /// stacked, use '--stack none'.
     #[clap(long, rename_all = "lower")]
     stack: Option<StackOption>,
 }
@@ -406,7 +410,11 @@ pub async fn diff(
 
             output(
                 "✨",
-                &format!("Created new Pull Request #{}", pull_request_number),
+                &format!(
+                    "Created new Pull Request #{}: {}",
+                    pull_request_number,
+                    config.pull_request_url(pull_request_number)
+                ),
             )?;
             message.insert(
                 MessageSection::PullRequest,
