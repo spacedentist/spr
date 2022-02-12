@@ -412,6 +412,7 @@ pub async fn diff(
                 "✨",
                 &format!(
                     "Created new Pull Request #{}: {}",
+                    pull_request_number,
                     config.pull_request_url(pull_request_number)
                 ),
             )?;
