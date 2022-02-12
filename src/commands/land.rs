@@ -71,10 +71,13 @@ pub async fn land(
         }
     }
 
-    if pull_request.review_status != Some(ReviewStatus::Approved) {
-        return Err(Error::new(
-            "This Pull Request has not been approved on GitHub.",
-        ));
+    match pull_request.review_status {
+        ReviewStatus::Approved(_) => { /*good */ }
+        _ => {
+            return Err(Error::new(
+                "This Pull Request has not been approved on GitHub.",
+            ))
+        }
     }
 
     if pull_request.mergeable.is_none() {

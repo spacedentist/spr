@@ -11,7 +11,7 @@ use crate::{
     utils::normalise_ref,
 };
 use async_compat::CompatExt;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 #[derive(Clone)]
 pub struct GitHub {
@@ -38,15 +38,14 @@ pub struct PullRequest {
     pub head_oid: git2::Oid,
     pub mergeable: Option<bool>,
     pub merge_commit: Option<git2::Oid>,
-    pub reviewers: HashMap<String, ReviewStatus>,
-    pub review_status: Option<ReviewStatus>,
+    pub review_status: ReviewStatus,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ReviewStatus {
-    Requested,
-    Approved,
-    Rejected,
+    Requested(Vec<String>),
+    Approved(Vec<String>),
+    Rejected(Vec<String>),
 }
 
 #[derive(serde::Serialize, Default, Debug)]
@@ -153,33 +152,6 @@ impl GitHub {
                 .entry(number)
                 .or_insert_with(|| {
                     Future::new(async move {
-                        #[derive(Deserialize)]
-                        struct User {
-                            login: String,
-                        }
-                        #[derive(Deserialize)]
-                        struct PullRequestReview {
-                            user: User,
-                            state: String,
-                        }
-
-                        let reviewers_future = spawn({
-                            let route = format!(
-                                "repos/{owner}/{repo}/pulls/{number}/reviews",
-                                owner = &config.owner,
-                                repo = &config.repo
-                            );
-                            async {
-                                octocrab::instance()
-                                    .get::<Vec<PullRequestReview>, _, _>(
-                                        route,
-                                        None::<&()>,
-                                    )
-                                    .compat()
-                                    .await
-                            }
-                        });
-
                         let pr = octocrab::instance()
                             .pulls(config.owner.clone(), config.repo.clone())
                             .get(number)
@@ -213,89 +185,18 @@ impl GitHub {
                             config.pull_request_url(number),
                         );
 
-                        let mut reviewers =
-                            HashMap::<String, ReviewStatus>::new();
-                        let mut review_status: Option<ReviewStatus> = None;
-
-                        if let Some(requested_reviewers) =
-                            pr.requested_reviewers
-                        {
-                            for reviewer in requested_reviewers {
-                                reviewers.insert(
-                                    reviewer.login,
-                                    ReviewStatus::Requested,
-                                );
-                            }
-                        }
-                        if let Some(requested_teams) = pr.requested_teams {
-                            for team in requested_teams {
-                                reviewers.insert(
-                                    format!("#{}", team.slug),
-                                    ReviewStatus::Requested,
-                                );
-                            }
-                        }
-
-                        if let Ok(reviewers_list) = reviewers_future.await {
-                            for reviewer in reviewers_list {
-                                // if a review is requested from this user, we
-                                // don't consider user's previous
-                                // approvals/change requests.
-                                if reviewers.get(&reviewer.user.login)
-                                    == Some(&ReviewStatus::Requested)
-                                {
-                                    continue;
-                                }
-                                let state = match &reviewer.state[..] {
-                                    "APPROVED" => Some(ReviewStatus::Approved),
-                                    "CHANGES_REQUESTED" => {
-                                        Some(ReviewStatus::Rejected)
-                                    }
-                                    _ => None,
-                                };
-                                if let Some(state) = state {
-                                    reviewers.insert(
-                                        reviewer.user.login,
-                                        state.clone(),
-                                    );
-                                    review_status = Some(state);
-                                }
-                            }
-                        }
-
+                        let (review_status, reviewers) =
+                            GitHub::get_review_status(&config, &pr).await?;
                         sections.insert(
                             MessageSection::Reviewers,
-                            reviewers.keys().fold(
-                                String::new(),
-                                |out, slug| {
-                                    if out.is_empty() {
-                                        slug.to_string()
-                                    } else {
-                                        format!("{}, {}", out, slug)
-                                    }
-                                },
-                            ),
+                            reviewers.join(", "),
                         );
-
-                        if review_status == Some(ReviewStatus::Approved) {
+                        if let ReviewStatus::Approved(approvers) =
+                            &review_status
+                        {
                             sections.insert(
                                 MessageSection::ReviewedBy,
-                                reviewers
-                                    .iter()
-                                    .filter_map(|(k, v)| {
-                                        if v == &ReviewStatus::Approved {
-                                            Some(k)
-                                        } else {
-                                            None
-                                        }
-                                    })
-                                    .fold(String::new(), |out, slug| {
-                                        if out.is_empty() {
-                                            slug.to_string()
-                                        } else {
-                                            format!("{}, {}", out, slug)
-                                        }
-                                    }),
+                                approvers.join(", "),
                             );
                         }
 
@@ -312,7 +213,6 @@ impl GitHub {
                             base: normalise_ref(pr.base.ref_field).into(),
                             head: normalise_ref(pr.head.ref_field).into(),
                             head_oid,
-                            reviewers,
                             review_status,
                             mergeable: pr.mergeable,
                             merge_commit: pr
@@ -485,5 +385,92 @@ impl GitHub {
         .detach();
 
         f
+    }
+
+    // A pull request is rejected if anyone requested changes in the past and has not approved it
+    // since then. If not rejected, pull request is approved if anyone approved it and author has
+    // not (re-)requested review.
+    async fn get_review_status(
+        config: &crate::config::Config,
+        pr: &octocrab::models::pulls::PullRequest,
+    ) -> Result<(ReviewStatus, Vec<String>)> {
+        #[derive(Deserialize)]
+        struct User {
+            login: String,
+        }
+        #[derive(Deserialize)]
+        struct PullRequestReview {
+            user: User,
+            state: String,
+        }
+
+        let mut review_requested = HashSet::<String>::new();
+        let mut accepted = HashSet::<String>::new();
+        let mut requested_changes = HashSet::<String>::new();
+
+        let review_actions = spawn({
+            let route = format!(
+                "repos/{owner}/{repo}/pulls/{number}/reviews",
+                number = pr.number,
+                owner = config.owner,
+                repo = config.repo
+            );
+            async {
+                octocrab::instance()
+                    .get::<Vec<PullRequestReview>, _, _>(route, None::<&()>)
+                    .compat()
+                    .await
+            }
+        });
+
+        if let Some(requested_reviewers) = pr.requested_reviewers.as_ref() {
+            for reviewer in requested_reviewers {
+                review_requested.insert(reviewer.login.clone());
+            }
+        }
+        if let Some(requested_teams) = pr.requested_teams.as_ref() {
+            for team in requested_teams {
+                review_requested.insert(format!("#{}", team.slug));
+            }
+        }
+
+        // NOTE: Github returns review actions sorted by timestamp, oldest first
+        for reviewer in review_actions.await? {
+            match reviewer.state.as_str() {
+                "APPROVED" => {
+                    requested_changes.remove(&reviewer.user.login);
+                    accepted.insert(reviewer.user.login);
+                }
+                "CHANGES_REQUESTED" => {
+                    accepted.remove(&reviewer.user.login);
+                    requested_changes.insert(reviewer.user.login);
+                }
+                _ => {}
+            };
+        }
+
+        let all_reviewers = review_requested
+            .union(&accepted.union(&requested_changes).cloned().collect())
+            .cloned()
+            .collect();
+        if !requested_changes.is_empty() {
+            return Ok((
+                ReviewStatus::Rejected(requested_changes.into_iter().collect()),
+                all_reviewers,
+            ));
+        }
+
+        let approved_without_further_request: Vec<String> =
+            accepted.difference(&review_requested).cloned().collect();
+        if !approved_without_further_request.is_empty() {
+            return Ok((
+                ReviewStatus::Approved(approved_without_further_request),
+                all_reviewers,
+            ));
+        }
+        Ok((
+            ReviewStatus::Requested(review_requested.into_iter().collect()),
+            all_reviewers,
+        ))
     }
 }
