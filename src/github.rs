@@ -271,7 +271,7 @@ impl GitHub {
 
                         if let Ok(reviewers_list) = reviewers_future.await {
                             for reviewer in reviewers_list {
-                                // if a review is request from this user, we
+                                // if a review is requested from this user, we
                                 // don't consider user's previous
                                 // approvals/change requests.
                                 if reviewers.get(&reviewer.user.login)
