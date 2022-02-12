@@ -406,7 +406,10 @@ pub async fn diff(
 
             output(
                 "✨",
-                &format!("Created new Pull Request #{}", pull_request_number),
+                &format!(
+                    "Created new Pull Request https://github.com/{}/{}/pull/{}",
+                    config.owner, config.repo, pull_request_number
+                ),
             )?;
             message.insert(
                 MessageSection::PullRequest,
