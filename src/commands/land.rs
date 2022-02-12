@@ -28,7 +28,7 @@ pub async fn land(
         }
     };
 
-    write_commit_title(&prepared_commit)?;
+    write_commit_title(prepared_commit)?;
 
     let pull_request_number =
         if let Some(number) = prepared_commit.pull_request_number {
@@ -164,7 +164,7 @@ pub async fn land(
     } else {
         output("❌", "GitHub Pull Request merge failed")?;
 
-        return Err(merge.message.map(Error::new).unwrap_or(Error::empty()));
+        return Err(merge.message.map(Error::new).unwrap_or_else(Error::empty));
     }
 
     // Rebase us on top of the now-landed commit
@@ -191,15 +191,14 @@ pub async fn land(
                 return Err(Error::new("git fetch failed"));
             }
         }
-        drop(prepared_commit);
         git.rebase_commits(
             &mut prepared_commits[..],
             git2::Oid::from_str(&sha)?,
         )
         .await
-        .context(format!(
-            "The automatic rebase failed - please rebase manually!"
-        ))?;
+        .context(
+            "The automatic rebase failed - please rebase manually!".to_string(),
+        )?;
     }
 
     Ok(())
