@@ -18,7 +18,7 @@ pub async fn land(
     gh: &mut crate::github::GitHub,
     config: &crate::config::Config,
 ) -> Result<()> {
-    let mut prepared_commits = git.get_prepared_commits(config).await?;
+    let mut prepared_commits = git.get_prepared_commits(config)?;
 
     let prepared_commit = match prepared_commits.last_mut() {
         Some(c) => c,
@@ -120,10 +120,9 @@ pub async fn land(
         return Err(Error::new("git fetch failed"));
     }
 
-    let current_master =
-        git.resolve_reference(&config.remote_master_ref).await?;
+    let current_master = git.resolve_reference(&config.remote_master_ref)?;
 
-    let index = git.cherrypick(prepared_commit.oid, current_master).await?;
+    let index = git.cherrypick(prepared_commit.oid, current_master)?;
 
     if index.has_conflicts() {
         return Err(Error::new(formatdoc!(
@@ -136,10 +135,9 @@ pub async fn land(
 
     // This is the tree we are getting from cherrypicking the local commit
     // on the selected base (master or stacked-on Pull Request).
-    let our_tree_oid = git.write_index(index).await?;
+    let our_tree_oid = git.write_index(index)?;
 
-    let github_tree_oid =
-        git.get_tree_oid_for_commit(github_merge_commit).await?;
+    let github_tree_oid = git.get_tree_oid_for_commit(github_merge_commit)?;
 
     if our_tree_oid != github_tree_oid {
         return Err(Error::new(formatdoc!(
@@ -206,7 +204,6 @@ pub async fn land(
             &mut prepared_commits[..],
             git2::Oid::from_str(&sha)?,
         )
-        .await
         .context(
             "The automatic rebase failed - please rebase manually!".to_string(),
         )?;

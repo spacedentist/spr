@@ -17,7 +17,7 @@ pub async fn amend(
     gh: &mut crate::github::GitHub,
     config: &crate::config::Config,
 ) -> Result<()> {
-    let mut pc = git.get_prepared_commits(config).await?;
+    let mut pc = git.get_prepared_commits(config)?;
 
     let len = pc.len();
     if len == 0 {
@@ -55,7 +55,7 @@ pub async fn amend(
         }
         failure = validate_commit_message(&commit.message).is_err() || failure;
     }
-    git.rewrite_commit_messages(slice, None).await?;
+    git.rewrite_commit_messages(slice, None)?;
 
     if failure {
         Err(Error::empty())

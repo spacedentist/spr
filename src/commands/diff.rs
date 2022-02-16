@@ -72,7 +72,7 @@ pub async fn diff(
     gh: &mut crate::github::GitHub,
     config: &crate::config::Config,
 ) -> Result<()> {
-    let mut prepared_commits = git.get_prepared_commits(config).await?;
+    let mut prepared_commits = git.get_prepared_commits(config)?;
 
     let base_oid = prepared_commits[0].parent_oid;
 
@@ -238,7 +238,7 @@ pub async fn diff(
         None => (base_oid, format!("refs/heads/{}", &config.master_branch)),
     };
 
-    let index = git.cherrypick(prepared_commit.oid, base_oid).await?;
+    let index = git.cherrypick(prepared_commit.oid, base_oid)?;
 
     if index.has_conflicts() {
         if let Some(number) = stack_on_number {
@@ -287,7 +287,7 @@ pub async fn diff(
 
     // This is the tree we are getting from cherrypicking the local commit
     // on the selected base (master or stacked-on Pull Request).
-    let tree_oid = git.write_index(index).await?;
+    let tree_oid = git.write_index(index)?;
 
     // Parents of the new Pull Request commit
     let mut new_pull_request_commit_parents = Vec::<Oid>::new();
@@ -302,14 +302,13 @@ pub async fn diff(
 
         // Is the tree we get from cherrypicking above different at all from the
         // current commit on the Pull Request?
-        let update_tree =
-            git.get_tree_oid_for_commit(pr.head_oid).await? != tree_oid;
+        let update_tree = git.get_tree_oid_for_commit(pr.head_oid)? != tree_oid;
 
         // This Pull Request should be based on the commit with oid `base_oid`. Is
         // that one already in the direct lineage of the current Pull Request
         // commit? (If it isn't we definitely need to update this Pull Request to
         // merge in that base.)
-        let remerge_base = !git.is_based_on(pr.head_oid, base_oid).await?;
+        let remerge_base = !git.is_based_on(pr.head_oid, base_oid)?;
 
         if update_tree || remerge_base {
             if opts.message.is_none() {
@@ -362,7 +361,7 @@ pub async fn diff(
         github_ref = Some(format!(
             "refs/heads/{}",
             config.get_new_branch_name(
-                &git.get_all_ref_names().await?,
+                &git.get_all_ref_names()?,
                 message
                     .get(&MessageSection::Title)
                     .map(|t| &t[..])
@@ -373,14 +372,12 @@ pub async fn diff(
 
     if let Some(github_ref) = github_ref {
         // Create the new commit for this Pull Request.
-        let new_pr_commit_oid = git
-            .create_pull_request_commit(
-                prepared_commit.oid,
-                opts.message.as_ref().map(|s| &s[..]),
-                tree_oid,
-                &new_pull_request_commit_parents[..],
-            )
-            .await?;
+        let new_pr_commit_oid = git.create_pull_request_commit(
+            prepared_commit.oid,
+            opts.message.as_ref().map(|s| &s[..]),
+            tree_oid,
+            &new_pull_request_commit_parents[..],
+        )?;
 
         // And push it to GitHub.
         let git_push = async_process::Command::new("git")
@@ -467,5 +464,4 @@ pub async fn diff(
     }
 
     git.rewrite_commit_messages(&mut [prepared_commit], None)
-        .await
 }

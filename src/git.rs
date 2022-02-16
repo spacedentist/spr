@@ -20,20 +20,18 @@ pub struct PreparedCommit {
 
 #[derive(Clone)]
 pub struct Git {
-    repo: std::rc::Rc<async_lock::Mutex<git2::Repository>>,
+    repo: std::rc::Rc<git2::Repository>,
 }
 
 impl Git {
     pub fn new(repo: git2::Repository) -> Self {
         Self {
-            repo: std::rc::Rc::new(async_lock::Mutex::new(repo)),
+            repo: std::rc::Rc::new(repo),
         }
     }
 
-    pub async fn get_commit_oids(&self, master_ref: &str) -> Result<Vec<Oid>> {
-        let repo = self.repo.lock().await;
-
-        let mut walk = repo.revwalk()?;
+    pub fn get_commit_oids(&self, master_ref: &str) -> Result<Vec<Oid>> {
+        let mut walk = self.repo.revwalk()?;
         walk.set_sorting(git2::Sort::TOPOLOGICAL.union(git2::Sort::REVERSE))?;
         walk.push_head()?;
         walk.hide_ref(master_ref)?;
@@ -41,21 +39,20 @@ impl Git {
         Ok(walk.collect::<std::result::Result<Vec<Oid>, _>>()?)
     }
 
-    pub async fn get_prepared_commits(
+    pub fn get_prepared_commits(
         &self,
         config: &Config,
     ) -> Result<Vec<PreparedCommit>> {
-        let commit_oids =
-            self.get_commit_oids(&config.remote_master_ref).await?;
+        let commit_oids = self.get_commit_oids(&config.remote_master_ref)?;
         let mut prepared_commits = Vec::<crate::git::PreparedCommit>::new();
         for oid in commit_oids {
-            prepared_commits.push(self.prepare_commit(config, oid).await?);
+            prepared_commits.push(self.prepare_commit(config, oid)?);
         }
 
         Ok(prepared_commits)
     }
 
-    pub async fn rewrite_commit_messages(
+    pub fn rewrite_commit_messages(
         &self,
         commits: &mut [PreparedCommit],
         mut limit: Option<usize>,
@@ -64,15 +61,13 @@ impl Git {
             return Ok(());
         }
 
-        let repo = self.repo.lock().await;
-
         let mut parent_oid: Option<Oid> = None;
         let mut updating = false;
         let mut message: String;
         let first_parent = commits[0].parent_oid;
 
         for prepared_commit in commits.iter_mut() {
-            let commit = repo.find_commit(prepared_commit.oid)?;
+            let commit = self.repo.find_commit(prepared_commit.oid)?;
             if limit != Some(0) {
                 message = build_commit_message(&prepared_commit.message);
                 if Some(&message[..]) != commit.message() {
@@ -88,13 +83,15 @@ impl Git {
             limit = limit.map(|n| if n > 0 { n - 1 } else { 0 });
 
             if updating {
-                let new_oid = repo.commit(
+                let new_oid = self.repo.commit(
                     None,
                     &commit.author(),
                     &commit.committer(),
                     &message[..],
                     &commit.tree()?,
-                    &[&repo.find_commit(parent_oid.unwrap_or(first_parent))?],
+                    &[&self
+                        .repo
+                        .find_commit(parent_oid.unwrap_or(first_parent))?],
                 )?;
                 prepared_commit.oid = new_oid;
                 parent_oid = Some(new_oid);
@@ -105,7 +102,8 @@ impl Git {
 
         if updating {
             if let Some(oid) = parent_oid {
-                repo.find_reference("HEAD")?
+                self.repo
+                    .find_reference("HEAD")?
                     .resolve()?
                     .set_target(oid, "spr updated commit messages")?;
             }
@@ -114,7 +112,7 @@ impl Git {
         Ok(())
     }
 
-    pub async fn rebase_commits(
+    pub fn rebase_commits(
         &self,
         commits: &mut [PreparedCommit],
         mut new_parent_oid: git2::Oid,
@@ -123,27 +121,29 @@ impl Git {
             return Ok(());
         }
 
-        let repo = self.repo.lock().await;
-
         for prepared_commit in commits.iter_mut() {
-            let new_parent_commit = repo.find_commit(new_parent_oid)?;
-            let commit = repo.find_commit(prepared_commit.oid)?;
+            let new_parent_commit = self.repo.find_commit(new_parent_oid)?;
+            let commit = self.repo.find_commit(prepared_commit.oid)?;
 
-            let mut index =
-                repo.cherrypick_commit(&commit, &new_parent_commit, 0, None)?;
+            let mut index = self.repo.cherrypick_commit(
+                &commit,
+                &new_parent_commit,
+                0,
+                None,
+            )?;
             if index.has_conflicts() {
                 return Err(Error::new("Rebase failed due to merge conflicts"));
             }
 
-            let tree_oid = index.write_tree_to(&repo)?;
+            let tree_oid = index.write_tree_to(&self.repo)?;
             if tree_oid == new_parent_commit.tree_id() {
                 // Rebasing makes this an empty commit. We skip it, i.e. don't
                 // add it to the rebased branch.
                 continue;
             }
-            let tree = repo.find_tree(tree_oid)?;
+            let tree = self.repo.find_tree(tree_oid)?;
 
-            new_parent_oid = repo.commit(
+            new_parent_oid = self.repo.commit(
                 None,
                 &commit.author(),
                 &commit.committer(),
@@ -153,17 +153,17 @@ impl Git {
             )?;
         }
 
-        repo.find_reference("HEAD")?
+        self.repo
+            .find_reference("HEAD")?
             .resolve()?
             .set_target(new_parent_oid, "spr rebased")?;
 
         Ok(())
     }
 
-    pub async fn resolve_reference(&self, reference: &str) -> Result<Oid> {
-        let repo = self.repo.lock().await;
-
-        let result = repo.find_reference(reference)?.peel_to_commit()?.id();
+    pub fn resolve_reference(&self, reference: &str) -> Result<Oid> {
+        let result =
+            self.repo.find_reference(reference)?.peel_to_commit()?.id();
 
         Ok(result)
     }
@@ -173,7 +173,7 @@ impl Git {
         commit_oid: git2::Oid,
         remote: String,
     ) -> Result<()> {
-        let errored = self.repo.lock().await.find_commit(commit_oid).is_err();
+        let errored = self.repo.find_commit(commit_oid).is_err();
 
         if errored {
             let exit_code = async_process::Command::new("git")
@@ -194,13 +194,12 @@ impl Git {
         Ok(())
     }
 
-    pub async fn prepare_commit(
+    pub fn prepare_commit(
         &self,
         config: &Config,
         oid: Oid,
     ) -> Result<PreparedCommit> {
-        let repo = self.repo.lock().await;
-        let commit = repo.find_commit(oid)?;
+        let commit = self.repo.find_commit(oid)?;
 
         if commit.parent_count() != 1 {
             return Err(Error::new("Parent commit count != 1"));
@@ -214,7 +213,6 @@ impl Git {
         let short_id =
             commit.as_object().short_id()?.as_str().unwrap().to_string();
         drop(commit);
-        drop(repo);
 
         let mut message = parse_message(&message, MessageSection::Title);
 
@@ -239,10 +237,9 @@ impl Git {
         })
     }
 
-    pub async fn get_all_ref_names(&self) -> Result<HashSet<String>> {
-        let repo = self.repo.lock().await;
-
-        let result: std::result::Result<HashSet<_>, _> = repo
+    pub fn get_all_ref_names(&self) -> Result<HashSet<String>> {
+        let result: std::result::Result<HashSet<_>, _> = self
+            .repo
             .references()?
             .names()
             .map(|r| r.map(String::from))
@@ -251,41 +248,27 @@ impl Git {
         Ok(result?)
     }
 
-    pub async fn cherrypick(
-        &self,
-        oid: Oid,
-        base_oid: Oid,
-    ) -> Result<git2::Index> {
-        let repo = self.repo.lock().await;
+    pub fn cherrypick(&self, oid: Oid, base_oid: Oid) -> Result<git2::Index> {
+        let commit = self.repo.find_commit(oid)?;
+        let base_commit = self.repo.find_commit(base_oid)?;
 
-        let commit = repo.find_commit(oid)?;
-        let base_commit = repo.find_commit(base_oid)?;
-
-        Ok(repo.cherrypick_commit(&commit, &base_commit, 0, None)?)
+        Ok(self
+            .repo
+            .cherrypick_commit(&commit, &base_commit, 0, None)?)
     }
 
-    pub async fn write_index(&self, mut index: git2::Index) -> Result<Oid> {
-        let repo = self.repo.lock().await;
-
-        Ok(index.write_tree_to(&*repo)?)
+    pub fn write_index(&self, mut index: git2::Index) -> Result<Oid> {
+        Ok(index.write_tree_to(&*self.repo)?)
     }
 
-    pub async fn get_tree_oid_for_commit(&self, oid: Oid) -> Result<Oid> {
-        let repo = self.repo.lock().await;
-
-        let tree_oid = repo.find_commit(oid)?.tree_id();
+    pub fn get_tree_oid_for_commit(&self, oid: Oid) -> Result<Oid> {
+        let tree_oid = self.repo.find_commit(oid)?.tree_id();
 
         Ok(tree_oid)
     }
 
-    pub async fn is_based_on(
-        &self,
-        commit_oid: Oid,
-        base_oid: Oid,
-    ) -> Result<bool> {
-        let repo = self.repo.lock().await;
-
-        let mut commit = repo.find_commit(commit_oid)?;
+    pub fn is_based_on(&self, commit_oid: Oid, base_oid: Oid) -> Result<bool> {
+        let mut commit = self.repo.find_commit(commit_oid)?;
 
         loop {
             if commit.parent_count() == 0 {
@@ -295,7 +278,7 @@ impl Git {
                 if parent_oid == base_oid {
                     return Ok(true);
                 }
-                commit = repo.find_commit(parent_oid)?;
+                commit = self.repo.find_commit(parent_oid)?;
             } else {
                 return Ok(commit
                     .parent_ids()
@@ -304,20 +287,18 @@ impl Git {
         }
     }
 
-    pub async fn create_pull_request_commit(
+    pub fn create_pull_request_commit(
         &self,
         original_commit_oid: Oid,
         message: Option<&str>,
         tree_oid: Oid,
         parent_oids: &[Oid],
     ) -> Result<Oid> {
-        let repo = self.repo.lock().await;
-
-        let original_commit = repo.find_commit(original_commit_oid)?;
-        let tree = repo.find_tree(tree_oid)?;
+        let original_commit = self.repo.find_commit(original_commit_oid)?;
+        let tree = self.repo.find_tree(tree_oid)?;
         let parents = parent_oids
             .iter()
-            .map(|oid| repo.find_commit(*oid))
+            .map(|oid| self.repo.find_commit(*oid))
             .collect::<std::result::Result<Vec<_>, _>>()?;
         let parent_refs = parents.iter().collect::<Vec<_>>();
         let message = if let Some(text) = message {
@@ -326,7 +307,7 @@ impl Git {
             "Initial version\n".into()
         };
 
-        let oid = repo.commit(
+        let oid = self.repo.commit(
             None,
             &original_commit.author(),
             &original_commit.committer(),
