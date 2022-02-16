@@ -240,8 +240,8 @@ impl GitHub {
                             for reviewer in reviewers_list {
                                 match reviewer.state.as_str() {
                                     "APPROVED" => {
-                                        // approvals from users that we still
-                                        // want review from don't count
+                                        // approvals from users from which we still
+                                        // want a review don't count
                                         if reviewers.get(&reviewer.user.login)
                                             == Some(&ReviewStatus::Requested)
                                         {
@@ -255,8 +255,8 @@ impl GitHub {
                                         );
                                     }
                                     "CHANGES_REQUESTED" => {
-                                        // rejections from users that we still
-                                        // want review do count
+                                        // rejections from users from which we still
+                                        // want a review still count as rejections
                                         review_status =
                                             Some(ReviewStatus::Rejected);
                                         if reviewers.get(&reviewer.user.login)
