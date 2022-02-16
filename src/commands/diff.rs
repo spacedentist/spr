@@ -277,9 +277,9 @@ pub async fn diff(
     } else {
         message.remove(&MessageSection::StackedOn);
         output(
-            "🛬",
+            "🎯",
             &format!(
-                "This Pull Request is for landing on the '{}' branch",
+                "This Pull Request is based on the '{}' branch",
                 config.master_branch
             ),
         )?;
