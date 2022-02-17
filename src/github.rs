@@ -238,24 +238,39 @@ impl GitHub {
 
                         if let Ok(reviewers_list) = reviewers_future.await {
                             for reviewer in reviewers_list {
-                                if reviewers.contains_key(&reviewer.user.login)
-                                {
-                                    continue;
-                                }
-                                let state = match &reviewer.state[..] {
-                                    "APPROVED" => Some(ReviewStatus::Approved),
-                                    "CHANGES_REQUESTED" => {
-                                        Some(ReviewStatus::Rejected)
+                                match reviewer.state.as_str() {
+                                    "APPROVED" => {
+                                        // approvals from users from which we still
+                                        // want a review don't count
+                                        if reviewers.get(&reviewer.user.login)
+                                            == Some(&ReviewStatus::Requested)
+                                        {
+                                            continue;
+                                        }
+                                        review_status =
+                                            Some(ReviewStatus::Approved);
+                                        reviewers.insert(
+                                            reviewer.user.login,
+                                            ReviewStatus::Approved,
+                                        );
                                     }
-                                    _ => None,
+                                    "CHANGES_REQUESTED" => {
+                                        // rejections from users from which we still
+                                        // want a review still count as rejections
+                                        review_status =
+                                            Some(ReviewStatus::Rejected);
+                                        if reviewers.get(&reviewer.user.login)
+                                            == Some(&ReviewStatus::Requested)
+                                        {
+                                            continue;
+                                        }
+                                        reviewers.insert(
+                                            reviewer.user.login,
+                                            ReviewStatus::Rejected,
+                                        );
+                                    }
+                                    _ => {}
                                 };
-                                if let Some(state) = state {
-                                    reviewers.insert(
-                                        reviewer.user.login,
-                                        state.clone(),
-                                    );
-                                    review_status = Some(state);
-                                }
                             }
                         }
 
