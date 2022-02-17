@@ -48,14 +48,14 @@ fn print_pr_info(
         };
         let dummy: String;
         let decision = match pr.review_decision {
-            None => console::style("0 reviewers").yellow(),
             Some(search_query::PullRequestReviewDecision::APPROVED) => {
                 console::style("Accepted").green()
             }
             Some(
                 search_query::PullRequestReviewDecision::CHANGES_REQUESTED,
             ) => console::style("Rejected").red(),
-            Some(search_query::PullRequestReviewDecision::REVIEW_REQUIRED) => {
+            None
+            | Some(search_query::PullRequestReviewDecision::REVIEW_REQUIRED) => {
                 console::style("Pending")
             }
             Some(search_query::PullRequestReviewDecision::Other(d)) => {
