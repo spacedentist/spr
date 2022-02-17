@@ -1,5 +1,6 @@
 use crate::error::{Error, Result};
 use clap::{Parser, Subcommand};
+use reqwest::{self, header};
 
 #[derive(Parser, Debug)]
 #[clap(name = "spr")]
@@ -49,6 +50,9 @@ enum Commands {
 
     /// Update local commit message with content on GitHub
     Amend(crate::commands::amend::AmendOptions),
+
+    /// List open Pull Requests on GitHub and their review decision
+    List,
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -118,8 +122,20 @@ pub fn spr() -> Result<()> {
     );
 
     octocrab::initialise(
-        octocrab::Octocrab::builder().personal_token(github_auth_token),
+        octocrab::Octocrab::builder().personal_token(github_auth_token.clone()),
     )?;
+
+    let mut headers = header::HeaderMap::new();
+    headers.insert(header::ACCEPT, "application/json".parse()?);
+    headers.insert(header::USER_AGENT, "spr/1.0".parse()?);
+    headers.insert(
+        header::AUTHORIZATION,
+        format!("Bearer {}", github_auth_token).parse()?,
+    );
+
+    let graphql_client = reqwest::Client::builder()
+        .default_headers(headers)
+        .build()?;
 
     crate::executor::run(async move {
         let git = crate::git::Git::new(repo);
@@ -140,6 +156,9 @@ pub fn spr() -> Result<()> {
             }
             Commands::Format(opts) => {
                 crate::commands::format::format(opts, &git, &config).await?
+            }
+            Commands::List => {
+                crate::commands::list::list(graphql_client, &config).await?
             }
             _ => (),
         };

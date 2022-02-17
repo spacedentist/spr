@@ -1,0 +1,75 @@
+use crate::error::Error;
+use crate::error::Result;
+use async_compat::CompatExt;
+use graphql_client::{GraphQLQuery, Response};
+use reqwest;
+
+#[allow(clippy::upper_case_acronyms)]
+type URI = String;
+#[derive(GraphQLQuery)]
+#[graphql(
+    schema_path = "src/gql/schema.docs.graphql",
+    query_path = "src/gql/open_reviews.graphql",
+    response_derives = "Debug"
+)]
+pub struct SearchQuery;
+
+pub async fn list(
+    graphql_client: reqwest::Client,
+    config: &crate::config::Config,
+) -> Result<()> {
+    let variables = search_query::Variables {
+        query: format!(
+            "repo:{}/{} is:open is:pr author:@me archived:false",
+            config.owner, config.repo
+        ),
+    };
+    let request_body = SearchQuery::build_query(variables);
+    let res = graphql_client
+        .post("https://api.github.com/graphql")
+        .json(&request_body)
+        .send()
+        .compat()
+        .await?;
+    let response_body: Response<search_query::ResponseData> =
+        res.json().await?;
+
+    print_pr_info(response_body).ok_or_else(|| Error::new("unexpected error"))
+}
+
+fn print_pr_info(
+    response_body: Response<search_query::ResponseData>,
+) -> Option<()> {
+    let term = console::Term::stdout();
+    for pr in response_body.data?.search.nodes? {
+        let pr = match pr {
+            Some(crate::commands::list::search_query::SearchQuerySearchNodes::PullRequest(pr)) => pr,
+            _ => continue,
+        };
+        let dummy: String;
+        let decision = match pr.review_decision {
+            None => console::style("0 reviewers").yellow(),
+            Some(search_query::PullRequestReviewDecision::APPROVED) => {
+                console::style("Accepted").green()
+            }
+            Some(
+                search_query::PullRequestReviewDecision::CHANGES_REQUESTED,
+            ) => console::style("Rejected").red(),
+            Some(search_query::PullRequestReviewDecision::REVIEW_REQUIRED) => {
+                console::style("Pending")
+            }
+            Some(search_query::PullRequestReviewDecision::Other(d)) => {
+                dummy = d;
+                console::style(dummy.as_str())
+            }
+        };
+        term.write_line(&format!(
+            "{} {} {}",
+            decision,
+            console::style(&pr.title).bold(),
+            console::style(&pr.url).dim(),
+        ))
+        .ok()?;
+    }
+    Some(())
+}
