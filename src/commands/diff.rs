@@ -138,10 +138,12 @@ pub async fn diff(
         validate_commit_message(message)?;
     }
 
+    println!("before call to get_pull_request");
     // Load Pull Request information
     let pr_future = prepared_commit
         .pull_request_number
         .map(|number| gh.get_pull_request(number, git));
+    println!("after call to get_pull_request");
     let stacked_on_pull_request = if let Some(number) = stack_on_number {
         Some(gh.get_pull_request(number, git).await??)
     } else {

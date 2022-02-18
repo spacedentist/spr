@@ -140,13 +140,16 @@ impl GitHub {
         number: u64,
         git: &crate::git::Git,
     ) -> Future<Result<PullRequest>> {
+        println!("start of get_pull_request");
         let (p, f) = Future::new_promise();
         let inner = self.inner.clone();
         let config = self.config.clone();
         let git = git.clone();
 
         spawn(async move {
+            println!("before lock of get_pull_request");
             let mut inner = inner.lock().await;
+            println!("after lock of get_pull_request");
 
             let shared = inner
                 .pull_request_cache
