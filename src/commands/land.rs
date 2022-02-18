@@ -18,6 +18,7 @@ pub async fn land(
     gh: &mut crate::github::GitHub,
     config: &crate::config::Config,
 ) -> Result<()> {
+    git.check_no_uncommitted_changes()?;
     let mut prepared_commits = git.get_prepared_commits(config)?;
 
     let prepared_commit = match prepared_commits.last_mut() {
