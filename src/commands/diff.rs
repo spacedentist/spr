@@ -72,6 +72,7 @@ pub async fn diff(
     gh: &mut crate::github::GitHub,
     config: &crate::config::Config,
 ) -> Result<()> {
+    git.check_no_uncommitted_changes()?;
     let mut prepared_commits = git.get_prepared_commits(config)?;
 
     let base_oid = prepared_commits[0].parent_oid;

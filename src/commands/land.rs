@@ -18,6 +18,7 @@ pub async fn land(
     gh: &mut crate::github::GitHub,
     config: &crate::config::Config,
 ) -> Result<()> {
+    git.check_no_uncommitted_changes()?;
     let mut prepared_commits = git.get_prepared_commits(config)?;
 
     let prepared_commit = match prepared_commits.last_mut() {
@@ -80,7 +81,7 @@ pub async fn land(
     if pull_request.mergeable.is_none() {
         return Err(Error::new(formatdoc!(
             "GitHub has not completed the mergeability check for this \
-             Pull Requets. Please try again in a few seconds!"
+             Pull Request. Please try again in a few seconds!"
         )));
     }
     if pull_request.mergeable == Some(false) {

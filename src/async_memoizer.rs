@@ -1,4 +1,4 @@
-use std::{collections::HashMap, hash::Hash, pin::Pin};
+use std::{collections::HashMap, hash::Hash};
 
 use crate::{
     executor::spawn,
@@ -19,7 +19,7 @@ where
     V: Clone + 'static,
 {
     map: HashMap<K, SharedFuture<V>>,
-    func: Pin<Box<dyn Fn(K) -> Future<V>>>,
+    func: Box<dyn Fn(K) -> Future<V>>,
 }
 
 impl<K, V> AsyncMemoizer<K, V>
@@ -34,7 +34,7 @@ where
     {
         let inner = Inner {
             map: HashMap::new(),
-            func: Box::pin(move |k| Future::new(func(k))),
+            func: Box::new(move |k| Future::new(func(k))),
         };
         Self {
             inner: std::rc::Rc::new(async_lock::Mutex::new(inner)),
