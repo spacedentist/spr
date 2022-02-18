@@ -150,6 +150,7 @@ pub async fn diff(
         None
     };
     let pull_request = if let Some(f) = pr_future {
+        println!("awaiting the get_pull_request future");
         Some(f.await??)
     } else {
         None
