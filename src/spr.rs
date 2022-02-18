@@ -123,7 +123,7 @@ pub fn spr() -> Result<()> {
 
     crate::executor::run(async move {
         let git = crate::git::Git::new(repo);
-        let mut gh = crate::github::GitHub::new(config.clone());
+        let mut gh = crate::github::GitHub::new(config.clone(), &git);
 
         match cli.command {
             Commands::Diff(opts) => {

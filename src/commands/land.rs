@@ -47,9 +47,9 @@ pub async fn land(
         .flatten();
 
     // Load Pull Request information
-    let pull_request = gh.get_pull_request(pull_request_number, git);
+    let pull_request = gh.get_pull_request(pull_request_number);
     let stacked_on_pull_request = if let Some(number) = stack_on_number {
-        Some(gh.get_pull_request(number, git).await??)
+        Some(gh.get_pull_request(number).await??)
     } else {
         None
     };

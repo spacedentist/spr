@@ -2,9 +2,10 @@ use octocrab::models::IssueState;
 use serde::Deserialize;
 
 use crate::{
+    async_memoizer::AsyncMemoizer,
     error::{Error, Result},
     executor::spawn,
-    future::{Future, SharedFuture},
+    future::Future,
     message::{
         build_github_body, parse_message, MessageSection, MessageSectionsMap,
     },
@@ -16,12 +17,10 @@ use std::collections::HashMap;
 #[derive(Clone)]
 pub struct GitHub {
     pub config: crate::config::Config,
-    inner: std::rc::Rc<async_lock::Mutex<Inner>>,
-}
-struct Inner {
-    pull_request_cache: HashMap<u64, SharedFuture<Result<PullRequest>>>,
-    user_cache: HashMap<String, SharedFuture<Result<UserWithName>>>,
-    reviewers_cache: Option<SharedFuture<Result<ReviewersMap>>>,
+
+    pull_request_cache: std::rc::Rc<AsyncMemoizer<u64, Result<PullRequest>>>,
+    user_cache: std::rc::Rc<AsyncMemoizer<String, Result<UserWithName>>>,
+    reviewers_cache: std::rc::Rc<AsyncMemoizer<(), Result<ReviewersMap>>>,
 }
 
 type ReviewersMap = HashMap<String, Option<String>>;
@@ -79,270 +78,226 @@ pub struct UserWithName {
     pub is_collaborator: bool,
 }
 
-impl Inner {
-    pub fn new() -> Self {
-        Self {
-            pull_request_cache: Default::default(),
-            user_cache: Default::default(),
-            reviewers_cache: Default::default(),
-        }
-    }
-}
-
 impl GitHub {
-    pub fn new(config: crate::config::Config) -> Self {
+    pub fn new(config: crate::config::Config, git: &crate::git::Git) -> Self {
+        let pull_request_cache = std::rc::Rc::new(AsyncMemoizer::new({
+            let config = config.clone();
+            let git = git.clone();
+            move |number| {
+                GitHub::get_pull_request_impl(
+                    number,
+                    config.clone(),
+                    git.clone(),
+                )
+            }
+        }));
+
+        let user_cache =
+            std::rc::Rc::new(AsyncMemoizer::new(GitHub::get_github_user_impl));
+
+        let reviewers_cache = std::rc::Rc::new(AsyncMemoizer::new({
+            let config = config.clone();
+            let user_cache = user_cache.clone();
+
+            move |_| {
+                let user_cache = user_cache.clone();
+                GitHub::get_reviewers_impl(config.clone(), move |login| {
+                    user_cache.get(login)
+                })
+            }
+        }));
+
         Self {
             config,
-            inner: std::rc::Rc::new(async_lock::Mutex::new(Inner::new())),
+            pull_request_cache,
+            user_cache,
+            reviewers_cache,
         }
     }
+
     pub fn get_github_user(
         &self,
         login: String,
     ) -> Future<Result<UserWithName>> {
-        let (p, f) = Future::new_promise();
-        let inner = self.inner.clone();
-
-        spawn(async move {
-            let mut inner = inner.lock().await;
-            let login = login;
-
-            let shared = inner
-                .user_cache
-                .entry(login.clone())
-                .or_insert_with(|| {
-                    Future::new(async move {
-                        octocrab::instance()
-                            .get::<UserWithName, _, _>(
-                                format!("users/{}", login),
-                                None::<&()>,
-                            )
-                            .compat()
-                            .await
-                            .map_err(Error::from)
-                    })
-                    .shared()
-                })
-                .clone();
-
-            drop(inner);
-            if let Ok(result) = shared.await {
-                p.set(result).ok();
-            }
-        })
-        .detach();
-
-        f
+        self.user_cache.get(login)
+    }
+    async fn get_github_user_impl(login: String) -> Result<UserWithName> {
+        octocrab::instance()
+            .get::<UserWithName, _, _>(format!("users/{}", login), None::<&()>)
+            .compat()
+            .await
+            .map_err(Error::from)
     }
 
-    pub fn get_pull_request(
-        &self,
+    pub fn get_pull_request(&self, number: u64) -> Future<Result<PullRequest>> {
+        self.pull_request_cache.get(number)
+    }
+    async fn get_pull_request_impl(
         number: u64,
-        git: &crate::git::Git,
-    ) -> Future<Result<PullRequest>> {
-        let (p, f) = Future::new_promise();
-        let inner = self.inner.clone();
-        let config = self.config.clone();
+        config: crate::config::Config,
+        git: crate::git::Git,
+    ) -> Result<PullRequest> {
+        #[derive(Deserialize)]
+        struct User {
+            login: String,
+        }
+        #[derive(Deserialize)]
+        struct PullRequestReview {
+            user: User,
+            state: String,
+        }
+
         let git = git.clone();
 
-        spawn(async move {
-            let mut inner = inner.lock().await;
-
-            let shared = inner
-                .pull_request_cache
-                .entry(number)
-                .or_insert_with(|| {
-                    Future::new(async move {
-                        #[derive(Deserialize)]
-                        struct User {
-                            login: String,
-                        }
-                        #[derive(Deserialize)]
-                        struct PullRequestReview {
-                            user: User,
-                            state: String,
-                        }
-
-                        let reviewers_future = spawn({
-                            let route = format!(
-                                "repos/{owner}/{repo}/pulls/{number}/reviews",
-                                owner = &config.owner,
-                                repo = &config.repo
-                            );
-                            async {
-                                octocrab::instance()
-                                    .get::<Vec<PullRequestReview>, _, _>(
-                                        route,
-                                        None::<&()>,
-                                    )
-                                    .compat()
-                                    .await
-                            }
-                        });
-
-                        let pr = octocrab::instance()
-                            .pulls(config.owner.clone(), config.repo.clone())
-                            .get(number)
-                            .compat()
-                            .await?;
-
-                        let head_oid = git2::Oid::from_str(&pr.head.sha[..])?;
-                        git.fetch_commit_from_remote(
-                            head_oid,
-                            config.remote_name.clone(),
-                        )
-                        .await?;
-
-                        let mut sections = parse_message(
-                            pr.body.as_ref().map(|s| &s[..]).unwrap_or(""),
-                            MessageSection::Summary,
-                        );
-
-                        sections.insert(
-                            MessageSection::Title,
-                            pr.title
-                                .as_ref()
-                                .map(|s| &s[..])
-                                .unwrap_or("(untitled)")
-                                .trim()
-                                .to_string(),
-                        );
-
-                        sections.insert(
-                            MessageSection::PullRequest,
-                            config.pull_request_url(number),
-                        );
-
-                        let mut reviewers =
-                            HashMap::<String, ReviewStatus>::new();
-                        let mut review_status: Option<ReviewStatus> = None;
-
-                        if let Some(requested_reviewers) =
-                            pr.requested_reviewers
-                        {
-                            for reviewer in requested_reviewers {
-                                reviewers.insert(
-                                    reviewer.login,
-                                    ReviewStatus::Requested,
-                                );
-                            }
-                        }
-                        if let Some(requested_teams) = pr.requested_teams {
-                            for team in requested_teams {
-                                reviewers.insert(
-                                    format!("#{}", team.slug),
-                                    ReviewStatus::Requested,
-                                );
-                            }
-                        }
-
-                        if let Ok(reviewers_list) = reviewers_future.await {
-                            for reviewer in reviewers_list {
-                                match reviewer.state.as_str() {
-                                    "APPROVED" => {
-                                        // approvals from users from which we still
-                                        // want a review don't count
-                                        if reviewers.get(&reviewer.user.login)
-                                            == Some(&ReviewStatus::Requested)
-                                        {
-                                            continue;
-                                        }
-                                        review_status =
-                                            Some(ReviewStatus::Approved);
-                                        reviewers.insert(
-                                            reviewer.user.login,
-                                            ReviewStatus::Approved,
-                                        );
-                                    }
-                                    "CHANGES_REQUESTED" => {
-                                        // rejections from users from which we still
-                                        // want a review still count as rejections
-                                        review_status =
-                                            Some(ReviewStatus::Rejected);
-                                        if reviewers.get(&reviewer.user.login)
-                                            == Some(&ReviewStatus::Requested)
-                                        {
-                                            continue;
-                                        }
-                                        reviewers.insert(
-                                            reviewer.user.login,
-                                            ReviewStatus::Rejected,
-                                        );
-                                    }
-                                    _ => {}
-                                };
-                            }
-                        }
-
-                        sections.insert(
-                            MessageSection::Reviewers,
-                            reviewers.keys().fold(
-                                String::new(),
-                                |out, slug| {
-                                    if out.is_empty() {
-                                        slug.to_string()
-                                    } else {
-                                        format!("{}, {}", out, slug)
-                                    }
-                                },
-                            ),
-                        );
-
-                        if review_status == Some(ReviewStatus::Approved) {
-                            sections.insert(
-                                MessageSection::ReviewedBy,
-                                reviewers
-                                    .iter()
-                                    .filter_map(|(k, v)| {
-                                        if v == &ReviewStatus::Approved {
-                                            Some(k)
-                                        } else {
-                                            None
-                                        }
-                                    })
-                                    .fold(String::new(), |out, slug| {
-                                        if out.is_empty() {
-                                            slug.to_string()
-                                        } else {
-                                            format!("{}, {}", out, slug)
-                                        }
-                                    }),
-                            );
-                        }
-
-                        Ok::<_, Error>(PullRequest {
-                            number: pr.number,
-                            state: if pr.state == Some(IssueState::Open) {
-                                PullRequestState::Open
-                            } else {
-                                PullRequestState::Closed
-                            },
-                            title: pr.title.unwrap_or_default(),
-                            body: pr.body,
-                            sections,
-                            base: normalise_ref(pr.base.ref_field).into(),
-                            head: normalise_ref(pr.head.ref_field).into(),
-                            head_oid,
-                            reviewers,
-                            review_status,
-                            mergeable: pr.mergeable,
-                            merge_commit: pr
-                                .merge_commit_sha
-                                .map(|sha| git2::Oid::from_str(&sha).ok())
-                                .flatten(),
-                        })
-                    })
-                    .shared()
-                })
-                .clone();
-            drop(inner);
-            if let Ok(result) = shared.await {
-                p.set(result).ok();
+        let reviewers_future = spawn({
+            let route = format!(
+                "repos/{owner}/{repo}/pulls/{number}/reviews",
+                owner = &config.owner,
+                repo = &config.repo
+            );
+            async {
+                octocrab::instance()
+                    .get::<Vec<PullRequestReview>, _, _>(route, None::<&()>)
+                    .compat()
+                    .await
             }
-        })
-        .detach();
+        });
 
-        f
+        let pr = octocrab::instance()
+            .pulls(config.owner.clone(), config.repo.clone())
+            .get(number)
+            .compat()
+            .await?;
+
+        let head_oid = git2::Oid::from_str(&pr.head.sha[..])?;
+        git.fetch_commit_from_remote(head_oid, config.remote_name.clone())
+            .await?;
+
+        let mut sections = parse_message(
+            pr.body.as_ref().map(|s| &s[..]).unwrap_or(""),
+            MessageSection::Summary,
+        );
+
+        sections.insert(
+            MessageSection::Title,
+            pr.title
+                .as_ref()
+                .map(|s| &s[..])
+                .unwrap_or("(untitled)")
+                .trim()
+                .to_string(),
+        );
+
+        sections.insert(
+            MessageSection::PullRequest,
+            config.pull_request_url(number),
+        );
+
+        let mut reviewers = HashMap::<String, ReviewStatus>::new();
+        let mut review_status: Option<ReviewStatus> = None;
+
+        if let Some(requested_reviewers) = pr.requested_reviewers {
+            for reviewer in requested_reviewers {
+                reviewers.insert(reviewer.login, ReviewStatus::Requested);
+            }
+        }
+        if let Some(requested_teams) = pr.requested_teams {
+            for team in requested_teams {
+                reviewers
+                    .insert(format!("#{}", team.slug), ReviewStatus::Requested);
+            }
+        }
+
+        if let Ok(reviewers_list) = reviewers_future.await {
+            for reviewer in reviewers_list {
+                match reviewer.state.as_str() {
+                    "APPROVED" => {
+                        // approvals from users from which we still
+                        // want a review don't count
+                        if reviewers.get(&reviewer.user.login)
+                            == Some(&ReviewStatus::Requested)
+                        {
+                            continue;
+                        }
+                        review_status = Some(ReviewStatus::Approved);
+                        reviewers.insert(
+                            reviewer.user.login,
+                            ReviewStatus::Approved,
+                        );
+                    }
+                    "CHANGES_REQUESTED" => {
+                        // rejections from users from which we still
+                        // want a review still count as rejections
+                        review_status = Some(ReviewStatus::Rejected);
+                        if reviewers.get(&reviewer.user.login)
+                            == Some(&ReviewStatus::Requested)
+                        {
+                            continue;
+                        }
+                        reviewers.insert(
+                            reviewer.user.login,
+                            ReviewStatus::Rejected,
+                        );
+                    }
+                    _ => {}
+                };
+            }
+        }
+
+        sections.insert(
+            MessageSection::Reviewers,
+            reviewers.keys().fold(String::new(), |out, slug| {
+                if out.is_empty() {
+                    slug.to_string()
+                } else {
+                    format!("{}, {}", out, slug)
+                }
+            }),
+        );
+
+        if review_status == Some(ReviewStatus::Approved) {
+            sections.insert(
+                MessageSection::ReviewedBy,
+                reviewers
+                    .iter()
+                    .filter_map(|(k, v)| {
+                        if v == &ReviewStatus::Approved {
+                            Some(k)
+                        } else {
+                            None
+                        }
+                    })
+                    .fold(String::new(), |out, slug| {
+                        if out.is_empty() {
+                            slug.to_string()
+                        } else {
+                            format!("{}, {}", out, slug)
+                        }
+                    }),
+            );
+        }
+
+        Ok::<_, Error>(PullRequest {
+            number: pr.number,
+            state: if pr.state == Some(IssueState::Open) {
+                PullRequestState::Open
+            } else {
+                PullRequestState::Closed
+            },
+            title: pr.title.unwrap_or_default(),
+            body: pr.body,
+            sections,
+            base: normalise_ref(pr.base.ref_field).into(),
+            head: normalise_ref(pr.head.ref_field).into(),
+            head_oid,
+            reviewers,
+            review_status,
+            mergeable: pr.mergeable,
+            merge_commit: pr
+                .merge_commit_sha
+                .map(|sha| git2::Oid::from_str(&sha).ok())
+                .flatten(),
+        })
     }
 
     pub async fn create_pull_request(
@@ -414,87 +369,61 @@ impl GitHub {
     pub fn get_reviewers(
         &self,
     ) -> Future<Result<HashMap<String, Option<String>>>> {
-        let (p, f) = Future::new_promise();
-        let inner = self.inner.clone();
-        let github = self.clone();
+        self.reviewers_cache.get(())
+    }
+    async fn get_reviewers_impl(
+        config: crate::config::Config,
+        get_github_user: impl Fn(String) -> Future<Result<UserWithName>>,
+    ) -> Result<HashMap<String, Option<String>>> {
+        let (users, teams): (
+            Vec<UserWithName>,
+            octocrab::Page<octocrab::models::teams::RequestedTeam>,
+        ) = futures_lite::future::try_zip(
+            async {
+                let users = octocrab::instance()
+                    .get::<Vec<octocrab::models::User>, _, _>(
+                        format!(
+                            "repos/{}/{}/collaborators",
+                            &config.owner, &config.repo
+                        ),
+                        None::<&()>,
+                    )
+                    .compat()
+                    .await?;
 
-        spawn(async move {
-            let mut inner = inner.lock().await;
+                let user_names = futures::future::join_all(
+                    users.into_iter().map(|u| get_github_user(u.login)),
+                )
+                .await
+                .into_iter()
+                .map(|fr| fr?)
+                .collect::<Result<Vec<_>>>()?;
 
-            let shared = inner
-                .reviewers_cache
-                .get_or_insert_with(|| {
-                    Future::new(async move {
-                        let (users, teams): (
-                            Vec<UserWithName>,
-                            octocrab::Page<
-                                octocrab::models::teams::RequestedTeam,
-                            >,
-                        ) = futures_lite::future::try_zip(
-                            async {
-                                let users = octocrab::instance()
-                                    .get::<Vec<octocrab::models::User>, _, _>(
-                                        format!(
-                                            "repos/{}/{}/collaborators",
-                                            &github.config.owner,
-                                            &github.config.repo
-                                        ),
-                                        None::<&()>,
-                                    )
-                                    .compat()
-                                    .await?;
+                Ok::<_, Error>(user_names)
+            },
+            async {
+                Ok(octocrab::instance()
+                    .teams(&config.owner)
+                    .list()
+                    .send()
+                    .compat()
+                    .await
+                    .ok()
+                    .unwrap_or_default())
+            },
+        )
+        .await?;
 
-                                let user_names = futures::future::join_all(
-                                    users.into_iter().map(|u| {
-                                        github.get_github_user(u.login)
-                                    }),
-                                )
-                                .await
-                                .into_iter()
-                                .map(|fr| fr?)
-                                .collect::<Result<Vec<_>>>()?;
+        let mut map = HashMap::new();
 
-                                Ok::<_, Error>(user_names)
-                            },
-                            async {
-                                Ok(octocrab::instance()
-                                    .teams(&github.config.owner)
-                                    .list()
-                                    .send()
-                                    .compat()
-                                    .await
-                                    .ok()
-                                    .unwrap_or_default())
-                            },
-                        )
-                        .await?;
+        for user in users {
+            map.insert(user.login, user.name);
+        }
 
-                        let mut map = HashMap::new();
+        for team in teams {
+            map.insert(format!("#{}", team.slug), team.description);
+        }
 
-                        for user in users {
-                            map.insert(user.login, user.name);
-                        }
-
-                        for team in teams {
-                            map.insert(
-                                format!("#{}", team.slug),
-                                team.description,
-                            );
-                        }
-
-                        Ok::<_, Error>(map)
-                    })
-                    .shared()
-                })
-                .clone();
-
-            drop(inner);
-            if let Ok(result) = shared.await {
-                p.set(result).ok();
-            }
-        })
-        .detach();
-
-        f
+        Ok::<_, Error>(map)
     }
 }

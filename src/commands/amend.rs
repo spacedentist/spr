@@ -40,7 +40,7 @@ pub async fn amend(
         .rev()
         .map(|pc| {
             pc.pull_request_number
-                .map(|number| gh.get_pull_request(number, git))
+                .map(|number| gh.get_pull_request(number))
         })
         .collect();
 

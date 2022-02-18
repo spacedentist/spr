@@ -33,7 +33,7 @@ struct PromiseInner<T: 'static> {
     dropped: bool,
 }
 
-#[derive(Debug, PartialEq, thiserror::Error)]
+#[derive(Debug, PartialEq, Clone, thiserror::Error)]
 pub enum FutureError {
     #[error("broken promise")]
     BrokenPromise,
