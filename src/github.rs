@@ -140,7 +140,7 @@ impl GitHub {
         number: u64,
         git: &crate::git::Git,
     ) -> Future<Result<PullRequest>> {
-        println!("start of get_pull_request");
+        println!("-start of get_pull_request");
         let (p, f) = Future::new_promise();
         let inner = self.inner.clone();
         let config = self.config.clone();
