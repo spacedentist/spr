@@ -167,4 +167,34 @@ mod tests {
             Ok(())
         })
     }
+
+    #[test]
+    fn execute_before_await() -> Result<()> {
+        run(async {
+            let (p, f) = Future::<u32>::new_promise();
+            let p = std::sync::Arc::new(p);
+
+            let memoizer = AsyncMemoizer::new(move |_: ()| {
+                let p = p.clone();
+                async move {
+                    p.set(456).unwrap();
+                    123
+                }
+            });
+
+            // We call memoizer.get, which will call the above lambda, which
+            // will call `p.set(456)`. But we are not awaiting the returned
+            // future yet.
+            let memoizer_get_future = memoizer.get(());
+
+            // We are awaiting the future, which means we are waiting for
+            // `p.set` to be called.
+            assert_eq!(f.await?, 456);
+
+            // Just check the `memoizer.get` call also returns the expected reult.
+            assert_eq!(memoizer_get_future.await.unwrap(), 123);
+
+            Ok(())
+        })
+    }
 }
