@@ -172,7 +172,7 @@ impl Git {
         // or commit), the rebase should work nicely.
         self.repo
             .checkout_tree(new_commit.as_object(), None)
-            .map_err(|e| Error::from(e))
+            .map_err(Error::from)
             .reword(
                 "Could not check out rebased branch - please rebase manually"
                     .into(),
