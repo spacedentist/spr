@@ -322,12 +322,12 @@ impl Git {
     pub fn check_no_uncommitted_changes(&self) -> Result<()> {
         let mut opts = git2::StatusOptions::new();
         opts.include_ignored(false).include_untracked(false);
-        if self.repo.statuses(Some(&mut opts))?.len() == 0 {
-            return Ok(());
+        if self.repo.statuses(Some(&mut opts))?.is_empty() {
+            Ok(())
         } else {
-            return Err(Error::new(
+            Err(Error::new(
                 "There are uncommitted changes. Stash or amend them first",
-            ));
+            ))
         }
     }
 }
