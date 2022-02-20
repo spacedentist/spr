@@ -2,7 +2,7 @@ use std::collections::HashSet;
 
 use crate::{
     config::Config,
-    error::{Error, Result},
+    error::{Error, Result, ResultExt},
     message::{
         build_commit_message, parse_message, MessageSection, MessageSectionsMap,
     },
@@ -153,10 +153,35 @@ impl Git {
             )?;
         }
 
+        let new_oid = new_parent_oid;
+        let new_commit = self.repo.find_commit(new_oid)?;
+
+        // Get and resolve the HEAD reference. This will be either a reference
+        // to a branch ('refs/heads/...') or 'HEAD' if the head is detached.
+        let mut reference = self.repo.head()?.resolve()?;
+
+        // Checkout the tree of the top commit of the rebased branch. This can
+        // fail if there are local changes in the worktree that collide with
+        // files that need updating in order to check out the rebased commit. In
+        // this case we fail early here, before we update any references. The
+        // result is that the worktree is unchanged and neither the branch nor
+        // HEAD gets updated. We can just prompt the user to rebase manually.
+        // That's a fine solution. If the user tries "git rebase origin/master"
+        // straight away, they will find that it also fails because of local
+        // worktree changes. Once the user has dealt with those (revert, stash
+        // or commit), the rebase should work nicely.
         self.repo
-            .find_reference("HEAD")?
-            .resolve()?
-            .set_target(new_parent_oid, "spr rebased")?;
+            .checkout_tree(new_commit.as_object(), None)
+            .map_err(|e| Error::from(e))
+            .reword(
+                "Could not check out rebased branch - please rebase manually"
+                    .into(),
+            )?;
+
+        // Update the reference. The reference may be a branch or "HEAD", if
+        // detached. Either way, whatever we are on gets update to point to the
+        // new commit.
+        reference.set_target(new_oid, "spr rebased")?;
 
         Ok(())
     }
