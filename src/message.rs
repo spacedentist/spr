@@ -204,6 +204,16 @@ pub fn validate_commit_message(message: &MessageSectionsMap) -> Result<()> {
         output("💔", "Commit message does not have a Test Plan!")?;
         return Err(Error::empty());
     }
+
+    let title_missing_or_empty = match message.get(&MessageSection::Title) {
+        None => true,
+        Some(title) => title.is_empty(),
+    };
+    if title_missing_or_empty {
+        output("💔", "Commit message does not have a title!")?;
+        return Err(Error::empty());
+    }
+
     Ok(())
 }
 
