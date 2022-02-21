@@ -1,3 +1,4 @@
+pub mod async_memoizer;
 pub mod commands;
 pub mod config;
 pub mod error;
