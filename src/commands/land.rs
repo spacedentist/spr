@@ -81,7 +81,7 @@ pub async fn land(
     if pull_request.mergeable.is_none() {
         return Err(Error::new(formatdoc!(
             "GitHub has not completed the mergeability check for this \
-             Pull Requets. Please try again in a few seconds!"
+             Pull Request. Please try again in a few seconds!"
         )));
     }
     if pull_request.mergeable == Some(false) {
