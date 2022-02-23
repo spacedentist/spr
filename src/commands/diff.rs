@@ -298,6 +298,8 @@ pub async fn diff(
     // (that's when a Pull Request exists and is up-to-date)
     let mut github_ref = None::<String>;
 
+    let mut github_commit_message = opts.message.clone();
+
     if let Some(pr) = &pull_request {
         // update existing Pull Request
 
@@ -312,11 +314,18 @@ pub async fn diff(
         let remerge_base = !git.is_based_on(pr.head_oid, base_oid)?;
 
         if update_tree || remerge_base {
-            if opts.message.is_none() {
-                return Err(Error::new(formatdoc!(
-                    "When updating an existing pull request, you must \
-                     pass the --message option"
-                )));
+            if github_commit_message.is_none() {
+                let input = dialoguer::Input::<String>::new()
+                    .with_prompt("Message (leave empty to abort)")
+                    .interact_text()?;
+
+                if input.is_empty() {
+                    return Err(Error::new(
+                        "Aborted as per user request".to_string(),
+                    ));
+                }
+
+                github_commit_message = Some(input);
             }
 
             // First parent of the new Pull Request commit is always the previous
@@ -375,7 +384,7 @@ pub async fn diff(
         // Create the new commit for this Pull Request.
         let new_pr_commit_oid = git.create_pull_request_commit(
             prepared_commit.oid,
-            opts.message.as_ref().map(|s| &s[..]),
+            github_commit_message.as_ref().map(|s| &s[..]),
             tree_oid,
             &new_pull_request_commit_parents[..],
         )?;
