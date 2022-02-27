@@ -34,6 +34,7 @@ pub struct PullRequest {
     pub sections: MessageSectionsMap,
     pub base: String,
     pub head: String,
+    pub base_oid: git2::Oid,
     pub head_oid: git2::Oid,
     pub mergeable: Option<bool>,
     pub merge_commit: Option<git2::Oid>,
@@ -170,8 +171,12 @@ impl GitHub {
             .await?;
 
         let head_oid = git2::Oid::from_str(&pr.head.sha[..])?;
-        git.fetch_commit_from_remote(head_oid, config.remote_name.clone())
-            .await?;
+        let base_oid = git2::Oid::from_str(&pr.base.sha[..])?;
+        git.fetch_commits_from_remote(
+            &[head_oid, base_oid],
+            &config.remote_name,
+        )
+        .await?;
 
         let mut sections = parse_message(
             pr.body.as_ref().map(|s| &s[..]).unwrap_or(""),
@@ -289,6 +294,7 @@ impl GitHub {
             sections,
             base: normalise_ref(pr.base.ref_field).into(),
             head: normalise_ref(pr.head.ref_field).into(),
+            base_oid,
             head_oid,
             reviewers,
             review_status,
