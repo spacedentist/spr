@@ -45,8 +45,8 @@ impl Git {
         config: &Config,
     ) -> Result<Vec<PreparedCommit>> {
         self.get_commit_oids(&config.remote_master_ref)?
-            .iter()
-            .map(|oid| self.prepare_commit(config, *oid))
+            .into_iter()
+            .map(|oid| self.prepare_commit(config, oid))
             .collect()
     }
 
