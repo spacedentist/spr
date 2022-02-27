@@ -43,13 +43,10 @@ impl Git {
         &self,
         config: &Config,
     ) -> Result<Vec<PreparedCommit>> {
-        let commit_oids = self.get_commit_oids(&config.remote_master_ref)?;
-        let mut prepared_commits = Vec::<crate::git::PreparedCommit>::new();
-        for oid in commit_oids {
-            prepared_commits.push(self.prepare_commit(config, oid)?);
-        }
-
-        Ok(prepared_commits)
+        self.get_commit_oids(&config.remote_master_ref)?
+            .iter()
+            .map(|oid| self.prepare_commit(config, *oid))
+            .collect()
     }
 
     pub fn rewrite_commit_messages(
