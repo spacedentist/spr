@@ -1,4 +1,6 @@
 use crate::error::{Error, Result};
+
+use std::io::Write;
 use unicode_normalization::UnicodeNormalization;
 
 pub fn slugify(s: &str) -> String {
@@ -55,6 +57,21 @@ pub fn parse_name_list(text: &str) -> Vec<String> {
 
 pub fn remove_all_parens(text: &str) -> String {
     lazy_regex::regex!(r#"[()]"#).replace_all(text, "").into()
+}
+
+pub async fn run_command(cmd: &mut async_process::Command) -> Result<()> {
+    let cmd_output = cmd
+        .stdout(async_process::Stdio::null())
+        .stderr(async_process::Stdio::piped())
+        .output()
+        .await?;
+
+    if !cmd_output.status.success() {
+        console::Term::stderr().write_all(&cmd_output.stderr)?;
+        return Err(Error::new("command failed"));
+    }
+
+    Ok(())
 }
 
 #[cfg(test)]
