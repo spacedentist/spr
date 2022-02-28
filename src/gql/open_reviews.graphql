@@ -1,0 +1,13 @@
+query SearchQuery($query: String!) {
+  search(query: $query, type: ISSUE, first: 100) {
+    nodes {
+      __typename
+      ... on PullRequest {
+        number
+        title
+        url
+        reviewDecision
+      }
+    }
+  }
+}
