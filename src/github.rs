@@ -1,10 +1,9 @@
-use octocrab::models::IssueState;
+use graphql_client::{GraphQLQuery, Response};
 use serde::Deserialize;
 
 use crate::{
     async_memoizer::AsyncMemoizer,
     error::{Error, Result},
-    executor::spawn,
     future::Future,
     message::{
         build_github_body, parse_message, MessageSection, MessageSectionsMap,
@@ -12,7 +11,7 @@ use crate::{
     utils::normalise_ref,
 };
 use async_compat::CompatExt;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 #[derive(Clone)]
 pub struct GitHub {
@@ -78,8 +77,21 @@ pub struct UserWithName {
     pub is_collaborator: bool,
 }
 
+#[derive(GraphQLQuery)]
+#[graphql(
+    schema_path = "src/gql/schema.docs.graphql",
+    query_path = "src/gql/pullrequest_query.graphql",
+    response_derives = "Debug"
+)]
+pub struct PullRequestQuery;
+type GitObjectID = String;
+
 impl GitHub {
-    pub fn new(config: crate::config::Config, git: &crate::git::Git) -> Self {
+    pub fn new(
+        config: crate::config::Config,
+        git: &crate::git::Git,
+        graphql_client: reqwest::Client,
+    ) -> Self {
         let pull_request_cache = std::rc::Rc::new(AsyncMemoizer::new({
             let config = config.clone();
             let git = git.clone();
@@ -88,6 +100,7 @@ impl GitHub {
                     number,
                     config.clone(),
                     git.clone(),
+                    graphql_client.clone(),
                 )
             }
         }));
@@ -136,56 +149,47 @@ impl GitHub {
         number: u64,
         config: crate::config::Config,
         git: crate::git::Git,
+        graphql_client: reqwest::Client,
     ) -> Result<PullRequest> {
-        #[derive(Deserialize)]
-        struct User {
-            login: String,
-        }
-        #[derive(Deserialize)]
-        struct PullRequestReview {
-            user: User,
-            state: String,
-        }
-
-        let git = git.clone();
-
-        let reviewers_future = spawn({
-            let route = format!(
-                "repos/{owner}/{repo}/pulls/{number}/reviews",
-                owner = &config.owner,
-                repo = &config.repo
-            );
-            async {
-                octocrab::instance()
-                    .get::<Vec<PullRequestReview>, _, _>(route, None::<&()>)
-                    .compat()
-                    .await
-            }
-        });
-
-        let pr = octocrab::instance()
-            .pulls(config.owner.clone(), config.repo.clone())
-            .get(number)
+        let variables = pull_request_query::Variables {
+            name: config.repo.clone(),
+            owner: config.owner.clone(),
+            number: number as i64,
+        };
+        let request_body = PullRequestQuery::build_query(variables);
+        let res = graphql_client
+            .post("https://api.github.com/graphql")
+            .json(&request_body)
+            .send()
             .compat()
             .await?;
+        let response_body: Response<pull_request_query::ResponseData> =
+            res.json().await?;
 
-        let head_oid = git2::Oid::from_str(&pr.head.sha[..])?;
+        let pr = response_body
+            .data
+            .ok_or_else(|| Error::new("failed to fetch PR"))?
+            .organization
+            .ok_or_else(|| Error::new("failed to find organization"))?
+            .repository
+            .ok_or_else(|| Error::new("failed to find repository"))?
+            .pull_request
+            .ok_or_else(|| Error::new("failed to find PR"))?;
+
+        let head_oid = git2::Oid::from_str(&pr.head_ref_oid)?;
         git.fetch_commit_from_remote(head_oid, config.remote_name.clone())
             .await?;
 
-        let mut sections = parse_message(
-            pr.body.as_ref().map(|s| &s[..]).unwrap_or(""),
-            MessageSection::Summary,
-        );
+        let mut sections = parse_message(&pr.body, MessageSection::Summary);
 
+        let title = pr.title.trim().to_string();
         sections.insert(
             MessageSection::Title,
-            pr.title
-                .as_ref()
-                .map(|s| &s[..])
-                .unwrap_or("(untitled)")
-                .trim()
-                .to_string(),
+            if title.is_empty() {
+                String::from("(untitled)")
+            } else {
+                title
+            },
         );
 
         sections.insert(
@@ -193,60 +197,57 @@ impl GitHub {
             config.pull_request_url(number),
         );
 
-        let mut reviewers = HashMap::<String, ReviewStatus>::new();
-        let mut review_status: Option<ReviewStatus> = None;
-
-        if let Some(requested_reviewers) = pr.requested_reviewers {
-            for reviewer in requested_reviewers {
-                reviewers.insert(reviewer.login, ReviewStatus::Requested);
-            }
-        }
-        if let Some(requested_teams) = pr.requested_teams {
-            for team in requested_teams {
-                reviewers
-                    .insert(format!("#{}", team.slug), ReviewStatus::Requested);
-            }
-        }
-
-        if let Ok(reviewers_list) = reviewers_future.await {
-            for reviewer in reviewers_list {
-                match reviewer.state.as_str() {
-                    "APPROVED" => {
-                        // approvals from users from which we still
-                        // want a review don't count
-                        if reviewers.get(&reviewer.user.login)
-                            == Some(&ReviewStatus::Requested)
-                        {
-                            continue;
-                        }
-                        review_status = Some(ReviewStatus::Approved);
-                        reviewers.insert(
-                            reviewer.user.login,
-                            ReviewStatus::Approved,
-                        );
-                    }
-                    "CHANGES_REQUESTED" => {
-                        // rejections from users from which we still
-                        // want a review still count as rejections
-                        review_status = Some(ReviewStatus::Rejected);
-                        if reviewers.get(&reviewer.user.login)
-                            == Some(&ReviewStatus::Requested)
-                        {
-                            continue;
-                        }
-                        reviewers.insert(
-                            reviewer.user.login,
-                            ReviewStatus::Rejected,
-                        );
-                    }
-                    _ => {}
+        let reviewers: HashMap<String, ReviewStatus> = pr
+            .latest_opinionated_reviews
+            .iter()
+            .map(|all_reviews| &all_reviews.nodes)
+            .flatten()
+            .flatten()
+            .flatten()
+            .map(|review| {
+                let user_name = review.author.as_ref()?.login.clone();
+                let status = match review.state {
+                    pull_request_query::PullRequestReviewState::APPROVED => ReviewStatus::Approved,
+                    pull_request_query::PullRequestReviewState::CHANGES_REQUESTED => ReviewStatus::Rejected,
+                    _ => ReviewStatus::Requested,
                 };
-            }
-        }
+                Some((user_name, status))
+            })
+            .flatten()
+            .collect();
+
+        let review_status = match pr.review_decision {
+            Some(pull_request_query::PullRequestReviewDecision::APPROVED) => Some(ReviewStatus::Approved),
+            Some(pull_request_query::PullRequestReviewDecision::CHANGES_REQUESTED) => Some(ReviewStatus::Rejected),
+            Some(pull_request_query::PullRequestReviewDecision::REVIEW_REQUIRED) => Some(ReviewStatus::Requested),
+            _ => None,
+        };
+
+        let requested_reviewers: Vec<String> = pr.review_requests
+            .iter()
+            .map(|x| &x.nodes)
+            .flatten()
+            .flatten()
+            .flatten()
+            .map(|x| &x.requested_reviewer)
+            .flatten()
+            .map(|reviewer| {
+              type UserType = pull_request_query::PullRequestQueryOrganizationRepositoryPullRequestReviewRequestsNodesRequestedReviewer;
+              match reviewer {
+                UserType::User(user) => Some(user.login.clone()),
+                UserType::Team(team) => Some(format!("#{}", team.slug)),
+                _ => None,
+              }
+            })
+            .flatten()
+            .chain(reviewers.keys().cloned())
+            .collect::<HashSet<String>>() // de-duplicate
+            .into_iter()
+            .collect();
 
         sections.insert(
             MessageSection::Reviewers,
-            reviewers.keys().fold(String::new(), |out, slug| {
+            requested_reviewers.iter().fold(String::new(), |out, slug| {
                 if out.is_empty() {
                     slug.to_string()
                 } else {
@@ -278,24 +279,29 @@ impl GitHub {
         }
 
         Ok::<_, Error>(PullRequest {
-            number: pr.number,
-            state: if pr.state == Some(IssueState::Open) {
-                PullRequestState::Open
-            } else {
-                PullRequestState::Closed
+            number: pr.number as u64,
+            state: match pr.state {
+                pull_request_query::PullRequestState::OPEN => {
+                    PullRequestState::Open
+                }
+                _ => PullRequestState::Closed,
             },
-            title: pr.title.unwrap_or_default(),
-            body: pr.body,
+            title: pr.title,
+            body: Some(pr.body),
             sections,
-            base: normalise_ref(pr.base.ref_field).into(),
-            head: normalise_ref(pr.head.ref_field).into(),
+            base: normalise_ref(pr.base_ref_name).into(),
+            head: normalise_ref(pr.head_ref_name).into(),
             head_oid,
             reviewers,
             review_status,
-            mergeable: pr.mergeable,
+            mergeable: match pr.mergeable {
+                pull_request_query::MergeableState::MERGEABLE => Some(true),
+                pull_request_query::MergeableState::CONFLICTING => Some(false),
+                _ => None,
+            },
             merge_commit: pr
-                .merge_commit_sha
-                .map(|sha| git2::Oid::from_str(&sha).ok())
+                .potential_merge_commit
+                .map(|sha| git2::Oid::from_str(&sha.oid).ok())
                 .flatten(),
         })
     }
