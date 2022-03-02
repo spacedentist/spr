@@ -7,6 +7,7 @@ use crate::{
     github::{PullRequestState, ReviewStatus},
     message::{build_github_body_for_merging, MessageSection},
     output::{output, write_commit_title},
+    utils::run_command,
 };
 
 #[derive(Debug, clap::Parser)]
@@ -104,22 +105,17 @@ pub async fn land(
     output("🛫", "Getting started...")?;
 
     // Fetch current master and the merge commit from GitHub.
-    let git_fetch = async_process::Command::new("git")
-        .arg("fetch")
-        .arg("--no-write-fetch-head")
-        .arg("--")
-        .arg(&config.remote_name)
-        .arg(&config.master_ref)
-        .arg(format!("{}", github_merge_commit))
-        .stdout(async_process::Stdio::null())
-        .stderr(async_process::Stdio::piped())
-        .output()
-        .await?;
-
-    if !git_fetch.status.success() {
-        console::Term::stderr().write_all(&git_fetch.stderr)?;
-        return Err(Error::new("git fetch failed"));
-    }
+    run_command(
+        async_process::Command::new("git")
+            .arg("fetch")
+            .arg("--no-write-fetch-head")
+            .arg("--")
+            .arg(&config.remote_name)
+            .arg(&config.master_ref)
+            .arg(format!("{}", github_merge_commit)),
+    )
+    .await
+    .reword("git fetch failed".to_string())?;
 
     let current_master = git.resolve_reference(&config.remote_master_ref)?;
 
