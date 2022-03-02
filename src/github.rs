@@ -3,7 +3,7 @@ use serde::Deserialize;
 
 use crate::{
     async_memoizer::AsyncMemoizer,
-    error::{Error, Result},
+    error::{Error, Result, ResultExt},
     future::Future,
     message::{
         build_github_body, parse_message, MessageSection, MessageSectionsMap,
@@ -166,6 +166,14 @@ impl GitHub {
             .await?;
         let response_body: Response<pull_request_query::ResponseData> =
             res.json().await?;
+
+        if let Some(errors) = response_body.errors {
+            let error =
+                Err(Error::new(format!("fetching PR #{number} failed")));
+            return errors
+                .into_iter()
+                .fold(error, |err, e| err.context(e.to_string()));
+        }
 
         let pr = response_body
             .data
