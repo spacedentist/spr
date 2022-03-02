@@ -6,6 +6,7 @@ use crate::{
     message::{
         build_commit_message, parse_message, MessageSection, MessageSectionsMap,
     },
+    utils::run_command,
 };
 use git2::Oid;
 
@@ -43,13 +44,10 @@ impl Git {
         &self,
         config: &Config,
     ) -> Result<Vec<PreparedCommit>> {
-        let commit_oids = self.get_commit_oids(&config.remote_master_ref)?;
-        let mut prepared_commits = Vec::<crate::git::PreparedCommit>::new();
-        for oid in commit_oids {
-            prepared_commits.push(self.prepare_commit(config, oid)?);
-        }
-
-        Ok(prepared_commits)
+        self.get_commit_oids(&config.remote_master_ref)?
+            .into_iter()
+            .map(|oid| self.prepare_commit(config, oid))
+            .collect()
     }
 
     pub fn rewrite_commit_messages(
@@ -193,27 +191,31 @@ impl Git {
         Ok(result)
     }
 
-    pub async fn fetch_commit_from_remote(
+    pub async fn fetch_commits_from_remote(
         &self,
-        commit_oid: git2::Oid,
-        remote: String,
+        commit_oids: &[git2::Oid],
+        remote: &str,
     ) -> Result<()> {
-        let errored = self.repo.find_commit(commit_oid).is_err();
+        let missing_commit_oids: Vec<_> = commit_oids
+            .iter()
+            .filter(|oid| self.repo.find_commit(**oid).is_err())
+            .collect();
 
-        if errored {
-            let exit_code = async_process::Command::new("git")
+        if !missing_commit_oids.is_empty() {
+            let mut command = async_process::Command::new("git");
+            command
                 .arg("fetch")
                 .arg("--no-write-fetch-head")
                 .arg("--")
-                .arg(&remote)
-                .arg(format!("{}", commit_oid))
-                .spawn()?
-                .status()
-                .await?;
+                .arg(remote);
 
-            if !exit_code.success() {
-                return Err(Error::new("git fetch failed"));
+            for oid in missing_commit_oids {
+                command.arg(format!("{}", oid));
             }
+
+            run_command(&mut command)
+                .await
+                .reword("git fetch failed".to_string())?;
         }
 
         Ok(())

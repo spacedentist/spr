@@ -8,8 +8,9 @@ query PullRequestQuery($name: String!, $owner: String!, $number: Int!) {
         title
         body
         baseRefName
-        headRefName
+        baseRefOid
         headRefOid
+        headRefName
         mergeable
         potentialMergeCommit {
           oid
