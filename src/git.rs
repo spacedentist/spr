@@ -334,10 +334,39 @@ impl Git {
             "Initial version\n".into()
         };
 
+        // The committer signature should be the default signature (i.e. the
+        // current user - as configured in Git as `user.name` and `user.email` -
+        // and the timestamp set to now). If the default signature can't be
+        // obtained (no user configured), then take the user/email from the
+        // existing commit but make a new signature which has a timestamp of
+        // now.
+        let committer = self.repo.signature().or_else(|_| {
+            git2::Signature::now(
+                String::from_utf8_lossy(
+                    original_commit.committer().name_bytes(),
+                )
+                .as_ref(),
+                String::from_utf8_lossy(
+                    original_commit.committer().email_bytes(),
+                )
+                .as_ref(),
+            )
+        })?;
+
+        // The author signature should reference the same user as the original
+        // commit, but we set the timestamp to now, so this commit shows up in
+        // GitHub's timeline in the right place.
+        let author = git2::Signature::now(
+            String::from_utf8_lossy(original_commit.author().name_bytes())
+                .as_ref(),
+            String::from_utf8_lossy(original_commit.author().email_bytes())
+                .as_ref(),
+        )?;
+
         let oid = self.repo.commit(
             None,
-            &original_commit.author(),
-            &original_commit.committer(),
+            &author,
+            &committer,
             &message,
             &tree,
             &parent_refs[..],
