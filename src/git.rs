@@ -1,4 +1,4 @@
-use std::collections::HashSet;
+use std::collections::{HashSet, VecDeque};
 
 use crate::{
     config::Config,
@@ -253,6 +253,8 @@ impl Git {
                 MessageSection::PullRequest,
                 config.pull_request_url(number),
             );
+        } else {
+            message.remove(&MessageSection::PullRequest);
         }
 
         Ok(PreparedCommit {
@@ -294,27 +296,49 @@ impl Git {
         Ok(tree_oid)
     }
 
-    pub fn is_based_on(&self, commit_oid: Oid, base_oid: Oid) -> Result<bool> {
-        let mut commit = self.repo.find_commit(commit_oid)?;
+    pub fn find_master_base(
+        &self,
+        commit_oid: Oid,
+        master_oid: Oid,
+    ) -> Result<Option<Oid>> {
+        let mut commit_ancestors = HashSet::new();
+        let mut commit_oid = Some(commit_oid);
+        let mut master_ancestors = HashSet::new();
+        let mut master_queue = VecDeque::new();
+        master_ancestors.insert(master_oid);
+        master_queue.push_back(master_oid);
 
-        loop {
-            if commit.parent_count() == 0 {
-                return Ok(false);
-            } else if commit.parent_count() == 1 {
-                let parent_oid = commit.parent_id(0)?;
-                if parent_oid == base_oid {
-                    return Ok(true);
+        while !(commit_oid.is_none() && master_queue.is_empty()) {
+            if let Some(oid) = commit_oid {
+                if master_ancestors.contains(&oid) {
+                    return Ok(Some(oid));
                 }
-                commit = self.repo.find_commit(parent_oid)?;
-            } else {
-                return Ok(commit
-                    .parent_ids()
-                    .any(|parent_oid| parent_oid == base_oid));
+                commit_ancestors.insert(oid);
+                let commit = self.repo.find_commit(oid)?;
+                commit_oid = match commit.parent_count() {
+                    0 => None,
+                    l => Some(commit.parent_id(l - 1)?),
+                };
+            }
+
+            if let Some(oid) = master_queue.pop_front() {
+                if commit_ancestors.contains(&oid) {
+                    return Ok(Some(oid));
+                }
+                let commit = self.repo.find_commit(oid)?;
+                for oid in commit.parent_ids() {
+                    if !master_ancestors.contains(&oid) {
+                        master_queue.push_back(oid);
+                        master_ancestors.insert(oid);
+                    }
+                }
             }
         }
+
+        Ok(None)
     }
 
-    pub fn create_pull_request_commit(
+    pub fn create_derived_commit(
         &self,
         original_commit_oid: Oid,
         message: Option<&str>,
@@ -334,10 +358,39 @@ impl Git {
             "Initial version\n".into()
         };
 
+        // The committer signature should be the default signature (i.e. the
+        // current user - as configured in Git as `user.name` and `user.email` -
+        // and the timestamp set to now). If the default signature can't be
+        // obtained (no user configured), then take the user/email from the
+        // existing commit but make a new signature which has a timestamp of
+        // now.
+        let committer = self.repo.signature().or_else(|_| {
+            git2::Signature::now(
+                String::from_utf8_lossy(
+                    original_commit.committer().name_bytes(),
+                )
+                .as_ref(),
+                String::from_utf8_lossy(
+                    original_commit.committer().email_bytes(),
+                )
+                .as_ref(),
+            )
+        })?;
+
+        // The author signature should reference the same user as the original
+        // commit, but we set the timestamp to now, so this commit shows up in
+        // GitHub's timeline in the right place.
+        let author = git2::Signature::now(
+            String::from_utf8_lossy(original_commit.author().name_bytes())
+                .as_ref(),
+            String::from_utf8_lossy(original_commit.author().email_bytes())
+                .as_ref(),
+        )?;
+
         let oid = self.repo.commit(
             None,
-            &original_commit.author(),
-            &original_commit.committer(),
+            &author,
+            &committer,
             &message,
             &tree,
             &parent_refs[..],
