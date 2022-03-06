@@ -29,6 +29,11 @@ pub struct DiffOptions {
     /// 'rebase' or 'review comments')
     #[clap(long, short = 'm')]
     message: Option<String>,
+
+    /// Create a base branch to review against, even if the Pull Request could
+    /// technically be against the master branch directly
+    #[clap(long)]
+    base: bool,
 }
 
 pub async fn diff(
@@ -226,7 +231,7 @@ async fn diff_impl(
     // If there is no base branch (yet), we can try and cherry-pick the commit
     // onto its base on master. If this succeeds, then we do not need to create
     // a base branch, as we can review this commit against master.
-    let cherrypicked_tree = if have_base_branch {
+    let cherrypicked_tree = if have_base_branch || opts.base {
         None
     } else {
         let index = git.cherrypick(local_commit.oid, master_base_oid)?;
@@ -258,8 +263,9 @@ async fn diff_impl(
     // existing Pull Request is necessary
     if let Some(ref pull_request) = pull_request {
         // So there is an existing Pull Request...
-        if !needs_merging_master {
-            // ...and it does not need a rebase...
+        if !needs_merging_master && have_base_branch == using_base_branch {
+            // ...and it does not need a rebase, nor do we introduce a base
+            // branch...
             // So, the PRs head commit should be:
             // - the same as the local commit if we use a base branch
             // - the same as what we got just now from cherrypicking onto
