@@ -59,6 +59,12 @@ pub struct PullRequestUpdate {
     pub base: Option<String>,
 }
 
+impl PullRequestUpdate {
+    pub fn is_empty(&self) -> bool {
+        self.title.is_none() && self.body.is_none() && self.base.is_none()
+    }
+}
+
 #[derive(serde::Serialize, Default, Debug)]
 pub struct PullRequestRequestReviewers {
     pub reviewers: Vec<String>,

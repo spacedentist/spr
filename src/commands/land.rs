@@ -4,10 +4,10 @@ use std::io::Write;
 
 use crate::{
     error::{Error, Result, ResultExt},
-    github::{PullRequestState, ReviewStatus},
-    message::{build_github_body_for_merging, MessageSection},
+    github::{PullRequestState, PullRequestUpdate, ReviewStatus},
+    message::build_github_body_for_merging,
     output::{output, write_commit_title},
-    utils::run_command,
+    utils::{get_branch_name_from_ref_name, run_command},
 };
 
 #[derive(Debug, clap::Parser)]
@@ -42,35 +42,13 @@ pub async fn land(
             ));
         };
 
-    let stack_on_number = prepared_commit
-        .message
-        .get(&MessageSection::StackedOn)
-        .map(|text| config.parse_pull_request_field(text))
-        .flatten();
-
     // Load Pull Request information
-    let pull_request = gh.get_pull_request(pull_request_number);
-    let stacked_on_pull_request = if let Some(number) = stack_on_number {
-        Some(gh.get_pull_request(number).await??)
-    } else {
-        None
-    };
-    let pull_request = pull_request.await??;
+    let pull_request = gh.get_pull_request(pull_request_number).await??;
 
     if pull_request.state != PullRequestState::Open {
         return Err(Error::new(formatdoc!(
             "This Pull Request is already closed!",
         )));
-    }
-
-    if let Some(stacked_on_pull_request) = stacked_on_pull_request {
-        if stacked_on_pull_request.state == PullRequestState::Open {
-            return Err(Error::new(formatdoc!(
-                "This Pull Request is stacked on Pull Request #{}, \
-                 which is still open.",
-                stacked_on_pull_request.number
-            )));
-        }
     }
 
     if pull_request.review_status != Some(ReviewStatus::Approved) {
@@ -79,54 +57,35 @@ pub async fn land(
         ));
     }
 
-    if pull_request.mergeable.is_none() {
-        return Err(Error::new(formatdoc!(
-            "GitHub has not completed the mergeability check for this \
-             Pull Request. Please try again in a few seconds!"
-        )));
-    }
-    if pull_request.mergeable == Some(false) {
-        return Err(Error::new(formatdoc!(
-            "GitHub concluded the Pull Request is not mergeable at this \
-             point. Please rebase your changes and update them on GitHub \
-             using 'spr diff'!"
-        )));
-    }
-    let github_merge_commit = if let Some(c) = pull_request.merge_commit {
-        c
-    } else {
-        return Err(Error::new(formatdoc!(
-            "OOPS! GitHub says the Pull Request is mergeable but did not \
-             provide a merge_commit_sha field. If retrying in a few \
-             seconds does not help, then this is a bug in the spr tool."
-        )));
-    };
-
     output("🛫", "Getting started...")?;
 
-    // Fetch current master and the merge commit from GitHub.
+    // Fetch current master from GitHub.
     run_command(
         async_process::Command::new("git")
             .arg("fetch")
             .arg("--no-write-fetch-head")
             .arg("--")
             .arg(&config.remote_name)
-            .arg(&config.master_ref)
-            .arg(format!("{}", github_merge_commit)),
+            .arg(&config.master_ref),
     )
     .await
     .reword("git fetch failed".to_string())?;
 
     let current_master = git.resolve_reference(&config.remote_master_ref)?;
 
+    let base_is_master = get_branch_name_from_ref_name(&pull_request.base).ok()
+        == Some(&config.master_branch);
+
     let index = git.cherrypick(prepared_commit.oid, current_master)?;
 
     if index.has_conflicts() {
         return Err(Error::new(formatdoc!(
-            "This commit has local changes, and it cannot be applied on top
-             of the '{}' branch. Please rebase and update the Pull Request
-             on GitHub using 'spr diff'.",
-            config.master_branch
+            "This commit cannot be applied on top of the '{master}' branch.
+             Please rebase this commit on top of current '{remote}/{master}'. \
+             You may also have to land commits that this commit depends on \
+             first.",
+            master = &config.master_branch,
+            remote = &config.remote_name
         )));
     }
 
@@ -134,33 +93,132 @@ pub async fn land(
     // on the selected base (master or stacked-on Pull Request).
     let our_tree_oid = git.write_index(index)?;
 
-    let github_tree_oid = git.get_tree_oid_for_commit(github_merge_commit)?;
+    // With that we construct the final version of the Pull Request, which will
+    // get landed. The contents of this commit (the tree) is what we produced by
+    // cherry-picking the local commit onto current master. The parents are the
+    // previous commit in the Pull Request branch and current master. Because
+    // current master is a parent of this commit, squash-merging this commit
+    // will give us essentially the cherry-picked commit on master, which is
+    // what we want.
+    let final_commit = git.create_derived_commit(
+        prepared_commit.oid,
+        Some("(landed version)"),
+        our_tree_oid,
+        &[pull_request.head_oid, current_master],
+    )?;
 
-    if our_tree_oid != github_tree_oid {
-        return Err(Error::new(formatdoc!(
-            "This commit has local changes. Please update the Pull Request
-             on GitHub using 'spr diff'.",
-        )));
-    }
+    // Update the Pull Request branch with the final commit
+    run_command(
+        async_process::Command::new("git")
+            .arg("push")
+            .arg("--")
+            .arg(&config.remote_name)
+            .arg(format!(
+                "{}:refs/heads/{}",
+                final_commit,
+                get_branch_name_from_ref_name(&pull_request.head)?
+            )),
+    )
+    .await
+    .reword("git push failed".to_string())?;
 
-    let merge = octocrab::instance()
+    // Update the Pull Request: set the base branch (that we are going to
+    // squash-merge into) to master. Depending on the contents of the Pull
+    // Request, the base branch may already be set to master, but we make this
+    // update unconditionally, because it has the positive side effect of making
+    // the actual merge below not fail. That's right, when the base was master
+    // already and I didn't make this call, the merge below would fail with
+    // "GitHub: Head branch was modified. Review and try the merge again". It
+    // may be a timing problem when the merge is happening *immediately* after
+    // updating the branch. This API call here also returns the updated Pull
+    // Request data, which might help settle the situation. With this API call
+    // in place, I have not seen the error once.
+    gh.update_pull_request(
+        pull_request_number,
+        PullRequestUpdate {
+            base: Some(config.master_ref.clone()),
+            ..Default::default()
+        },
+    )
+    .await?;
+
+    // We have the oven-ready to-be-merged commit (which is a direct child of
+    // current, or *very* recent master) on top of the head branch. Let's merge!
+    // Master may have been updated just now, so that our final version is not
+    // based on current master but an ancestor of that. That's fine, unless
+    // these new changes to master conflict with this Pull Request, in which
+    // case this merge will fail. Fair enough, we need the user to rebase on
+    // current master to deal with the conflicts.
+    let merge_result = octocrab::instance()
         .pulls(&config.owner, &config.repo)
         .merge(pull_request_number)
         .method(octocrab::params::pulls::MergeMethod::Squash)
         .title(pull_request.title)
         .message(build_github_body_for_merging(&pull_request.sections))
-        .sha(format!("{}", pull_request.head_oid))
+        .sha(format!("{}", final_commit))
         .send()
         .compat()
-        .await?;
+        .await;
+    let success = match merge_result {
+        Ok(ref merge) => merge.merged,
+        Err(_) => false,
+    };
 
-    if merge.merged {
+    if success {
         output("🛬", "Landed!")?;
     } else {
         output("❌", "GitHub Pull Request merge failed")?;
 
-        return Err(merge.message.map(Error::new).unwrap_or_else(Error::empty));
+        // This is the error we'll report
+        let mut error = Err(match merge_result {
+            Err(err) => err.into(),
+            Ok(merge) => {
+                merge.message.map(Error::new).unwrap_or_else(Error::empty)
+            }
+        });
+
+        // Let's try to undo the last bits, so the user can retry cleanly.
+        // First: set the Pull Request head to what it was (if it wasn't master)
+        if !base_is_master {
+            let result = gh
+                .update_pull_request(
+                    pull_request_number,
+                    PullRequestUpdate {
+                        base: Some(pull_request.base.clone()),
+                        ..Default::default()
+                    },
+                )
+                .await;
+            if let Err(e) = result {
+                error = error.context(format!("{}", e));
+            }
+        }
+
+        // Second: force-push the Pull Request branch to remove the final commit
+        // again
+        let git_push_failed = run_command(
+            async_process::Command::new("git")
+                .arg("push")
+                .arg("--force")
+                .arg("--")
+                .arg(&config.remote_name)
+                .arg(format!(
+                    "{}:refs/heads/{}",
+                    pull_request.head_oid,
+                    get_branch_name_from_ref_name(&pull_request.head)?
+                )),
+        )
+        .await
+        .is_err();
+        if git_push_failed {
+            error = error.context("git push failed".to_string());
+        }
+
+        return error;
     }
+
+    // We know merge_result is Ok (we return above if it isn't)
+    let merge = merge_result.unwrap();
 
     let mut remove_old_branch_child_process =
         async_process::Command::new("git")
@@ -172,6 +230,22 @@ pub async fn land(
             .stdout(async_process::Stdio::null())
             .stderr(async_process::Stdio::null())
             .spawn()?;
+
+    let remove_old_base_branch_child_process = if base_is_master {
+        None
+    } else {
+        Some(
+            async_process::Command::new("git")
+                .arg("push")
+                .arg("--delete")
+                .arg("--")
+                .arg(&config.remote_name)
+                .arg(&pull_request.base)
+                .stdout(async_process::Stdio::null())
+                .stderr(async_process::Stdio::null())
+                .spawn()?,
+        )
+    };
 
     // Rebase us on top of the now-landed commit
     if let Some(sha) = merge.sha {
@@ -210,6 +284,9 @@ pub async fn land(
     // but ignore the result. GitHub may be configured to delete the branch
     // automatically, in which case it's gone already and this command fails.
     remove_old_branch_child_process.status().await?;
+    if let Some(mut proc) = remove_old_base_branch_child_process {
+        proc.status().await?;
+    }
 
     Ok(())
 }
