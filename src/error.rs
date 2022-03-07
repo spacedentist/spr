@@ -136,17 +136,3 @@ where
         }
     }
 }
-
-pub fn add_error<T, U>(result: &mut Result<T>, other: Result<U>) -> Option<U> {
-    match other {
-        Ok(result) => Some(result),
-        Err(error) => {
-            if let Err(e) = result {
-                e.messages.extend(error.messages.into_iter());
-            } else {
-                let _ = std::mem::replace(result, Err(error));
-            }
-            None
-        }
-    }
-}
