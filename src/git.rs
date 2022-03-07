@@ -253,6 +253,8 @@ impl Git {
                 MessageSection::PullRequest,
                 config.pull_request_url(number),
             );
+        } else {
+            message.remove(&MessageSection::PullRequest);
         }
 
         Ok(PreparedCommit {
