@@ -1,4 +1,4 @@
-use std::collections::{HashSet, VecDeque};
+use std::collections::HashSet;
 
 use crate::{
     config::Config,
@@ -296,49 +296,27 @@ impl Git {
         Ok(tree_oid)
     }
 
-    pub fn find_master_base(
-        &self,
-        commit_oid: Oid,
-        master_oid: Oid,
-    ) -> Result<Option<Oid>> {
-        let mut commit_ancestors = HashSet::new();
-        let mut commit_oid = Some(commit_oid);
-        let mut master_ancestors = HashSet::new();
-        let mut master_queue = VecDeque::new();
-        master_ancestors.insert(master_oid);
-        master_queue.push_back(master_oid);
+    pub fn is_based_on(&self, commit_oid: Oid, base_oid: Oid) -> Result<bool> {
+        let mut commit = self.repo.find_commit(commit_oid)?;
 
-        while !(commit_oid.is_none() && master_queue.is_empty()) {
-            if let Some(oid) = commit_oid {
-                if master_ancestors.contains(&oid) {
-                    return Ok(Some(oid));
+        loop {
+            if commit.parent_count() == 0 {
+                return Ok(false);
+            } else if commit.parent_count() == 1 {
+                let parent_oid = commit.parent_id(0)?;
+                if parent_oid == base_oid {
+                    return Ok(true);
                 }
-                commit_ancestors.insert(oid);
-                let commit = self.repo.find_commit(oid)?;
-                commit_oid = match commit.parent_count() {
-                    0 => None,
-                    l => Some(commit.parent_id(l - 1)?),
-                };
-            }
-
-            if let Some(oid) = master_queue.pop_front() {
-                if commit_ancestors.contains(&oid) {
-                    return Ok(Some(oid));
-                }
-                let commit = self.repo.find_commit(oid)?;
-                for oid in commit.parent_ids() {
-                    if !master_ancestors.contains(&oid) {
-                        master_queue.push_back(oid);
-                        master_ancestors.insert(oid);
-                    }
-                }
+                commit = self.repo.find_commit(parent_oid)?;
+            } else {
+                return Ok(commit
+                    .parent_ids()
+                    .any(|parent_oid| parent_oid == base_oid));
             }
         }
-
-        Ok(None)
     }
 
-    pub fn create_derived_commit(
+    pub fn create_pull_request_commit(
         &self,
         original_commit_oid: Oid,
         message: Option<&str>,
