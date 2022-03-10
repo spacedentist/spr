@@ -144,7 +144,7 @@ pub fn add_error<T, U>(result: &mut Result<T>, other: Result<U>) -> Option<U> {
             if let Err(e) = result {
                 e.messages.extend(error.messages.into_iter());
             } else {
-                let _ = std::mem::replace(result, Err(error));
+                *result = Err(error);
             }
             None
         }
