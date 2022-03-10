@@ -102,7 +102,7 @@ pub async fn land(
     // what we want.
     let final_commit = git.create_derived_commit(
         prepared_commit.oid,
-        Some("(landed version)"),
+        Some("(landed version)\n\n[skip ci]"),
         our_tree_oid,
         &[pull_request.head_oid, current_master],
     )?;
