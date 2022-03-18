@@ -392,6 +392,7 @@ pub async fn diff(
         // And push it to GitHub.
         let git_push = async_process::Command::new("git")
             .arg("push")
+            .arg("--no-verify")
             .arg("--")
             .arg(&config.remote_name)
             .arg(format!("{}:{}", new_pr_commit_oid, github_ref))
