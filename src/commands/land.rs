@@ -165,6 +165,7 @@ pub async fn land(
     let mut remove_old_branch_child_process =
         async_process::Command::new("git")
             .arg("push")
+            .arg("--no-verify")
             .arg("--delete")
             .arg("--")
             .arg(&config.remote_name)
