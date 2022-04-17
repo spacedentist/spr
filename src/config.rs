@@ -92,6 +92,13 @@ impl Config {
             branch_name = format!("{branch_prefix}{slug}-{suffix}");
         }
     }
+
+    pub fn get_base_branch_name(&self, pull_request_number: u64) -> String {
+        format!(
+            "{}{}/{}",
+            &self.branch_prefix, &self.master_branch, pull_request_number
+        )
+    }
 }
 
 #[cfg(test)]
