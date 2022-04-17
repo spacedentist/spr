@@ -111,6 +111,7 @@ pub async fn land(
     run_command(
         async_process::Command::new("git")
             .arg("push")
+            .arg("--no-verify")
             .arg("--")
             .arg(&config.remote_name)
             .arg(format!(
@@ -199,6 +200,7 @@ pub async fn land(
         let git_push_failed = run_command(
             async_process::Command::new("git")
                 .arg("push")
+                .arg("--no-verify")
                 .arg("--force")
                 .arg("--")
                 .arg(&config.remote_name)
@@ -223,6 +225,7 @@ pub async fn land(
     let mut remove_old_branch_child_process =
         async_process::Command::new("git")
             .arg("push")
+            .arg("--no-verify")
             .arg("--delete")
             .arg("--")
             .arg(&config.remote_name)
@@ -237,6 +240,7 @@ pub async fn land(
         Some(
             async_process::Command::new("git")
                 .arg("push")
+                .arg("--no-verify")
                 .arg("--delete")
                 .arg("--")
                 .arg(&config.remote_name)

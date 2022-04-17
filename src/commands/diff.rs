@@ -385,6 +385,7 @@ async fn diff_impl(
     let mut cmd = async_process::Command::new("git");
     cmd.arg("push")
         .arg("--atomic")
+        .arg("--no-verify")
         .arg("--")
         .arg(&config.remote_name)
         .arg(format!(
@@ -494,6 +495,7 @@ async fn diff_impl(
             let mut cmd = async_process::Command::new("git");
             cmd.arg("push")
                 .arg("--atomic")
+                .arg("--no-verify")
                 .arg("--")
                 .arg(&config.remote_name)
                 .arg(format!(
