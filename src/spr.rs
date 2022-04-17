@@ -139,7 +139,11 @@ pub fn spr() -> Result<()> {
 
     crate::executor::run(async move {
         let git = crate::git::Git::new(repo);
-        let mut gh = crate::github::GitHub::new(config.clone(), &git);
+        let mut gh = crate::github::GitHub::new(
+            config.clone(),
+            &git,
+            graphql_client.clone(),
+        );
 
         match cli.command {
             Commands::Diff(opts) => {
