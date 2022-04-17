@@ -102,7 +102,7 @@ pub async fn land(
     // what we want.
     let final_commit = git.create_derived_commit(
         prepared_commit.oid,
-        Some("(landed version)\n\n[skip ci]"),
+        Some("[𝘀𝗽𝗿] 𝘭𝘢𝘯𝘥𝘦𝘥 𝘷𝘦𝘳𝘴𝘪𝘰𝘯\n\n[skip ci]"),
         our_tree_oid,
         &[pull_request.head_oid, current_master],
     )?;
@@ -134,6 +134,11 @@ pub async fn land(
     // updating the branch. This API call here also returns the updated Pull
     // Request data, which might help settle the situation. With this API call
     // in place, I have not seen the error once.
+    //
+    // PS: @jozef-mokry mentioned in code review that this is a known timing
+    // problem:
+    // https://github.community/t/merging-via-rest-api-returns-405-base-branch-was-modified-review-and-try-the-merge-again/13787
+    // TODO: implement retry loop around the merge instead
     gh.update_pull_request(
         pull_request_number,
         PullRequestUpdate {

@@ -355,7 +355,7 @@ impl Git {
         let message = if let Some(text) = message {
             format!("{}\n", text.trim())
         } else {
-            "Initial version\n".into()
+            "[𝘀𝗽𝗿] 𝘪𝘯𝘪𝘵𝘪𝘢𝘭 𝘷𝘦𝘳𝘴𝘪𝘰𝘯\n".into()
         };
 
         // The committer signature should be the default signature (i.e. the
