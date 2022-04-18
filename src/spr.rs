@@ -127,7 +127,10 @@ pub fn spr() -> Result<()> {
 
     let mut headers = header::HeaderMap::new();
     headers.insert(header::ACCEPT, "application/json".parse()?);
-    headers.insert(header::USER_AGENT, "spr/1.0".parse()?);
+    headers.insert(
+        header::USER_AGENT,
+        format!("spr/{}", env!("CARGO_PKG_VERSION")).try_into()?,
+    );
     headers.insert(
         header::AUTHORIZATION,
         format!("Bearer {}", github_auth_token).parse()?,
