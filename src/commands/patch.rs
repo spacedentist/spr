@@ -67,7 +67,7 @@ pub async fn patch(
 
                 parent_oid = git.create_derived_commit(
                     pr.base_oid,
-                    Some(&format!("[𝘀𝗽𝗿] Base of Pull Request #{}", pr.number)),
+                    &format!("[𝘀𝗽𝗿] Base of Pull Request #{}", pr.number),
                     pr_base_tree,
                     &[parent_oid],
                 )?;
@@ -79,7 +79,7 @@ pub async fn patch(
         // the commit we created above to prepare the base of this commit.
         git.create_derived_commit(
             pr.head_oid,
-            Some(&build_commit_message(&pr.sections)),
+            &build_commit_message(&pr.sections),
             git.get_tree_oid_for_commit(pr.head_oid)?,
             &[parent_oid],
         )?

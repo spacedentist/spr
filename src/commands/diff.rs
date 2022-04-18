@@ -320,11 +320,11 @@ async fn diff_impl(
 
             Some(git.create_derived_commit(
                 local_commit.parent_oid,
-                Some(if pull_request.is_some() {
+                if pull_request.is_some() {
                     "[𝘀𝗽𝗿] 𝘤𝘩𝘢𝘯𝘨𝘦𝘴 𝘪𝘯𝘵𝘳𝘰𝘥𝘶𝘤𝘦𝘥 𝘵𝘩𝘳𝘰𝘶𝘨𝘩 𝘳𝘦𝘣𝘢𝘴𝘦\n\n[skip ci]"
                 } else {
                     "[𝘀𝗽𝗿] 𝘤𝘩𝘢𝘯𝘨𝘦𝘴 𝘵𝘰 𝘮𝘢𝘴𝘵𝘦𝘳 𝘵𝘩𝘪𝘴 𝘤𝘰𝘮𝘮𝘪𝘵 𝘪𝘴 𝘣𝘢𝘴𝘦𝘥 𝘰𝘯\n\n[skip ci]"
-                }),
+                },
                 parent_tree_oid,
                 &parents[..],
             )?)
@@ -377,7 +377,10 @@ async fn diff_impl(
     // Create the new commit
     let pr_commit = git.create_derived_commit(
         local_commit.oid,
-        github_commit_message.as_ref().map(|s| &s[..]),
+        github_commit_message
+            .as_ref()
+            .map(|s| &s[..])
+            .unwrap_or("[𝘀𝗽𝗿] 𝘪𝘯𝘪𝘵𝘪𝘢𝘭 𝘷𝘦𝘳𝘴𝘪𝘰𝘯"),
         cherrypicked_tree.unwrap_or(tree_oid),
         &pr_commit_parents[..],
     )?;
