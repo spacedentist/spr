@@ -12,7 +12,7 @@ query PullRequestQuery($name: String!, $owner: String!, $number: Int!) {
         headRefOid
         headRefName
         mergeable
-        potentialMergeCommit {
+        mergeCommit {
           oid
         }
         latestOpinionatedReviews(last: 100) {

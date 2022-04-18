@@ -320,7 +320,7 @@ impl GitHub {
                 _ => None,
             },
             merge_commit: pr
-                .potential_merge_commit
+                .merge_commit
                 .map(|sha| git2::Oid::from_str(&sha.oid).ok())
                 .flatten(),
         })
