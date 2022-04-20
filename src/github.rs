@@ -35,7 +35,6 @@ pub struct PullRequest {
     pub head: String,
     pub base_oid: git2::Oid,
     pub head_oid: git2::Oid,
-    pub mergeable: Option<bool>,
     pub merge_commit: Option<git2::Oid>,
     pub reviewers: HashMap<String, ReviewStatus>,
     pub review_status: Option<ReviewStatus>,
@@ -314,11 +313,6 @@ impl GitHub {
             head_oid,
             reviewers,
             review_status,
-            mergeable: match pr.mergeable {
-                pull_request_query::MergeableState::MERGEABLE => Some(true),
-                pull_request_query::MergeableState::CONFLICTING => Some(false),
-                _ => None,
-            },
             merge_commit: pr
                 .potential_merge_commit
                 .map(|sha| git2::Oid::from_str(&sha.oid).ok())
