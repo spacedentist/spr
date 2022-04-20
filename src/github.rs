@@ -314,7 +314,7 @@ impl GitHub {
             reviewers,
             review_status,
             merge_commit: pr
-                .merge_commit
+                .potential_merge_commit
                 .map(|sha| git2::Oid::from_str(&sha.oid).ok())
                 .flatten(),
         })

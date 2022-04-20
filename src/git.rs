@@ -31,10 +31,6 @@ impl Git {
         }
     }
 
-    pub fn repo(&self) -> &git2::Repository {
-        &*self.repo
-    }
-
     pub fn get_commit_oids(&self, master_ref: &str) -> Result<Vec<Oid>> {
         let mut walk = self.repo.revwalk()?;
         walk.set_sorting(git2::Sort::TOPOLOGICAL.union(git2::Sort::REVERSE))?;
@@ -279,23 +275,6 @@ impl Git {
             .collect();
 
         Ok(result?)
-    }
-
-    pub fn get_pr_patch_branch_name(&self, pr_number: u64) -> Result<String> {
-        let ref_names = self.get_all_ref_names()?;
-        let default_name = format!("PR-{}", pr_number);
-        if !ref_names.contains(&format!("refs/heads/{}", default_name)) {
-            return Ok(default_name);
-        }
-
-        let mut count = 1;
-        loop {
-            let name = format!("PR-{}-{}", pr_number, count);
-            if !ref_names.contains(&format!("refs/heads/{}", name)) {
-                return Ok(name);
-            }
-            count += 1;
-        }
     }
 
     pub fn cherrypick(&self, oid: Oid, base_oid: Oid) -> Result<git2::Index> {
