@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.2.1] - 2022-04-21
+
+### Fixes
+
+- fix calculating base of PR for the `spr patch` command
+
 ## [1.2.0] - 2022-04-21
 
 ### Improvements
