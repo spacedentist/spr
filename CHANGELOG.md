@@ -5,6 +5,7 @@
 ### Improvements
 
 - remove `--stack` option: spr now bases a diff on master if possible, or otherwise constructs a separate branch for the base of the diff. (This can be forced with `--base`.)
+- add new command `spr patch` to locally check out a Pull Request from GitHub
 
 ## [1.1.0] - 2022-03-18
 

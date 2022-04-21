@@ -53,6 +53,9 @@ enum Commands {
 
     /// List open Pull Requests on GitHub and their review decision
     List,
+
+    /// Create a new branch with the contents of an existing Pull Request
+    Patch(crate::commands::patch::PatchOptions),
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -166,6 +169,10 @@ pub fn spr() -> Result<()> {
             }
             Commands::List => {
                 crate::commands::list::list(graphql_client, &config).await?
+            }
+            Commands::Patch(opts) => {
+                crate::commands::patch::patch(opts, &git, &mut gh, &config)
+                    .await?
             }
             _ => (),
         };
