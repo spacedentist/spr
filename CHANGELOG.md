@@ -1,6 +1,6 @@
 # Changelog
 
-## [1.2.0] - 2022-04-18
+## [1.2.0] - 2022-04-21
 
 ### Improvements
 
@@ -15,6 +15,7 @@
 
 ### Improvements
 
+- add `spr list` command, which lists the user's Pull Requests with their status
 - use `--no-verify` option for all git pushes
 
 ## [1.0.0] - 2022-02-10

@@ -32,7 +32,7 @@ impl Git {
     }
 
     pub fn repo(&self) -> &git2::Repository {
-        &*self.repo
+        self.repo.as_ref()
     }
 
     pub fn get_commit_oids(&self, master_ref: &str) -> Result<Vec<Oid>> {
