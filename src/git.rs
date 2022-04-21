@@ -362,7 +362,7 @@ impl Git {
     pub fn create_derived_commit(
         &self,
         original_commit_oid: Oid,
-        message: Option<&str>,
+        message: &str,
         tree_oid: Oid,
         parent_oids: &[Oid],
     ) -> Result<Oid> {
@@ -373,11 +373,7 @@ impl Git {
             .map(|oid| self.repo.find_commit(*oid))
             .collect::<std::result::Result<Vec<_>, _>>()?;
         let parent_refs = parents.iter().collect::<Vec<_>>();
-        let message = if let Some(text) = message {
-            format!("{}\n", text.trim())
-        } else {
-            "[𝘀𝗽𝗿] 𝘪𝘯𝘪𝘵𝘪𝘢𝘭 𝘷𝘦𝘳𝘴𝘪𝘰𝘯\n".into()
-        };
+        let message = git2::message_prettify(message, None)?;
 
         // The committer signature should be the default signature (i.e. the
         // current user - as configured in Git as `user.name` and `user.email` -
