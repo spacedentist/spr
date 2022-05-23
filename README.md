@@ -18,11 +18,11 @@ With Rust all set up, clone this repository and run `cargo build --release`. The
 
 To use spr, run `spr init` inside a local checkout of a GitHub-backed git repository. You will be asked for a GitHub PAT (Personal Access Token), which spr will use to make calls to the GitHub API in order to create and merge pull requests.
 
-To submit a commit for pull request, just run `spr diff`.
+To submit a commit for pull request, run `spr diff`.
 
-If you want to make changes to the pull request, just amend your local commit (and/or rebase it) and call `spr diff` again. When updating an existing pull request, spr will ask you for a short message to describe the update.
+If you want to make changes to the pull request, amend your local commit (and/or rebase it) and call `spr diff` again. When updating an existing pull request, spr will ask you for a short message to describe the update.
 
-In order to land a pull request, run `spr land`.
+To squash-merge an open pull request, run `spr land`.
 
 For more information on spr commands and options, run `spr help`. For more information on a specific spr command, run `spr help <COMMAND>` (e.g. `spr help diff`).
 
