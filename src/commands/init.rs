@@ -122,10 +122,8 @@ pub async fn init(_opts: &crate::spr::Cli) -> Result<()> {
         .and_then(|value| if value.is_empty() { None } else { Some(value) })
         .or_else(|| {
             url.as_ref()
-                .map(|url| regex.captures(url))
-                .flatten()
-                .map(|caps| caps.get(1))
-                .flatten()
+                .and_then(|url| regex.captures(url))
+                .and_then(|caps| caps.get(1))
                 .map(|m| m.as_str().to_string())
         })
         .unwrap_or_default();

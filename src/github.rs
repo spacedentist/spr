@@ -218,11 +218,10 @@ impl GitHub {
         let reviewers: HashMap<String, ReviewStatus> = pr
             .latest_opinionated_reviews
             .iter()
-            .map(|all_reviews| &all_reviews.nodes)
+            .flat_map(|all_reviews| &all_reviews.nodes)
             .flatten()
             .flatten()
-            .flatten()
-            .map(|review| {
+            .flat_map(|review| {
                 let user_name = review.author.as_ref()?.login.clone();
                 let status = match review.state {
                     pull_request_query::PullRequestReviewState::APPROVED => ReviewStatus::Approved,
@@ -231,7 +230,6 @@ impl GitHub {
                 };
                 Some((user_name, status))
             })
-            .flatten()
             .collect();
 
         let review_status = match pr.review_decision {
@@ -243,13 +241,11 @@ impl GitHub {
 
         let requested_reviewers: Vec<String> = pr.review_requests
             .iter()
-            .map(|x| &x.nodes)
+            .flat_map(|x| &x.nodes)
             .flatten()
             .flatten()
-            .flatten()
-            .map(|x| &x.requested_reviewer)
-            .flatten()
-            .map(|reviewer| {
+            .flat_map(|x| &x.requested_reviewer)
+            .flat_map(|reviewer| {
               type UserType = pull_request_query::PullRequestQueryOrganizationRepositoryPullRequestReviewRequestsNodesRequestedReviewer;
               match reviewer {
                 UserType::User(user) => Some(user.login.clone()),
@@ -257,7 +253,6 @@ impl GitHub {
                 _ => None,
               }
             })
-            .flatten()
             .chain(reviewers.keys().cloned())
             .collect::<HashSet<String>>() // de-duplicate
             .into_iter()
@@ -315,8 +310,7 @@ impl GitHub {
             review_status,
             merge_commit: pr
                 .merge_commit
-                .map(|sha| git2::Oid::from_str(&sha.oid).ok())
-                .flatten(),
+                .and_then(|sha| git2::Oid::from_str(&sha.oid).ok()),
         })
     }
 
