@@ -249,8 +249,7 @@ impl Git {
 
         let pull_request_number = message
             .get(&MessageSection::PullRequest)
-            .map(|text| config.parse_pull_request_field(text))
-            .flatten();
+            .and_then(|text| config.parse_pull_request_field(text));
 
         if let Some(number) = pull_request_number {
             message.insert(
