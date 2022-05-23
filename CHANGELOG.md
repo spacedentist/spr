@@ -1,5 +1,16 @@
 # Changelog
 
+## [1.2.2] - 2022-05-23
+
+### Fixes
+
+- fix clippy warnings
+
+### Improvements
+
+- clean-up `Cargo.toml` and update dependencies
+- add to `README.md`
+
 ## [1.2.1] - 2022-04-21
 
 ### Fixes
