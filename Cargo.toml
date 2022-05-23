@@ -4,8 +4,10 @@ version = "1.2.1"
 authors = ["Sven Over <sven@cord.com>", "Jozef Mokry <jozef@cord.com>"]
 description = "Submit pull requests for individual, amendable, rebaseable commits to GitHub"
 repository = "https://github.com/getcord/spr"
+homepage = "https://github.com/getcord/spr"
 license = "MIT"
 edition = "2021"
+exclude = [".github", ".gitignore"]
 
 [dependencies]
 async-compat = "^0.2.1"
@@ -14,21 +16,19 @@ async-lock = "^2.4.0"
 async-process = "^1.3.0"
 clap = { version = "^3.0.14", features = ["derive", "wrap_help"] }
 console = "^0.15.0"
-dialoguer = "^0.9.0"
+dialoguer = "^0.10.1"
 futures = "^0.3.21"
 futures-lite = "^1.12.0"
-git2 = "^0.13.25"
+git2 = "^0.14.4"
 indoc = "^1.0.3"
 lazy-regex = "^2.2.2"
-octocrab = "^0.15.4"
-once_cell = "^1.9.0"
+octocrab = "^0.16.0"
 serde = "^1.0.136"
-textwrap = "0.14.2"
+textwrap = "0.15.0"
 thiserror = "^1.0.30"
 unicode-normalization = "^0.1.19"
 graphql_client = "0.10.0"
 reqwest = { version = "^0.11", features = ["json"] }
-
 
 [dev-dependencies]
 smol = "^1.2.5"

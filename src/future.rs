@@ -1,3 +1,10 @@
+/*
+ * Copyright (c) Radical HQ, Ltd.
+ *
+ * This source code is licensed under the MIT license found in the
+ * LICENSE file in the root directory of this source tree.
+ */
+
 use crate::executor::spawn;
 use std::collections::HashMap;
 use std::future::Future as StdFuture;

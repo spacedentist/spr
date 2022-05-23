@@ -1,3 +1,10 @@
+/*
+ * Copyright (c) Radical HQ, Ltd.
+ *
+ * This source code is licensed under the MIT license found in the
+ * LICENSE file in the root directory of this source tree.
+ */
+
 thread_local! {
     static EXECUTOR: async_executor::LocalExecutor<'static> =
         async_executor::LocalExecutor::new();
