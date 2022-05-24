@@ -1,3 +1,5 @@
+![spr](./docs/spr.svg)
+
 # spr
 
 A command-line tool for submitting and updating GitHub Pull Requests from local
