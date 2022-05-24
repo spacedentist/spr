@@ -1,6 +1,6 @@
 [package]
 name = "spr"
-version = "1.2.2"
+version = "1.2.3"
 authors = ["Sven Over <sven@cord.com>", "Jozef Mokry <jozef@cord.com>"]
 description = "Submit pull requests for individual, amendable, rebaseable commits to GitHub"
 repository = "https://github.com/getcord/spr"
@@ -19,7 +19,7 @@ console = "^0.15.0"
 dialoguer = "^0.10.1"
 futures = "^0.3.21"
 futures-lite = "^1.12.0"
-git2 = "^0.14.4"
+git2 = "^0.14.2"
 indoc = "^1.0.3"
 lazy-regex = "^2.2.2"
 octocrab = "^0.16.0"

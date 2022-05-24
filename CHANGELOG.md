@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.2.3] - 2022-05-24
+
+### Fixes
+
+- fix building with homebrew-installed Rust (currently 1.59)
+
 ## [1.2.2] - 2022-05-23
 
 ### Fixes
