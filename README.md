@@ -12,6 +12,12 @@ spr is pronounced /ˈsuːpəɹ/, like the English word 'super'.
 
 ### Binary Installation
 
+#### Using Homebrew
+
+```shell
+brew install getcord/tap/spr
+```
+
 #### Using Cargo
 
 If you have Cargo installed (the Rust build tool), you can install spr by running `cargo install spr`.
