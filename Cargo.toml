@@ -1,6 +1,6 @@
 [package]
 name = "spr"
-version = "1.2.3"
+version = "1.2.4"
 authors = ["Sven Over <sven@cord.com>", "Jozef Mokry <jozef@cord.com>"]
 description = "Submit pull requests for individual, amendable, rebaseable commits to GitHub"
 repository = "https://github.com/getcord/spr"

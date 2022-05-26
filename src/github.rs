@@ -190,8 +190,6 @@ impl GitHub {
         let pr = response_body
             .data
             .ok_or_else(|| Error::new("failed to fetch PR"))?
-            .organization
-            .ok_or_else(|| Error::new("failed to find organization"))?
             .repository
             .ok_or_else(|| Error::new("failed to find repository"))?
             .pull_request
@@ -253,7 +251,7 @@ impl GitHub {
             .flatten()
             .flat_map(|x| &x.requested_reviewer)
             .flat_map(|reviewer| {
-              type UserType = pull_request_query::PullRequestQueryOrganizationRepositoryPullRequestReviewRequestsNodesRequestedReviewer;
+              type UserType = pull_request_query::PullRequestQueryRepositoryPullRequestReviewRequestsNodesRequestedReviewer;
               match reviewer {
                 UserType::User(user) => Some(user.login.clone()),
                 UserType::Team(team) => Some(format!("#{}", team.slug)),
