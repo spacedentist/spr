@@ -1,38 +1,36 @@
 query PullRequestQuery($name: String!, $owner: String!, $number: Int!) {
-  organization(login: $owner) {
-    repository(name: $name) {
-      pullRequest(number: $number) {
-        number
-        state
-        reviewDecision
-        title
-        body
-        baseRefName
-        baseRefOid
-        headRefOid
-        headRefName
-        mergeCommit {
-          oid
-        }
-        latestOpinionatedReviews(last: 100) {
-          nodes {
-            author {
-              __typename
-              login
-            }
-            state
+  repository(owner: $owner, name: $name) {
+    pullRequest(number: $number) {
+       number
+      state
+      reviewDecision
+      title
+      body
+      baseRefName
+      baseRefOid
+      headRefOid
+      headRefName
+      mergeCommit {
+        oid
+      }
+      latestOpinionatedReviews(last: 100) {
+        nodes {
+          author {
+            __typename
+            login
           }
+          state
         }
-        reviewRequests(last: 100) {
-          nodes {
-            requestedReviewer {
-              __typename
-              ... on Team {
-                slug
-              }
-              ... on User {
-                login
-              }
+      }
+      reviewRequests(last: 100) {
+        nodes {
+          requestedReviewer {
+            __typename
+            ... on Team {
+              slug
+            }
+            ... on User {
+              login
             }
           }
         }
