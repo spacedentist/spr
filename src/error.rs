@@ -35,6 +35,10 @@ impl Error {
     pub fn messages(&self) -> &Vec<String> {
         &self.messages
     }
+
+    pub fn push(&mut self, message: String) {
+        self.messages.push(message);
+    }
 }
 
 impl<E> From<E> for Error
@@ -75,7 +79,7 @@ impl<T> ResultExt for Result<T> {
 
     fn context(mut self, message: String) -> Self {
         if let Err(error) = &mut self {
-            error.messages.push(message);
+            error.push(message);
         }
 
         self
@@ -84,7 +88,7 @@ impl<T> ResultExt for Result<T> {
     fn reword(mut self, message: String) -> Self {
         if let Err(error) = &mut self {
             error.messages.pop();
-            error.messages.push(message);
+            error.push(message);
         }
 
         self

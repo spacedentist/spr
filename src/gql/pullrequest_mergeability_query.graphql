@@ -1,0 +1,16 @@
+query PullRequestMergeabilityQuery(
+  $name: String!
+  $owner: String!
+  $number: Int!
+) {
+  repository(owner: $owner, name: $name) {
+    pullRequest(number: $number) {
+      baseRefName
+      headRefOid
+      mergeable
+      mergeCommit {
+        oid
+      }
+    }
+  }
+}

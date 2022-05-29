@@ -37,10 +37,10 @@ pub struct DiffOptions {
     #[clap(long, short = 'm')]
     message: Option<String>,
 
-    /// Create a base branch to review against, even if the Pull Request could
-    /// technically be against the master branch directly
+    /// Submit this commit as if it was cherry-picked on master. Do not base it
+    /// on any intermediate changes between the master branch and this commit.
     #[clap(long)]
-    base: bool,
+    cherry_pick: bool,
 }
 
 pub async fn diff(
@@ -102,6 +102,45 @@ async fn diff_impl(
 ) -> Result<()> {
     // Parsed commit message of the local commit
     let message = &mut local_commit.message;
+
+    // Check if the local commit is based directly on the master branch.
+    let directly_based_on_master = local_commit.parent_oid == master_base_oid;
+
+    // Determine the trees the Pull Request branch and the base branch should
+    // have when we're done here.
+    let (new_head_tree, new_base_tree) = if !opts.cherry_pick
+        || directly_based_on_master
+    {
+        // Unless the user tells us to --cherry-pick, these should be the trees
+        // of the current commit and its parent.
+        // If the current commit is directly based on master (i.e.
+        // directly_based_on_master is true), then we can do this here even when
+        // the user tells us to --cherry-pick, because we would cherry pick the
+        // current commit onto its parent, which gives us the same tree as the
+        // current commit has, and the master base is the same as this commit's
+        // parent.
+        let head_tree = git.get_tree_oid_for_commit(local_commit.oid)?;
+        let base_tree = git.get_tree_oid_for_commit(local_commit.parent_oid)?;
+
+        (head_tree, base_tree)
+    } else {
+        // Cherry-pick the current commit onto master
+        let index = git.cherrypick(local_commit.oid, master_base_oid)?;
+
+        if index.has_conflicts() {
+            return Err(Error::new(formatdoc!(
+                "This commit cannot be cherry-picked on {master}.",
+                master = &config.master_branch,
+            )));
+        }
+
+        // This is the tree we are getting from cherrypicking the local commit
+        // on master.
+        let cherry_pick_tree = git.write_index(index)?;
+        let master_tree = git.get_tree_oid_for_commit(master_base_oid)?;
+
+        (cherry_pick_tree, master_tree)
+    };
 
     // If this is a new Pull Request and the commit message has a "Reviewers"
     // section, then start getting a list of eligible reviewers in the
@@ -197,147 +236,105 @@ async fn diff_impl(
 
     // Check if there is a base branch on GitHub already. That's the case when
     // there is an existing Pull Request, and its base is not the master branch.
-    let have_base_branch = match &pull_request {
+    let base_branch = match &pull_request {
         Some(pr) => {
-            let base_is_master = get_branch_name_from_ref_name(&pr.base).ok()
-                == Some(&config.master_branch);
+            let base_branch_name = get_branch_name_from_ref_name(&pr.base).ok();
+            let base_is_master =
+                base_branch_name == Some(&config.master_branch);
 
-            !base_is_master
-        }
-        None => false,
-    };
-
-    // `current_pr_master_base` is the master commit that the existing Pull
-    // Request is currently based on (or `None` if there is no existing Pull
-    // Request).
-    // `current_base_oid` is what the base of the Pull Request currently is:
-    // * if the Pull Request doesn't exist yet, it's the commit on master that
-    //   the local commit is based on
-    // * if the Pull Request exists but has no base branch, it's the master
-    //   commit the existing Pull Request is currently base don
-    // * if the Pull Request exists and has a base branch, it's the top of that
-    //   base branch
-    let (current_base_oid, current_pr_master_base) = match &pull_request {
-        Some(pr) => {
-            if have_base_branch {
-                let master_base = git.find_master_base(
-                    pr.head_oid,
-                    git.resolve_reference(&config.remote_master_ref)?,
-                )?;
-                (pr.base_oid, master_base)
+            if base_is_master {
+                None
             } else {
-                let master_base =
-                    git.find_master_base(pr.head_oid, pr.base_oid)?;
-                (master_base.unwrap_or(pr.base_oid), master_base)
+                base_branch_name.map(String::from)
             }
         }
-        None => (master_base_oid, None),
+        None => None,
     };
-    let needs_merging_master = current_pr_master_base != Some(master_base_oid);
 
-    // If there is no base branch (yet), we can try and cherry-pick the commit
-    // onto its base on master. If this succeeds, then we do not need to create
-    // a base branch, as we can review this commit against master.
-    let cherrypicked_tree = if have_base_branch || opts.base {
-        None
-    } else {
-        let index = git.cherrypick(local_commit.oid, master_base_oid)?;
+    // Get the tree ids of the current head of the Pull Request, as well as the
+    // base, and the commit id of the master commit this PR is currently based
+    // on.
+    // If there is no pre-existing Pull Request, we fill in the equivalent
+    // values.
+    let (pr_head_oid, pr_head_tree, pr_base_oid, pr_base_tree, pr_master_base) =
+        if let Some(pr) = &pull_request {
+            let pr_head_tree = git.get_tree_oid_for_commit(pr.head_oid)?;
 
-        if index.has_conflicts() {
-            None
+            let current_master_oid =
+                git.resolve_reference(&config.remote_master_ref)?;
+            let pr_base_oid =
+                git.repo().merge_base(pr.head_oid, pr.base_oid)?;
+            let pr_base_tree = git.get_tree_oid_for_commit(pr_base_oid)?;
+
+            let pr_master_base =
+                git.repo().merge_base(pr.head_oid, current_master_oid)?;
+
+            (
+                pr.head_oid,
+                pr_head_tree,
+                pr_base_oid,
+                pr_base_tree,
+                pr_master_base,
+            )
         } else {
-            // This is the tree we are getting from cherrypicking the local commit
-            // on the selected base (master or stacked-on Pull Request).
-            Some(git.write_index(index)?)
-        }
-    };
-    let using_base_branch = cherrypicked_tree.is_none();
-    // At this point, `have_base_branch` means whether a base branch exists and
-    // is used already by the existing Pull Request. This is always false if we
-    // are not working with an existing Pull Request. `using_base_branch` on the
-    // other hand means if we need a base branch for creating/updating this Pull
-    // Request.
-
-    // This is the tree for the commit we want to submit
-    let tree_oid = git.get_tree_oid_for_commit(local_commit.oid)?;
-
-    // This is the tree of the parent commit. The Pull Request should show the
-    // changes between these two trees.
-    let parent_tree_oid =
-        git.get_tree_oid_for_commit(local_commit.parent_oid)?;
+            let master_base_tree =
+                git.get_tree_oid_for_commit(master_base_oid)?;
+            (
+                master_base_oid,
+                master_base_tree,
+                master_base_oid,
+                master_base_tree,
+                master_base_oid,
+            )
+        };
+    let needs_merging_master = pr_master_base != master_base_oid;
 
     // At this point we can check if we can exit early because no update to the
     // existing Pull Request is necessary
-    if let Some(ref pull_request) = pull_request {
+    if pull_request.is_some() {
         // So there is an existing Pull Request...
-        if !needs_merging_master && have_base_branch == using_base_branch {
-            // ...and it does not need a rebase, nor do we introduce a base
-            // branch...
-            // So, the PRs head commit should be:
-            // - the same as the local commit if we use a base branch
-            // - the same as what we got just now from cherrypicking onto
-            //   master, otherwise
-            let pr_head_tree_oid =
-                git.get_tree_oid_for_commit(pull_request.head_oid)?;
-            let expected_tree_oid = cherrypicked_tree.unwrap_or(tree_oid);
-            if pr_head_tree_oid == expected_tree_oid {
-                // Also, if we use a base branch, the parent of the local commit
-                // should have the same tree as the latest base branch commit.
-                if !have_base_branch
-                    || parent_tree_oid
-                        == git.get_tree_oid_for_commit(pull_request.base_oid)?
-                {
-                    // We don't have a base branch, or if we do, the local
-                    // parent commit has the some tree as the base branch on
-                    // GitHub.
-                    output("✅", "No update necessary")?;
-                    return Ok(());
-                }
-            }
+        if !needs_merging_master
+            && pr_head_tree == new_head_tree
+            && pr_base_tree == new_base_tree
+        {
+            // ...and it does not need a rebase, and the trees of both Pull
+            // Request branch and base are all the right ones.
+            output("✅", "No update necessary")?;
+            return Ok(());
         }
     }
 
     // This is the commit we need to merge into the Pull Request branch to
     // reflect changes in the base of this commit.
-    let pr_base_parent = if using_base_branch {
-        // We are operating with a base branch. This might be a new Pull Request
-        // that cannot be cherry-picked on master, or it might be an existing
-        // one, and in that case the situation could be either that we already
-        // created the base branch before, or that this Pull Request was created
-        // against master but now has to be turned into one with a base branch.
-        // We need to create a new commit for the base branch now, if: we
-        // haven't created the base branch before, or we need to merge master
-        // into the base branch, or the existing base branch's top commit has a
-        // different tree than the parent of the commit that is being diffed.
-        if !have_base_branch
-            || needs_merging_master
-            || git.get_tree_oid_for_commit(current_base_oid)? != parent_tree_oid
-        {
-            // One parent of the new base branch commit will be the current base
-            // commit, that could be either the top commit of an existing base
-            // branch, or a commit on master.
-            let mut parents = vec![current_base_oid];
+    let pr_base_parent = if pr_base_tree != new_base_tree
+        || (base_branch.is_some() && needs_merging_master)
+    {
+        // The current base tree of the Pull Request is not what we need. Or, we
+        // need to merge in master while already having a base branch. (Although
+        // when the latter is the case, the former probably is true, too.)
 
-            // If we need to rebase on master, make the master commit also a
-            // parent (except if the first parent is that same commit, we don't
-            // want duplicates in `parents`).
-            if needs_merging_master && current_base_oid != master_base_oid {
-                parents.push(master_base_oid);
-            }
+        // One parent of the new base branch commit will be the current base
+        // commit, that could be either the top commit of an existing base
+        // branch, or a commit on master.
+        let mut parents = vec![pr_base_oid];
 
-            Some(git.create_derived_commit(
-                local_commit.parent_oid,
-                if pull_request.is_some() {
-                    "[𝘀𝗽𝗿] 𝘤𝘩𝘢𝘯𝘨𝘦𝘴 𝘪𝘯𝘵𝘳𝘰𝘥𝘶𝘤𝘦𝘥 𝘵𝘩𝘳𝘰𝘶𝘨𝘩 𝘳𝘦𝘣𝘢𝘴𝘦\n\n[skip ci]"
-                } else {
-                    "[𝘀𝗽𝗿] 𝘤𝘩𝘢𝘯𝘨𝘦𝘴 𝘵𝘰 𝘮𝘢𝘴𝘵𝘦𝘳 𝘵𝘩𝘪𝘴 𝘤𝘰𝘮𝘮𝘪𝘵 𝘪𝘴 𝘣𝘢𝘴𝘦𝘥 𝘰𝘯\n\n[skip ci]"
-                },
-                parent_tree_oid,
-                &parents[..],
-            )?)
-        } else {
-            None
+        // If we need to rebase on master, make the master commit also a
+        // parent (except if the first parent is that same commit, we don't
+        // want duplicates in `parents`).
+        if needs_merging_master && pr_base_oid != master_base_oid {
+            parents.push(master_base_oid);
         }
+
+        Some(git.create_derived_commit(
+            local_commit.parent_oid,
+            if pull_request.is_some() {
+                "[𝘀𝗽𝗿] 𝘤𝘩𝘢𝘯𝘨𝘦𝘴 𝘪𝘯𝘵𝘳𝘰𝘥𝘶𝘤𝘦𝘥 𝘵𝘩𝘳𝘰𝘶𝘨𝘩 𝘳𝘦𝘣𝘢𝘴𝘦\n\n[skip ci]"
+            } else {
+                "[𝘀𝗽𝗿] 𝘤𝘩𝘢𝘯𝘨𝘦𝘴 𝘵𝘰 𝘮𝘢𝘴𝘵𝘦𝘳 𝘵𝘩𝘪𝘴 𝘤𝘰𝘮𝘮𝘪𝘵 𝘪𝘴 𝘣𝘢𝘴𝘦𝘥 𝘰𝘯\n\n[skip ci]"
+            },
+            new_base_tree,
+            &parents[..],
+        )?)
     } else {
         // We are operating without a base branch, i.e. this Pull Request is
         // against the master branch. If the commit was rebased, we have to
@@ -362,14 +359,10 @@ async fn diff_impl(
         github_commit_message = Some(input);
     }
 
-    // Construct the new commit for the Pull Request branch
-    let mut pr_commit_parents = Vec::new();
-
-    // If the Pull Request exists already, the head commit is parent of the new
-    // commit
-    if let Some(pr) = &pull_request {
-        pr_commit_parents.push(pr.head_oid);
-    }
+    // Construct the new commit for the Pull Request branch. First parent is the
+    // current head commit of the Pull Request (we set this to the master base
+    // commit earlier if the Pull Request does not yet exist)
+    let mut pr_commit_parents = vec![pr_head_oid];
 
     // If we prepared a commit earlier that needs merging into the Pull Request
     // branch, then that commit is a parent of the new Pull Request commit.
@@ -388,7 +381,7 @@ async fn diff_impl(
             .as_ref()
             .map(|s| &s[..])
             .unwrap_or("[𝘀𝗽𝗿] 𝘪𝘯𝘪𝘵𝘪𝘢𝘭 𝘷𝘦𝘳𝘴𝘪𝘰𝘯"),
-        cherrypicked_tree.unwrap_or(tree_oid),
+        new_head_tree,
         &pr_commit_parents[..],
     )?;
 
@@ -439,10 +432,11 @@ async fn diff_impl(
             }
         }
 
-        if using_base_branch {
+        if pr_base_parent.is_some() {
             // We are using a base branch.
-            let base_branch_name =
-                config.get_base_branch_name(pull_request.number);
+            let base_branch_name = base_branch.unwrap_or_else(|| {
+                config.get_base_branch_name(pull_request.number)
+            });
 
             if let Some(base_branch_commit) = pr_base_parent {
                 // ...and we prepared a new commit for it, so we need to push an
@@ -496,7 +490,7 @@ async fn diff_impl(
             )
             .await?;
 
-        if using_base_branch {
+        if pr_base_parent.is_some() {
             // We are using a base branch.
             let base_branch_name =
                 config.get_base_branch_name(pull_request_number);

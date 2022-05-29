@@ -23,6 +23,7 @@ use std::collections::{HashMap, HashSet};
 #[derive(Clone)]
 pub struct GitHub {
     pub config: crate::config::Config,
+    graphql_client: reqwest::Client,
 
     pull_request_cache: std::rc::Rc<AsyncMemoizer<u64, Result<PullRequest>>>,
     user_cache: std::rc::Rc<AsyncMemoizer<String, Result<UserWithName>>>,
@@ -90,6 +91,14 @@ pub struct UserWithName {
     pub is_collaborator: bool,
 }
 
+#[derive(Debug, Clone)]
+pub struct PullRequestMergeability {
+    pub base: String,
+    pub head_oid: git2::Oid,
+    pub mergeable: Option<bool>,
+    pub merge_commit: Option<git2::Oid>,
+}
+
 #[derive(GraphQLQuery)]
 #[graphql(
     schema_path = "src/gql/schema.docs.graphql",
@@ -98,6 +107,14 @@ pub struct UserWithName {
 )]
 pub struct PullRequestQuery;
 type GitObjectID = String;
+
+#[derive(GraphQLQuery)]
+#[graphql(
+    schema_path = "src/gql/schema.docs.graphql",
+    query_path = "src/gql/pullrequest_mergeability_query.graphql",
+    response_derives = "Debug"
+)]
+pub struct PullRequestMergeabilityQuery;
 
 impl GitHub {
     pub fn new(
@@ -108,6 +125,7 @@ impl GitHub {
         let pull_request_cache = std::rc::Rc::new(AsyncMemoizer::new({
             let config = config.clone();
             let git = git.clone();
+            let graphql_client = graphql_client.clone();
             move |number| {
                 GitHub::get_pull_request_impl(
                     number,
@@ -138,6 +156,7 @@ impl GitHub {
             pull_request_cache,
             user_cache,
             reviewers_cache,
+            graphql_client,
         }
     }
 
@@ -444,5 +463,58 @@ impl GitHub {
         }
 
         Ok::<_, Error>(map)
+    }
+
+    pub async fn get_pull_request_mergeability(
+        &self,
+        number: u64,
+    ) -> Result<PullRequestMergeability> {
+        let variables = pull_request_mergeability_query::Variables {
+            name: self.config.repo.clone(),
+            owner: self.config.owner.clone(),
+            number: number as i64,
+        };
+        let request_body = PullRequestMergeabilityQuery::build_query(variables);
+        let res = self
+            .graphql_client
+            .post("https://api.github.com/graphql")
+            .json(&request_body)
+            .send()
+            .compat()
+            .await?;
+        let response_body: Response<
+            pull_request_mergeability_query::ResponseData,
+        > = res.json().await?;
+
+        if let Some(errors) = response_body.errors {
+            let error = Err(Error::new(format!(
+                "querying PR #{number} mergeability failed"
+            )));
+            return errors
+                .into_iter()
+                .fold(error, |err, e| err.context(e.to_string()));
+        }
+
+        let pr = response_body
+            .data
+            .ok_or_else(|| Error::new("failed to fetch PR"))?
+            .repository
+            .ok_or_else(|| Error::new("failed to find repository"))?
+            .pull_request
+            .ok_or_else(|| Error::new("failed to find PR"))?;
+
+        Ok::<_, Error>(PullRequestMergeability {
+            base: normalise_ref(pr.base_ref_name).into(),
+            head_oid: git2::Oid::from_str(&pr.head_ref_oid)?,
+            mergeable: match pr.mergeable {
+                pull_request_mergeability_query::MergeableState::CONFLICTING => Some(false),
+                pull_request_mergeability_query::MergeableState::MERGEABLE => Some(true),
+                pull_request_mergeability_query::MergeableState::UNKNOWN => None,
+                _ => None,
+            },
+            merge_commit: pr
+            .merge_commit
+            .and_then(|sha| git2::Oid::from_str(&sha.oid).ok()),
+        })
     }
 }
