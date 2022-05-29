@@ -27,27 +27,9 @@ pub async fn land(
     config: &crate::config::Config,
 ) -> Result<()> {
     git.check_no_uncommitted_changes()?;
+    let mut prepared_commits = git.get_prepared_commits(config)?;
 
-    let head_oid = git.head()?;
-    let head_commit = git.repo().find_commit(head_oid)?;
-    let head_parent_count = head_commit.parent_count();
-
-    if head_parent_count > 1 {
-        return Err(Error::new("Cannot land merge commits."));
-    }
-    if head_parent_count != 1 {
-        return Err(Error::new("Cannot land commit with no parents."));
-    }
-
-    let master_oid = git.resolve_reference(&config.remote_master_ref)?;
-    let merge_base = git.repo().merge_base(head_oid, master_oid)?;
-
-    if merge_base == head_oid {
-        output("👋", "Branch is empty - nothing to do. Good bye!")?;
-        return Ok(());
-    }
-
-    if head_commit.parent_id(0)? != merge_base {
+    if prepared_commits.len() > 1 {
         return Err(Error::new(formatdoc!(
             "Cannot land a commit whose parent is not on {master}. To land \
              this commit, rebase it so that it is a direct child of {master}.",
@@ -55,9 +37,15 @@ pub async fn land(
         )));
     }
 
-    let prepared_commit = git.prepare_commit(config, head_oid)?;
+    let prepared_commit = match prepared_commits.last_mut() {
+        Some(c) => c,
+        None => {
+            output("👋", "Branch is empty - nothing to do. Good bye!")?;
+            return Ok(());
+        }
+    };
 
-    write_commit_title(&prepared_commit)?;
+    write_commit_title(prepared_commit)?;
 
     let pull_request_number =
         if let Some(number) = prepared_commit.pull_request_number {
@@ -333,11 +321,13 @@ pub async fn land(
                 return Err(Error::new("git fetch failed"));
             }
         }
-        git.rebase_commits(&mut [prepared_commit], git2::Oid::from_str(&sha)?)
-            .context(
-                "The automatic rebase failed - please rebase manually!"
-                    .to_string(),
-            )?;
+        git.rebase_commits(
+            &mut prepared_commits[..],
+            git2::Oid::from_str(&sha)?,
+        )
+        .context(
+            "The automatic rebase failed - please rebase manually!".to_string(),
+        )?;
     }
 
     // Wait for the "git push" to delete the old Pull Request branch to finish,
