@@ -1580,6 +1580,7 @@ version = "1.2.4"
 dependencies = [
  "async-compat",
  "async-executor",
+ "async-io",
  "async-lock",
  "async-process",
  "clap",
