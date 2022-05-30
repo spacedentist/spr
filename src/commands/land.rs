@@ -39,7 +39,9 @@ pub async fn land(
     if based_on_unlanded_commits && !opts.cherry_pick {
         return Err(Error::new(formatdoc!(
             "Cannot land a commit whose parent is not on {master}. To land \
-             this commit, rebase it so that it is a direct child of {master}.",
+             this commit, rebase it so that it is a direct child of {master}.
+             Alternatively, if you used the `--cherry-pick` option with `spr \
+             diff`, then you can pass it to `spr land`, too.",
             master = &config.master_branch,
         )));
     }
