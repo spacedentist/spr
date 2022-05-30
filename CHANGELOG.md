@@ -1,5 +1,12 @@
 # Changelog
 
+## [Unreleased]
+
+### Improvements
+
+- make land command reject local changes on land
+- replace `--base` option with `--cherry-pick` in `spr diff`
+
 ## [1.2.4] - 2022-05-26
 
 ### Fixes
