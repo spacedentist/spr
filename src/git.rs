@@ -195,6 +195,17 @@ impl Git {
         Ok(())
     }
 
+    pub fn head(&self) -> Result<Oid> {
+        let oid = self
+            .repo
+            .head()?
+            .resolve()?
+            .target()
+            .ok_or_else(|| Error::new("Cannot resolve HEAD"))?;
+
+        Ok(oid)
+    }
+
     pub fn resolve_reference(&self, reference: &str) -> Result<Oid> {
         let result =
             self.repo.find_reference(reference)?.peel_to_commit()?.id();
