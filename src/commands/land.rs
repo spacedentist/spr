@@ -18,10 +18,15 @@ use crate::{
 };
 
 #[derive(Debug, clap::Parser)]
-pub struct LandOptions {}
+pub struct LandOptions {
+    /// Merge a Pull Request that was created or updated with spr diff
+    /// --cherry-pick
+    #[clap(long)]
+    cherry_pick: bool,
+}
 
 pub async fn land(
-    _opts: LandOptions,
+    opts: LandOptions,
     git: &crate::git::Git,
     gh: &mut crate::github::GitHub,
     config: &crate::config::Config,
@@ -29,10 +34,14 @@ pub async fn land(
     git.check_no_uncommitted_changes()?;
     let mut prepared_commits = git.get_prepared_commits(config)?;
 
-    if prepared_commits.len() > 1 {
+    let based_on_unlanded_commits = prepared_commits.len() > 1;
+
+    if based_on_unlanded_commits && !opts.cherry_pick {
         return Err(Error::new(formatdoc!(
             "Cannot land a commit whose parent is not on {master}. To land \
-             this commit, rebase it so that it is a direct child of {master}.",
+             this commit, rebase it so that it is a direct child of {master}.
+             Alternatively, if you used the `--cherry-pick` option with `spr \
+             diff`, then you can pass it to `spr land`, too.",
             master = &config.master_branch,
         )));
     }
@@ -96,11 +105,15 @@ pub async fn land(
     if index.has_conflicts() {
         return Err(Error::new(formatdoc!(
             "This commit cannot be applied on top of the '{master}' branch.
-             Please rebase this commit on top of current '{remote}/{master}'. \
-             You may also have to land commits that this commit depends on \
-             first.",
+             Please rebase this commit on top of current \
+             '{remote}/{master}'.{unlanded}",
             master = &config.master_branch,
-            remote = &config.remote_name
+            remote = &config.remote_name,
+            unlanded = if based_on_unlanded_commits {
+                " You may also have to land commits that this commit depends on first."
+            } else {
+                ""
+            },
         )));
     }
 
