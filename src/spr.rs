@@ -10,8 +10,9 @@ use clap::{Parser, Subcommand};
 use reqwest::{self, header};
 
 #[derive(Parser, Debug)]
-#[clap(name = "spr")]
 #[clap(
+    name = "spr",
+    version,
     about = "Submit pull requests for individual, amendable, rebaseable commits to GitHub"
 )]
 pub struct Cli {
