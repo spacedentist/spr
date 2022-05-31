@@ -21,7 +21,6 @@ pub enum MessageSection {
     Reviewers,
     ReviewedBy,
     PullRequest,
-    StackedOn,
 }
 
 pub fn message_section_label(section: &MessageSection) -> &'static str {
@@ -34,7 +33,6 @@ pub fn message_section_label(section: &MessageSection) -> &'static str {
         Reviewers => "Reviewers",
         ReviewedBy => "Reviewed By",
         PullRequest => "Pull Request",
-        StackedOn => "Stacked On",
     }
 }
 
@@ -49,7 +47,6 @@ pub fn message_section_by_label(label: &str) -> Option<MessageSection> {
         "reviewers" => Some(Reviewers),
         "reviewed by" => Some(ReviewedBy),
         "pull request" => Some(PullRequest),
-        "stacked on" => Some(StackedOn),
         _ => None,
     }
 }
@@ -175,7 +172,6 @@ pub fn build_commit_message(section_texts: &MessageSectionsMap) -> String {
             MessageSection::Reviewers,
             MessageSection::ReviewedBy,
             MessageSection::PullRequest,
-            MessageSection::StackedOn,
         ],
     )
 }
@@ -183,11 +179,7 @@ pub fn build_commit_message(section_texts: &MessageSectionsMap) -> String {
 pub fn build_github_body(section_texts: &MessageSectionsMap) -> String {
     build_message(
         section_texts,
-        &[
-            MessageSection::Summary,
-            MessageSection::TestPlan,
-            MessageSection::StackedOn,
-        ],
+        &[MessageSection::Summary, MessageSection::TestPlan],
     )
 }
 
