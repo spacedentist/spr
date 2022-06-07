@@ -1,5 +1,11 @@
 # Changelog
 
+## [Unreleased]
+
+### Security
+
+- remove dependency on `failure` to fix CVE-2019-25010
+
 ## [1.3.0] - 2022-06-01
 
 ### Improvements
