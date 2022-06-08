@@ -81,7 +81,7 @@ impl Config {
         existing_ref_names: &HashSet<String>,
         title: &str,
     ) -> String {
-        self.find_unused_branch_name(&existing_ref_names, &slugify(title))
+        self.find_unused_branch_name(existing_ref_names, &slugify(title))
     }
 
     pub fn get_base_branch_name(
@@ -90,8 +90,8 @@ impl Config {
         title: &str,
     ) -> String {
         self.find_unused_branch_name(
-            &existing_ref_names,
-            &format!("{}/{}", &self.master_branch, &slugify(title)),
+            existing_ref_names,
+            &format!("{}.{}", &self.master_branch, &slugify(title)),
         )
     }
 

@@ -231,12 +231,7 @@ async fn diff_impl(
 
     let pull_request_branch_name = match &pull_request {
         Some(pr) => get_branch_name_from_ref_name(&pr.head)?.to_string(),
-        None => config.get_new_branch_name(&git.get_all_ref_names()?, &title),
-    };
-
-    let base_branch_name = match &pull_request {
-        Some(pr) => get_branch_name_from_ref_name(&pr.base)?.to_string(),
-        None => config.get_base_branch_name(&git.get_all_ref_names()?, &title),
+        None => config.get_new_branch_name(&git.get_all_ref_names()?, title),
     };
 
     // Check if there is a base branch on GitHub already. That's the case when
@@ -254,6 +249,11 @@ async fn diff_impl(
             }
         }
         None => None,
+    };
+
+    let base_branch_name = match &base_branch {
+        Some(br) => br.to_string(),
+        None => config.get_base_branch_name(&git.get_all_ref_names()?, title),
     };
 
     // Get the tree ids of the current head of the Pull Request, as well as the
@@ -477,28 +477,19 @@ async fn diff_impl(
         }
     } else {
         // We are creating a new Pull Request.
-        // First, push the Pull Request branch.
+
+        // If there's a base branch, add it to the push
+        if pr_base_parent.is_some() {
+            cmd.arg(format!(
+                "{}:refs/heads/{}",
+                pr_base_parent.unwrap(),
+                base_branch_name
+            ));
+        }
+        // Push the pull request branch and the base branch if present
         run_command(&mut cmd)
             .await
             .reword("git push failed".to_string())?;
-        // Next, push the base branch, if there is one
-        if pr_base_parent.is_some() {
-            // Push the base branch...
-            let mut cmd = async_process::Command::new("git");
-            cmd.arg("push")
-                .arg("--atomic")
-                .arg("--no-verify")
-                .arg("--")
-                .arg(&config.remote_name)
-                .arg(format!(
-                    "{}:refs/heads/{}",
-                    pr_base_parent.unwrap(),
-                    base_branch_name
-                ));
-            run_command(&mut cmd)
-                .await
-                .reword("git push failed".to_string())?;
-        }
 
         // Then call GitHub to create the Pull Request.
         let pull_request_number = gh
