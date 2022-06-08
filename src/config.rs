@@ -81,9 +81,27 @@ impl Config {
         existing_ref_names: &HashSet<String>,
         title: &str,
     ) -> String {
+        self.find_unused_branch_name(&existing_ref_names, &slugify(title))
+    }
+
+    pub fn get_base_branch_name(
+        &self,
+        existing_ref_names: &HashSet<String>,
+        title: &str,
+    ) -> String {
+        self.find_unused_branch_name(
+            &existing_ref_names,
+            &format!("{}/{}", &self.master_branch, &slugify(title)),
+        )
+    }
+
+    fn find_unused_branch_name(
+        &self,
+        existing_ref_names: &HashSet<String>,
+        slug: &str,
+    ) -> String {
         let remote_name = &self.remote_name;
         let branch_prefix = &self.branch_prefix;
-        let slug = slugify(title);
         let mut branch_name = format!("{branch_prefix}{slug}");
         let mut suffix = 0;
 
@@ -98,13 +116,6 @@ impl Config {
             suffix += 1;
             branch_name = format!("{branch_prefix}{slug}-{suffix}");
         }
-    }
-
-    pub fn get_base_branch_name(&self, pull_request_number: u64) -> String {
-        format!(
-            "{}{}/{}",
-            &self.branch_prefix, &self.master_branch, pull_request_number
-        )
     }
 }
 
