@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### Fixes
+
+- register base branch at PR creation time instead of after
+
 ### Security
 
 - remove dependency on `failure` to fix CVE-2019-25010
