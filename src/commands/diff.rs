@@ -223,15 +223,15 @@ async fn diff_impl(
 
     // Get the name of the existing Pull Request branch, or constuct one if
     // there is none yet.
+
+    let title = message
+        .get(&MessageSection::Title)
+        .map(|t| &t[..])
+        .unwrap_or("");
+
     let pull_request_branch_name = match &pull_request {
         Some(pr) => get_branch_name_from_ref_name(&pr.head)?.to_string(),
-        None => config.get_new_branch_name(
-            &git.get_all_ref_names()?,
-            message
-                .get(&MessageSection::Title)
-                .map(|t| &t[..])
-                .unwrap_or(""),
-        ),
+        None => config.get_new_branch_name(&git.get_all_ref_names()?, title),
     };
 
     // Check if there is a base branch on GitHub already. That's the case when
@@ -249,6 +249,11 @@ async fn diff_impl(
             }
         }
         None => None,
+    };
+
+    let base_branch_name = match &base_branch {
+        Some(br) => br.to_string(),
+        None => config.get_base_branch_name(&git.get_all_ref_names()?, title),
     };
 
     // Get the tree ids of the current head of the Pull Request, as well as the
@@ -434,9 +439,6 @@ async fn diff_impl(
 
         if pr_base_parent.is_some() {
             // We are using a base branch.
-            let base_branch_name = base_branch.unwrap_or_else(|| {
-                config.get_base_branch_name(pull_request.number)
-            });
 
             if let Some(base_branch_commit) = pr_base_parent {
                 // ...and we prepared a new commit for it, so we need to push an
@@ -475,7 +477,16 @@ async fn diff_impl(
         }
     } else {
         // We are creating a new Pull Request.
-        // First, push the Pull Request branch.
+
+        // If there's a base branch, add it to the push
+        if pr_base_parent.is_some() {
+            cmd.arg(format!(
+                "{}:refs/heads/{}",
+                pr_base_parent.unwrap(),
+                base_branch_name
+            ));
+        }
+        // Push the pull request branch and the base branch if present
         run_command(&mut cmd)
             .await
             .reword("git push failed".to_string())?;
@@ -484,44 +495,15 @@ async fn diff_impl(
         let pull_request_number = gh
             .create_pull_request(
                 message,
-                config.master_ref.clone(),
+                if pr_base_parent.is_some() {
+                    format!("refs/heads/{}", base_branch_name)
+                } else {
+                    config.master_ref.clone()
+                },
                 format!("refs/heads/{}", pull_request_branch_name),
                 opts.draft,
             )
             .await?;
-
-        if pr_base_parent.is_some() {
-            // We are using a base branch.
-            let base_branch_name =
-                config.get_base_branch_name(pull_request_number);
-
-            // Push the base branch...
-            let mut cmd = async_process::Command::new("git");
-            cmd.arg("push")
-                .arg("--atomic")
-                .arg("--no-verify")
-                .arg("--")
-                .arg(&config.remote_name)
-                .arg(format!(
-                    "{}:refs/heads/{}",
-                    pr_base_parent.unwrap(),
-                    base_branch_name
-                ));
-            run_command(&mut cmd)
-                .await
-                .reword("git push failed".to_string())?;
-
-            // And update the Pull Request we just created to set the base
-            // branch name.
-            gh.update_pull_request(
-                pull_request_number,
-                PullRequestUpdate {
-                    base: Some(format!("refs/heads/{}", base_branch_name)),
-                    ..Default::default()
-                },
-            )
-            .await?;
-        }
 
         let pull_request_url = config.pull_request_url(pull_request_number);
 
