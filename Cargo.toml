@@ -28,7 +28,7 @@ serde = "^1.0.136"
 textwrap = "0.15.0"
 thiserror = "^1.0.30"
 unicode-normalization = "^0.1.19"
-graphql_client = { git = "https://github.com/graphql-rust/graphql-client", rev = "64ad4e34a6f9eb120ea83934bd68af18dbaf4a15" }
+graphql_client = { version = "0.10.0", git = "https://github.com/graphql-rust/graphql-client", rev = "64ad4e34a6f9eb120ea83934bd68af18dbaf4a15" }
 reqwest = { version = "^0.11", features = ["json"] }
 
 [dev-dependencies]
