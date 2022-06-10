@@ -5,6 +5,7 @@
 ### Fixes
 
 - register base branch at PR creation time instead of after
+- fix `--update-message` option of `spr diff` when invoked without making changes to the commit tree
 
 ### Security
 

@@ -11,7 +11,7 @@ use crate::{
     github::{
         PullRequestRequestReviewers, PullRequestState, PullRequestUpdate,
     },
-    message::{build_github_body, validate_commit_message, MessageSection},
+    message::{validate_commit_message, MessageSection},
     output::{output, write_commit_title},
     utils::{
         get_branch_name_from_ref_name, parse_name_list, remove_all_parens,
@@ -296,7 +296,7 @@ async fn diff_impl(
 
     // At this point we can check if we can exit early because no update to the
     // existing Pull Request is necessary
-    if pull_request.is_some() {
+    if let Some(ref pull_request) = pull_request {
         // So there is an existing Pull Request...
         if !needs_merging_master
             && pr_head_tree == new_head_tree
@@ -305,6 +305,26 @@ async fn diff_impl(
             // ...and it does not need a rebase, and the trees of both Pull
             // Request branch and base are all the right ones.
             output("✅", "No update necessary")?;
+
+            if opts.update_message {
+                // However, the user requested to update the commit message on
+                // GitHub
+
+                let mut pull_request_updates: PullRequestUpdate =
+                    Default::default();
+                pull_request_updates.update_message(pull_request, message);
+
+                if !pull_request_updates.is_empty() {
+                    // ...and there are actual changes to the message
+                    gh.update_pull_request(
+                        pull_request.number,
+                        pull_request_updates,
+                    )
+                    .await?;
+                    output("✍", "Updated commit message on GitHub")?;
+                }
+            }
+
             return Ok(());
         }
     }
@@ -426,15 +446,7 @@ async fn diff_impl(
         let mut pull_request_updates: PullRequestUpdate = Default::default();
 
         if opts.update_message {
-            let title = message.get(&MessageSection::Title);
-            if title != Some(&pull_request.title) {
-                pull_request_updates.title = title.cloned();
-            }
-
-            let body = build_github_body(message);
-            if pull_request.body.as_ref() != Some(&body) {
-                pull_request_updates.body = Some(body);
-            }
+            pull_request_updates.update_message(&pull_request, message);
         }
 
         if pr_base_parent.is_some() {
