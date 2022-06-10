@@ -69,6 +69,22 @@ impl PullRequestUpdate {
     pub fn is_empty(&self) -> bool {
         self.title.is_none() && self.body.is_none() && self.base.is_none()
     }
+
+    pub fn update_message(
+        &mut self,
+        pull_request: &PullRequest,
+        message: &MessageSectionsMap,
+    ) {
+        let title = message.get(&MessageSection::Title);
+        if title.is_some() && title != Some(&pull_request.title) {
+            self.title = title.cloned();
+        }
+
+        let body = build_github_body(message);
+        if pull_request.body.as_ref() != Some(&body) {
+            self.body = Some(body);
+        }
+    }
 }
 
 #[derive(serde::Serialize, Default, Debug)]
