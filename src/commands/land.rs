@@ -69,13 +69,15 @@ pub async fn land(
     // Load Pull Request information
     let pull_request = gh.get_pull_request(pull_request_number).await??;
 
-    if config.require_approval && pull_request.state != PullRequestState::Open {
+    if pull_request.state != PullRequestState::Open {
         return Err(Error::new(formatdoc!(
             "This Pull Request is already closed!",
         )));
     }
 
-    if pull_request.review_status != Some(ReviewStatus::Approved) {
+    if config.require_approval
+        && pull_request.review_status != Some(ReviewStatus::Approved)
+    {
         return Err(Error::new(
             "This Pull Request has not been approved on GitHub.",
         ));
