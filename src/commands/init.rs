@@ -40,9 +40,9 @@ pub async fn init(_opts: &crate::spr::Cli) -> Result<()> {
              from GitHub. This will authorise spr to open/update/merge Pull \
              Requests etc. on behalf of your GitHub user.
              You can get one by going to https://github.com/settings/tokens \
-             and clicking on 'Generate new token'. The token needs the 'repo' \
-             and 'user' permissions, so please tick those two boxes in the \
-             'Select scopes' section.
+             and clicking on 'Generate new token'. The token needs the 'repo', \
+             'user' and 'read:org' permissions, so please tick those two boxes \
+             in the 'Select scopes' section.
              You might want to set the 'Expiration' to 'No expiration', as \
              otherwise you will have to repeat this procedure soon. Even \
              if the token does not expire, you can always revoke it in case \
