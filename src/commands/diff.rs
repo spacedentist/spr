@@ -375,6 +375,7 @@ async fn diff_impl(
     if pull_request.is_some() && github_commit_message.is_none() {
         let input = dialoguer::Input::<String>::new()
             .with_prompt("Message (leave empty to abort)")
+            .allow_empty(true)
             .interact_text()?;
 
         if input.is_empty() {
