@@ -75,7 +75,9 @@ pub async fn land(
         )));
     }
 
-    if pull_request.review_status != Some(ReviewStatus::Approved) {
+    if config.require_approval
+        && pull_request.review_status != Some(ReviewStatus::Approved)
+    {
         return Err(Error::new(
             "This Pull Request has not been approved on GitHub.",
         ));

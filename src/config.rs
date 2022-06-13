@@ -18,6 +18,7 @@ pub struct Config {
     pub master_ref: String,
     pub remote_master_ref: String,
     pub branch_prefix: String,
+    pub require_approval: bool,
 }
 
 impl Config {
@@ -27,6 +28,7 @@ impl Config {
         remote_name: String,
         master_branch: String,
         branch_prefix: String,
+        require_approval: bool,
     ) -> Self {
         let remote_master_ref =
             format!("refs/remotes/{remote_name}/{master_branch}");
@@ -39,6 +41,7 @@ impl Config {
             master_ref,
             remote_master_ref,
             branch_prefix,
+            require_approval,
         }
     }
 
@@ -131,6 +134,7 @@ mod tests {
             "origin".into(),
             "master".into(),
             "spr/foo/".into(),
+            false,
         )
     }
 

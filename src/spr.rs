@@ -123,6 +123,8 @@ pub fn spr() -> Result<()> {
         .get_string("spr.githubMasterBranch")
         .unwrap_or_else(|_| "master".to_string());
     let branch_prefix = config.get_string("spr.branchPrefix")?;
+    let require_approval =
+        config.get_bool("spr.requireApproval").ok().unwrap_or(false);
 
     let config = crate::config::Config::new(
         github_owner,
@@ -130,6 +132,7 @@ pub fn spr() -> Result<()> {
         github_remote_name,
         github_master_branch,
         branch_prefix,
+        require_approval,
     );
 
     octocrab::initialise(
