@@ -11,7 +11,7 @@ use std::{io::Write, time::Duration};
 
 use crate::{
     error::{Error, Result, ResultExt},
-    github::{PullRequestState, PullRequestUpdate, ReviewStatus},
+    github::{PullRequestState, PullRequestUpdate},
     message::build_github_body_for_merging,
     output::{output, write_commit_title},
     utils::{get_branch_name_from_ref_name, run_command},
@@ -73,12 +73,6 @@ pub async fn land(
         return Err(Error::new(formatdoc!(
             "This Pull Request is already closed!",
         )));
-    }
-
-    if pull_request.review_status != Some(ReviewStatus::Approved) {
-        return Err(Error::new(
-            "This Pull Request has not been approved on GitHub.",
-        ));
     }
 
     output("🛫", "Getting started...")?;
