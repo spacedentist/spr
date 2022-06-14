@@ -133,7 +133,7 @@ pub fn spr() -> Result<()> {
         github_master_branch,
         branch_prefix,
         require_approval,
-    );
+    )?;
 
     octocrab::initialise(
         octocrab::Octocrab::builder().personal_token(github_auth_token.clone()),
