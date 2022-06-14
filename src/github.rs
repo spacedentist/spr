@@ -15,7 +15,6 @@ use crate::{
     message::{
         build_github_body, parse_message, MessageSection, MessageSectionsMap,
     },
-    utils::normalise_ref,
 };
 use async_compat::CompatExt;
 use std::collections::{HashMap, HashSet};
@@ -39,8 +38,8 @@ pub struct PullRequest {
     pub title: String,
     pub body: Option<String>,
     pub sections: MessageSectionsMap,
-    pub base: String,
-    pub head: String,
+    pub base: GitHubBranch,
+    pub head: GitHubBranch,
     pub base_oid: git2::Oid,
     pub head_oid: git2::Oid,
     pub merge_commit: Option<git2::Oid>,
@@ -109,7 +108,7 @@ pub struct UserWithName {
 
 #[derive(Debug, Clone)]
 pub struct PullRequestMergeability {
-    pub base: String,
+    pub base: GitHubBranch,
     pub head_oid: git2::Oid,
     pub mergeable: Option<bool>,
     pub merge_commit: Option<git2::Oid>,
@@ -230,13 +229,14 @@ impl GitHub {
             .pull_request
             .ok_or_else(|| Error::new("failed to find PR"))?;
 
-        let head_oid = git2::Oid::from_str(&pr.head_ref_oid)?;
-        let base_oid = git2::Oid::from_str(&pr.base_ref_oid)?;
-        git.fetch_commits_from_remote(
-            &[head_oid, base_oid],
-            &config.remote_name,
-        )
-        .await?;
+        let base = config.new_github_branch_from_ref(&pr.base_ref_name)?;
+        let head = config.new_github_branch_from_ref(&pr.head_ref_name)?;
+
+        git.fetch_from_remote(&[&head, &base], &config.remote_name)
+            .await?;
+
+        let base_oid = git.resolve_reference(base.local())?;
+        let head_oid = git.resolve_reference(head.local())?;
 
         let mut sections = parse_message(&pr.body, MessageSection::Summary);
 
@@ -342,8 +342,8 @@ impl GitHub {
             title: pr.title,
             body: Some(pr.body),
             sections,
-            base: normalise_ref(pr.base_ref_name).into(),
-            head: normalise_ref(pr.head_ref_name).into(),
+            base,
+            head,
             base_oid,
             head_oid,
             reviewers,
@@ -520,7 +520,7 @@ impl GitHub {
             .ok_or_else(|| Error::new("failed to find PR"))?;
 
         Ok::<_, Error>(PullRequestMergeability {
-            base: normalise_ref(pr.base_ref_name).into(),
+            base: self.config.new_github_branch_from_ref(&pr.base_ref_name)?,
             head_oid: git2::Oid::from_str(&pr.head_ref_oid)?,
             mergeable: match pr.mergeable {
                 pull_request_mergeability_query::MergeableState::CONFLICTING => Some(false),
@@ -532,5 +532,184 @@ impl GitHub {
             .merge_commit
             .and_then(|sha| git2::Oid::from_str(&sha.oid).ok()),
         })
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct GitHubBranch {
+    ref_on_github: String,
+    ref_local: String,
+    is_master_branch: bool,
+}
+
+impl GitHubBranch {
+    pub fn new_from_ref(
+        ghref: &str,
+        remote_name: &str,
+        master_branch_name: &str,
+    ) -> Result<Self> {
+        let ref_on_github = if ghref.starts_with("refs/heads/") {
+            ghref.to_string()
+        } else if ghref.starts_with("refs/") {
+            return Err(Error::new(format!(
+                "Ref '{ghref}' does not refer to a branch"
+            )));
+        } else {
+            format!("refs/heads/{ghref}")
+        };
+
+        // The branch name is `ref_on_github` with the `refs/heads/` prefix
+        // (length 11) removed
+        let branch_name = &ref_on_github[11..];
+        let ref_local = format!("refs/remotes/{remote_name}/{branch_name}");
+        let is_master_branch = branch_name == master_branch_name;
+
+        Ok(Self {
+            ref_on_github,
+            ref_local,
+            is_master_branch,
+        })
+    }
+
+    pub fn new_from_branch_name(
+        branch_name: &str,
+        remote_name: &str,
+        master_branch_name: &str,
+    ) -> Self {
+        Self {
+            ref_on_github: format!("refs/heads/{branch_name}"),
+            ref_local: format!("refs/remotes/{remote_name}/{branch_name}"),
+            is_master_branch: branch_name == master_branch_name,
+        }
+    }
+
+    pub fn on_github(&self) -> &str {
+        &self.ref_on_github
+    }
+
+    pub fn local(&self) -> &str {
+        &self.ref_local
+    }
+
+    pub fn is_master_branch(&self) -> bool {
+        self.is_master_branch
+    }
+
+    pub fn branch_name(&self) -> &str {
+        // The branch name is `ref_on_github` with the `refs/heads/` prefix
+        // (length 11) removed
+        &self.ref_on_github[11..]
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    // Note this useful idiom: importing names from outer (for mod tests) scope.
+    use super::*;
+
+    #[test]
+    fn test_new_from_ref_with_branch_name() {
+        let r =
+            GitHubBranch::new_from_ref("foo", "github-remote", "masterbranch")
+                .unwrap();
+        assert_eq!(r.on_github(), "refs/heads/foo");
+        assert_eq!(r.local(), "refs/remotes/github-remote/foo");
+        assert_eq!(r.branch_name(), "foo");
+        assert!(!r.is_master_branch());
+    }
+
+    #[test]
+    fn test_new_from_ref_with_master_branch_name() {
+        let r = GitHubBranch::new_from_ref(
+            "masterbranch",
+            "github-remote",
+            "masterbranch",
+        )
+        .unwrap();
+        assert_eq!(r.on_github(), "refs/heads/masterbranch");
+        assert_eq!(r.local(), "refs/remotes/github-remote/masterbranch");
+        assert_eq!(r.branch_name(), "masterbranch");
+        assert!(r.is_master_branch());
+    }
+
+    #[test]
+    fn test_new_from_ref_with_ref_name() {
+        let r = GitHubBranch::new_from_ref(
+            "refs/heads/foo",
+            "github-remote",
+            "masterbranch",
+        )
+        .unwrap();
+        assert_eq!(r.on_github(), "refs/heads/foo");
+        assert_eq!(r.local(), "refs/remotes/github-remote/foo");
+        assert_eq!(r.branch_name(), "foo");
+        assert!(!r.is_master_branch());
+    }
+
+    #[test]
+    fn test_new_from_ref_with_master_ref_name() {
+        let r = GitHubBranch::new_from_ref(
+            "refs/heads/masterbranch",
+            "github-remote",
+            "masterbranch",
+        )
+        .unwrap();
+        assert_eq!(r.on_github(), "refs/heads/masterbranch");
+        assert_eq!(r.local(), "refs/remotes/github-remote/masterbranch");
+        assert_eq!(r.branch_name(), "masterbranch");
+        assert!(r.is_master_branch());
+    }
+
+    #[test]
+    fn test_new_from_branch_name() {
+        let r = GitHubBranch::new_from_branch_name(
+            "foo",
+            "github-remote",
+            "masterbranch",
+        );
+        assert_eq!(r.on_github(), "refs/heads/foo");
+        assert_eq!(r.local(), "refs/remotes/github-remote/foo");
+        assert_eq!(r.branch_name(), "foo");
+        assert!(!r.is_master_branch());
+    }
+
+    #[test]
+    fn test_new_from_master_branch_name() {
+        let r = GitHubBranch::new_from_branch_name(
+            "masterbranch",
+            "github-remote",
+            "masterbranch",
+        );
+        assert_eq!(r.on_github(), "refs/heads/masterbranch");
+        assert_eq!(r.local(), "refs/remotes/github-remote/masterbranch");
+        assert_eq!(r.branch_name(), "masterbranch");
+        assert!(r.is_master_branch());
+    }
+
+    #[test]
+    fn test_new_from_ref_with_edge_case_ref_name() {
+        let r = GitHubBranch::new_from_ref(
+            "refs/heads/refs/heads/foo",
+            "github-remote",
+            "masterbranch",
+        )
+        .unwrap();
+        assert_eq!(r.on_github(), "refs/heads/refs/heads/foo");
+        assert_eq!(r.local(), "refs/remotes/github-remote/refs/heads/foo");
+        assert_eq!(r.branch_name(), "refs/heads/foo");
+        assert!(!r.is_master_branch());
+    }
+
+    #[test]
+    fn test_new_from_edge_case_branch_name() {
+        let r = GitHubBranch::new_from_branch_name(
+            "refs/heads/foo",
+            "github-remote",
+            "masterbranch",
+        );
+        assert_eq!(r.on_github(), "refs/heads/refs/heads/foo");
+        assert_eq!(r.local(), "refs/remotes/github-remote/refs/heads/foo");
+        assert_eq!(r.branch_name(), "refs/heads/foo");
+        assert!(!r.is_master_branch());
     }
 }
