@@ -19,7 +19,7 @@ use crate::{
     },
 };
 use git2::Oid;
-use indoc::formatdoc;
+use indoc::{formatdoc, indoc};
 
 #[derive(Debug, clap::Parser)]
 pub struct DiffOptions {
@@ -181,6 +181,28 @@ async fn diff_impl(
     } else {
         None
     };
+
+    if !opts.update_message {
+        if let Some(ref pull_request) = pull_request {
+            let mut pull_request_updates: PullRequestUpdate =
+                Default::default();
+            pull_request_updates.update_message(pull_request, message);
+
+            if !pull_request_updates.is_empty() {
+                output(
+                    "⚠️",
+                    indoc!(
+                        "The Pull Request's title/message differ from the \
+                         local commit's message.
+                         Use `spr diff --update-message` to overwrite the \
+                         title and message on GitHub with the local message, \
+                         or `spr amend` to go the other way (rewrite the local \
+                         commit message with what is on GitHub)."
+                    ),
+                )?;
+            }
+        }
+    }
 
     // Parse "Reviewers" section, if this is a new Pull Request
     let mut requested_reviewers = PullRequestRequestReviewers::default();

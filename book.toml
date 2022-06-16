@@ -1,0 +1,14 @@
+[book]
+authors = ["Sven Over"]
+language = "en"
+multilingual = false
+src = "docs"
+title = "spr Documentation"
+
+[build]
+build-dir = "book"
+
+[output.html]
+git-repository-url = "https://github.com/getcord/spr"
+edit-url-template = "https://github.com/getcord/spr/edit/master/{path}"
+site-url = "/spr/"
