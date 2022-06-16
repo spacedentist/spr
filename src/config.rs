@@ -27,20 +27,20 @@ impl Config {
         master_branch: String,
         branch_prefix: String,
         require_approval: bool,
-    ) -> Result<Self> {
-        let master_ref = GitHubBranch::new_from_ref(
+    ) -> Self {
+        let master_ref = GitHubBranch::new_from_branch_name(
             &master_branch,
             &remote_name,
             &master_branch,
-        )?;
-        Ok(Self {
+        );
+        Self {
             owner,
             repo,
             remote_name,
             master_ref,
             branch_prefix,
             require_approval,
-        })
+        }
     }
 
     pub fn pull_request_url(&self, number: u64) -> String {
@@ -153,7 +153,6 @@ mod tests {
             "spr/foo/".into(),
             false,
         )
-        .unwrap()
     }
 
     #[test]

@@ -16,7 +16,7 @@ use crate::{
     utils::{parse_name_list, remove_all_parens, run_command},
 };
 use git2::Oid;
-use indoc::formatdoc;
+use indoc::{formatdoc, indoc};
 
 #[derive(Debug, clap::Parser)]
 pub struct DiffOptions {
@@ -179,6 +179,28 @@ async fn diff_impl(
         None
     };
 
+    if !opts.update_message {
+        if let Some(ref pull_request) = pull_request {
+            let mut pull_request_updates: PullRequestUpdate =
+                Default::default();
+            pull_request_updates.update_message(pull_request, message);
+
+            if !pull_request_updates.is_empty() {
+                output(
+                    "⚠️",
+                    indoc!(
+                        "The Pull Request's title/message differ from the \
+                         local commit's message.
+                         Use `spr diff --update-message` to overwrite the \
+                         title and message on GitHub with the local message, \
+                         or `spr amend` to go the other way (rewrite the local \
+                         commit message with what is on GitHub)."
+                    ),
+                )?;
+            }
+        }
+    }
+
     // Parse "Reviewers" section, if this is a new Pull Request
     let mut requested_reviewers = PullRequestRequestReviewers::default();
 
@@ -235,7 +257,7 @@ async fn diff_impl(
 
     // Check if there is a base branch on GitHub already. That's the case when
     // there is an existing Pull Request, and its base is not the master branch.
-    let (have_base_branch, base_branch) = if let Some(ref pr) = pull_request {
+    let (pr_has_base_branch, base_branch) = if let Some(ref pr) = pull_request {
         if pr.base.is_master_branch() {
             (false, None)
         } else {
@@ -331,7 +353,7 @@ async fn diff_impl(
     // This is the commit we need to merge into the Pull Request branch to
     // reflect changes in the base of this commit.
     let pr_base_parent = if pr_base_tree != new_base_tree
-        || (have_base_branch && needs_merging_master)
+        || (pr_has_base_branch && needs_merging_master)
     {
         // The current base tree of the Pull Request is not what we need. Or, we
         // need to merge in master while already having a base branch. (Although
