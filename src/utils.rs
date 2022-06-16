@@ -28,30 +28,6 @@ pub fn slugify(s: &str) -> String {
         .collect()
 }
 
-pub fn get_branch_name_from_ref_name(r: &str) -> Result<&str> {
-    if r.starts_with("refs/") {
-        if let Some(branch_name) = r.strip_prefix("refs/heads/") {
-            Ok(branch_name)
-        } else {
-            Err(Error::new(format!("Ref '{r}' does not refer to a branch")))
-        }
-    } else {
-        Ok(r)
-    }
-}
-
-pub fn normalise_ref<'a, T: Into<std::borrow::Cow<'a, str>>>(
-    r: T,
-) -> std::borrow::Cow<'a, str> {
-    let r: std::borrow::Cow<str> = r.into();
-
-    if r.starts_with("refs/") {
-        r
-    } else {
-        format!("refs/heads/{r}").into()
-    }
-}
-
 pub fn parse_name_list(text: &str) -> Vec<String> {
     lazy_regex::regex!(r#"\(.*?\)"#)
         .replace_all(text, ",")

@@ -13,10 +13,7 @@ use crate::{
     },
     message::{validate_commit_message, MessageSection},
     output::{output, write_commit_title},
-    utils::{
-        get_branch_name_from_ref_name, parse_name_list, remove_all_parens,
-        run_command,
-    },
+    utils::{parse_name_list, remove_all_parens, run_command},
 };
 use git2::Oid;
 use indoc::{formatdoc, indoc};
@@ -130,7 +127,7 @@ async fn diff_impl(
         if index.has_conflicts() {
             return Err(Error::new(formatdoc!(
                 "This commit cannot be cherry-picked on {master}.",
-                master = &config.master_branch,
+                master = config.master_ref.branch_name(),
             )));
         }
 
@@ -251,31 +248,33 @@ async fn diff_impl(
         .map(|t| &t[..])
         .unwrap_or("");
 
-    let pull_request_branch_name = match &pull_request {
-        Some(pr) => get_branch_name_from_ref_name(&pr.head)?.to_string(),
-        None => config.get_new_branch_name(&git.get_all_ref_names()?, title),
+    let pull_request_branch = match &pull_request {
+        Some(pr) => pr.head.clone(),
+        None => config.new_github_branch(
+            &config.get_new_branch_name(&git.get_all_ref_names()?, title),
+        ),
     };
 
     // Check if there is a base branch on GitHub already. That's the case when
     // there is an existing Pull Request, and its base is not the master branch.
-    let base_branch = match &pull_request {
-        Some(pr) => {
-            let base_branch_name = get_branch_name_from_ref_name(&pr.base).ok();
-            let base_is_master =
-                base_branch_name == Some(&config.master_branch);
-
-            if base_is_master {
-                None
-            } else {
-                base_branch_name.map(String::from)
-            }
+    let (pr_has_base_branch, base_branch) = if let Some(ref pr) = pull_request {
+        if pr.base.is_master_branch() {
+            (false, None)
+        } else {
+            (true, Some(pr.base.clone()))
         }
-        None => None,
+    } else {
+        (false, None)
     };
 
-    let base_branch_name = match &base_branch {
-        Some(br) => br.to_string(),
-        None => config.get_base_branch_name(&git.get_all_ref_names()?, title),
+    // `base_branch` is `Option<GitHubBranch>` as of now. Unwrap it. If it's
+    // `None`, then make a `GitHubBranch` with a new name for a base branch.
+    let base_branch = if let Some(base_branch) = base_branch {
+        base_branch
+    } else {
+        config.new_github_branch(
+            &config.get_base_branch_name(&git.get_all_ref_names()?, title),
+        )
     };
 
     // Get the tree ids of the current head of the Pull Request, as well as the
@@ -288,7 +287,7 @@ async fn diff_impl(
             let pr_head_tree = git.get_tree_oid_for_commit(pr.head_oid)?;
 
             let current_master_oid =
-                git.resolve_reference(&config.remote_master_ref)?;
+                git.resolve_reference(config.master_ref.local())?;
             let pr_base_oid =
                 git.repo().merge_base(pr.head_oid, pr.base_oid)?;
             let pr_base_tree = git.get_tree_oid_for_commit(pr_base_oid)?;
@@ -354,7 +353,7 @@ async fn diff_impl(
     // This is the commit we need to merge into the Pull Request branch to
     // reflect changes in the base of this commit.
     let pr_base_parent = if pr_base_tree != new_base_tree
-        || (base_branch.is_some() && needs_merging_master)
+        || (pr_has_base_branch && needs_merging_master)
     {
         // The current base tree of the Pull Request is not what we need. Or, we
         // need to merge in master while already having a base branch. (Although
@@ -439,10 +438,7 @@ async fn diff_impl(
         .arg("--no-verify")
         .arg("--")
         .arg(&config.remote_name)
-        .arg(format!(
-            "{}:refs/heads/{}",
-            pr_commit, pull_request_branch_name
-        ));
+        .arg(format!("{}:{}", pr_commit, pull_request_branch.on_github()));
 
     if let Some(pull_request) = pull_request {
         // We are updating an existing Pull Request
@@ -479,8 +475,9 @@ async fn diff_impl(
                 // ...and we prepared a new commit for it, so we need to push an
                 // update of the base branch.
                 cmd.arg(format!(
-                    "{}:refs/heads/{}",
-                    base_branch_commit, base_branch_name
+                    "{}:{}",
+                    base_branch_commit,
+                    base_branch.on_github()
                 ));
             }
 
@@ -492,11 +489,9 @@ async fn diff_impl(
 
             // If the Pull Request's base is not set to the base branch yet,
             // change that now.
-            if get_branch_name_from_ref_name(&pull_request.base)?
-                != base_branch_name
-            {
+            if pull_request.base.branch_name() != base_branch.branch_name() {
                 pull_request_updates.base =
-                    Some(format!("refs/heads/{}", base_branch_name));
+                    Some(base_branch.on_github().to_string());
             }
         } else {
             // The Pull Request is against the master branch. In that case we
@@ -516,9 +511,9 @@ async fn diff_impl(
         // If there's a base branch, add it to the push
         if pr_base_parent.is_some() {
             cmd.arg(format!(
-                "{}:refs/heads/{}",
+                "{}:{}",
                 pr_base_parent.unwrap(),
-                base_branch_name
+                base_branch.on_github()
             ));
         }
         // Push the pull request branch and the base branch if present
@@ -531,11 +526,11 @@ async fn diff_impl(
             .create_pull_request(
                 message,
                 if pr_base_parent.is_some() {
-                    format!("refs/heads/{}", base_branch_name)
+                    base_branch.on_github().to_string()
                 } else {
-                    config.master_ref.clone()
+                    config.master_ref.on_github().to_string()
                 },
-                format!("refs/heads/{}", pull_request_branch_name),
+                pull_request_branch.on_github().to_string(),
                 opts.draft,
             )
             .await?;

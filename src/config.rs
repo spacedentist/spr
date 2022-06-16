@@ -7,16 +7,14 @@
 
 use std::collections::HashSet;
 
-use crate::utils::slugify;
+use crate::{error::Result, github::GitHubBranch, utils::slugify};
 
 #[derive(Clone, Debug)]
 pub struct Config {
     pub owner: String,
     pub repo: String,
     pub remote_name: String,
-    pub master_branch: String,
-    pub master_ref: String,
-    pub remote_master_ref: String,
+    pub master_ref: GitHubBranch,
     pub branch_prefix: String,
     pub require_approval: bool,
 }
@@ -30,16 +28,16 @@ impl Config {
         branch_prefix: String,
         require_approval: bool,
     ) -> Self {
-        let remote_master_ref =
-            format!("refs/remotes/{remote_name}/{master_branch}");
-        let master_ref = format!("refs/heads/{master_branch}");
+        let master_ref = GitHubBranch::new_from_branch_name(
+            &master_branch,
+            &remote_name,
+            &master_branch,
+        );
         Self {
             owner,
             repo,
             remote_name,
-            master_branch,
             master_ref,
-            remote_master_ref,
             branch_prefix,
             require_approval,
         }
@@ -94,7 +92,7 @@ impl Config {
     ) -> String {
         self.find_unused_branch_name(
             existing_ref_names,
-            &format!("{}.{}", &self.master_branch, &slugify(title)),
+            &format!("{}.{}", self.master_ref.branch_name(), &slugify(title)),
         )
     }
 
@@ -119,6 +117,25 @@ impl Config {
             suffix += 1;
             branch_name = format!("{branch_prefix}{slug}-{suffix}");
         }
+    }
+
+    pub fn new_github_branch_from_ref(
+        &self,
+        ghref: &str,
+    ) -> Result<GitHubBranch> {
+        GitHubBranch::new_from_ref(
+            ghref,
+            &self.remote_name,
+            self.master_ref.branch_name(),
+        )
+    }
+
+    pub fn new_github_branch(&self, branch_name: &str) -> GitHubBranch {
+        GitHubBranch::new_from_branch_name(
+            branch_name,
+            &self.remote_name,
+            self.master_ref.branch_name(),
+        )
     }
 }
 
