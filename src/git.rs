@@ -10,6 +10,7 @@ use std::collections::{HashSet, VecDeque};
 use crate::{
     config::Config,
     error::{Error, Result, ResultExt},
+    github::GitHubBranch,
     message::{
         build_commit_message, parse_message, MessageSection, MessageSectionsMap,
     },
@@ -233,6 +234,31 @@ impl Git {
 
             for oid in missing_commit_oids {
                 command.arg(format!("{}", oid));
+            }
+
+            run_command(&mut command)
+                .await
+                .reword("git fetch failed".to_string())?;
+        }
+
+        Ok(())
+    }
+
+    pub async fn fetch_from_remote(
+        &self,
+        refs: &[&GitHubBranch],
+        remote: &str,
+    ) -> Result<()> {
+        if !refs.is_empty() {
+            let mut command = async_process::Command::new("git");
+            command
+                .arg("fetch")
+                .arg("--no-write-fetch-head")
+                .arg("--")
+                .arg(remote);
+
+            for ghref in refs {
+                command.arg(ghref.on_github());
             }
 
             run_command(&mut command)

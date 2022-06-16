@@ -231,13 +231,12 @@ impl GitHub {
 
         let base = config.new_github_branch_from_ref(&pr.base_ref_name)?;
         let head = config.new_github_branch_from_ref(&pr.head_ref_name)?;
-        let head_oid = git2::Oid::from_str(&pr.head_ref_oid)?;
-        let base_oid = git2::Oid::from_str(&pr.base_ref_oid)?;
-        git.fetch_commits_from_remote(
-            &[head_oid, base_oid],
-            &config.remote_name,
-        )
-        .await?;
+
+        git.fetch_from_remote(&[&head, &base], &config.remote_name)
+            .await?;
+
+        let base_oid = git.resolve_reference(base.local())?;
+        let head_oid = git.resolve_reference(head.local())?;
 
         let mut sections = parse_message(&pr.body, MessageSection::Summary);
 
