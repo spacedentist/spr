@@ -1,5 +1,20 @@
 # Changelog
 
+## [1.3.2] - 2022-06-16
+
+### Fixes
+
+- fix list of required GitHub permissions in `spr init` message
+- fix aborting Pull Request update by entering empty message on prompt
+- fix a problem where occasionally `spr diff` would fail because it could not push the base branch to GitHub
+
+### Improvements
+
+- add `spr.requireApprovals` config field to control if spr enforces that only accepted PRs can be landed
+- the spr binary no longer depends on openssl
+- add documentation to the docs/ folder
+- `spr diff` now warns the user if the local commit message differs from the one on GitHub when updating an existing Pull Request
+
 ## [1.3.1] - 2022-06-10
 
 ### Fixes
