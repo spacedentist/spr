@@ -73,6 +73,18 @@ pub async fn diff(
         prepared_commits.drain(0..prepared_commits.len() - 1);
     }
 
+    // Fetch Pull Request information from GitHub for all commits in parallel
+    {
+        let futures: Vec<_> = prepared_commits
+            .iter()
+            .filter_map(|prepared_commit| prepared_commit.pull_request_number)
+            .map(|number| gh.get_pull_request(number))
+            .collect();
+        for future in futures {
+            let _ = future.await?;
+        }
+    }
+
     let mut message_on_prompt = "".to_string();
 
     for prepared_commit in prepared_commits.iter_mut() {
