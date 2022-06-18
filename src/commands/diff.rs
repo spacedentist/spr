@@ -73,14 +73,6 @@ pub async fn diff(
         prepared_commits.drain(0..prepared_commits.len() - 1);
     }
 
-    // // Start fetching Pull Request information from GitHub for all commits in
-    // // parallel
-    // for prepared_commit in prepared_commits.iter_mut() {
-    //     if let Some(number) = prepared_commit.pull_request_number {
-    //         gh.get_pull_request(number);
-    //     }
-    // }
-
     let mut message_on_prompt = "".to_string();
 
     for prepared_commit in prepared_commits.iter_mut() {
