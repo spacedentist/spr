@@ -255,28 +255,6 @@ async fn diff_impl(
         ),
     };
 
-    // Check if there is a base branch on GitHub already. That's the case when
-    // there is an existing Pull Request, and its base is not the master branch.
-    let (pr_has_base_branch, base_branch) = if let Some(ref pr) = pull_request {
-        if pr.base.is_master_branch() {
-            (false, None)
-        } else {
-            (true, Some(pr.base.clone()))
-        }
-    } else {
-        (false, None)
-    };
-
-    // `base_branch` is `Option<GitHubBranch>` as of now. Unwrap it. If it's
-    // `None`, then make a `GitHubBranch` with a new name for a base branch.
-    let base_branch = if let Some(base_branch) = base_branch {
-        base_branch
-    } else {
-        config.new_github_branch(
-            &config.get_base_branch_name(&git.get_all_ref_names()?, title),
-        )
-    };
-
     // Get the tree ids of the current head of the Pull Request, as well as the
     // base, and the commit id of the master commit this PR is currently based
     // on.
@@ -350,15 +328,66 @@ async fn diff_impl(
         }
     }
 
-    // This is the commit we need to merge into the Pull Request branch to
-    // reflect changes in the base of this commit.
-    let pr_base_parent = if pr_base_tree != new_base_tree
-        || (pr_has_base_branch && needs_merging_master)
-    {
-        // The current base tree of the Pull Request is not what we need. Or, we
-        // need to merge in master while already having a base branch. (Although
-        // when the latter is the case, the former probably is true, too.)
+    // Check if there is a base branch on GitHub already. That's the case when
+    // there is an existing Pull Request, and its base is not the master branch.
+    let base_branch = if let Some(ref pr) = pull_request {
+        if pr.base.is_master_branch() {
+            None
+        } else {
+            Some(pr.base.clone())
+        }
+    } else {
+        None
+    };
 
+    // We are going to construct `pr_base_parent: Option<Oid>`.
+    // The value will be the commit we have to merge into the new Pull Request
+    // commit to reflect changes in the parent of the local commit (by rebasing
+    // or changing commits between master and this one, although technically
+    // that's also rebasing).
+    // If it's `None`, then we will not merge anything into the new Pull Request
+    // commit.
+    // If we are updating an existing PR, then there are three cases here:
+    // (1) the parent tree of this commit is unchanged, which means that the
+    //     local commit was amended, but not rebased. We don't need to merge
+    //     anything into the Pull Request branch.
+    // (2) the parent tree has changed, but the parent of the local commit is on
+    //     master and we are not already using a base branch: in this case we
+    //     can merge the master commit we are based on into the PR branch,
+    //     without going via a base branch. Thus, we don't introduce a base
+    //     branch here and the PR continues to target the master branch.
+    // (3) the parent tree has changed, and we need to use a base branch (either
+    //     because one was already created earlier, or we find that we are not
+    //     directly based on master now): we need to construct a new commit for
+    //     the base branch. That new commit's tree is always that of that local
+    //     commit's parent (thus making sure that the difference between base
+    //     branch and pull request branch are exactly the changes made by the
+    //     local commit, thus the changes we want to have reviewed). The new
+    //     commit may have one or two parents. The previous base is always a
+    //     parent (that's either the current commit on an existing base branch,
+    //     or the previous master commit the PR was based on if there isn't a
+    //     base branch already). In addition, if the master commit this commit
+    //     is based on has changed, (i.e. the local commit got rebased on newer
+    //     master in the meantime) then we have to merge in that master commit,
+    //     which will be the second parent.
+    // If we are creating a new pull request then `pr_base_tree` (the current
+    // base of the PR) was set above to be the tree of the master commit the
+    // local commit is based one, whereas `new_base_tree` is the tree of the
+    // parent of the local commit. So if the local commit for this new PR is on
+    // master, those two are the same (and we want to apply case 1). If the
+    // commit is not directly based on master, we have to create this new PR
+    // with a base branch, so that is case 3.
+
+    let (pr_base_parent, base_branch) = if pr_base_tree == new_base_tree {
+        // Case 1
+        (None, base_branch)
+    } else if base_branch.is_none() && directly_based_on_master {
+        // Case 2
+        (Some(master_base_oid), None)
+    } else {
+        // Case 3
+
+        // We are constructing a base branch commit.
         // One parent of the new base branch commit will be the current base
         // commit, that could be either the top commit of an existing base
         // branch, or a commit on master.
@@ -371,7 +400,7 @@ async fn diff_impl(
             parents.push(master_base_oid);
         }
 
-        Some(git.create_derived_commit(
+        let new_base_branch_commit = git.create_derived_commit(
             local_commit.parent_oid,
             &format!(
                 "{}\n\nCreated using spr {}\n\n[skip ci]",
@@ -384,16 +413,19 @@ async fn diff_impl(
             ),
             new_base_tree,
             &parents[..],
-        )?)
-    } else {
-        // We are operating without a base branch, i.e. this Pull Request is
-        // against the master branch. If the commit was rebased, we have to
-        // merge the master commit that we are now based on.
-        if needs_merging_master {
-            Some(master_base_oid)
+        )?;
+
+        // If `base_branch` is `None` (which means a base branch does not exist
+        // yet), then make a `GitHubBranch` with a new name for a base branch
+        let base_branch = if let Some(base_branch) = base_branch {
+            base_branch
         } else {
-            None
-        }
+            config.new_github_branch(
+                &config.get_base_branch_name(&git.get_all_ref_names()?, title),
+            )
+        };
+
+        (Some(new_base_branch_commit), Some(base_branch))
     };
 
     let mut github_commit_message = opts.message.clone();
@@ -476,7 +508,7 @@ async fn diff_impl(
             pull_request_updates.update_message(&pull_request, message);
         }
 
-        if pr_base_parent.is_some() {
+        if let Some(base_branch) = base_branch {
             // We are using a base branch.
 
             if let Some(base_branch_commit) = pr_base_parent {
@@ -517,10 +549,12 @@ async fn diff_impl(
         // We are creating a new Pull Request.
 
         // If there's a base branch, add it to the push
-        if pr_base_parent.is_some() {
+        if let (Some(base_branch), Some(base_branch_commit)) =
+            (&base_branch, pr_base_parent)
+        {
             cmd.arg(format!(
                 "{}:{}",
-                pr_base_parent.unwrap(),
+                base_branch_commit,
                 base_branch.on_github()
             ));
         }
@@ -533,11 +567,11 @@ async fn diff_impl(
         let pull_request_number = gh
             .create_pull_request(
                 message,
-                if pr_base_parent.is_some() {
-                    base_branch.on_github().to_string()
-                } else {
-                    config.master_ref.on_github().to_string()
-                },
+                base_branch
+                    .as_ref()
+                    .unwrap_or(&config.master_ref)
+                    .on_github()
+                    .to_string(),
                 pull_request_branch.on_github().to_string(),
                 opts.draft,
             )
