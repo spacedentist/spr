@@ -12,24 +12,24 @@ exclude = [".github", ".gitignore"]
 [dependencies]
 async-compat = "^0.2.1"
 async-executor = "^1.4.1"
-async-io = "^1.6.0"
+async-io = "^1.7.0"
 async-lock = "^2.4.0"
 async-process = "^1.3.0"
-clap = { version = "^3.0.14", features = ["derive", "wrap_help"] }
+clap = { version = "^3.2.6", features = ["derive", "wrap_help"] }
 console = "^0.15.0"
 dialoguer = "^0.10.1"
 futures = "^0.3.21"
 futures-lite = "^1.12.0"
-git2 = { version = "^0.14.2", default-features = false }
+git2 = { version = "^0.14.4", default-features = false }
+graphql_client = { version = "0.10.0", git = "https://github.com/graphql-rust/graphql-client", rev = "64ad4e34a6f9eb120ea83934bd68af18dbaf4a15" }
 indoc = "^1.0.3"
 lazy-regex = "^2.2.2"
 octocrab = { version = "^0.16.0", default-features = false, features = ["rustls"] }
+reqwest = { version = "^0.11.11", default-features = false, features = ["json", "rustls-tls"] }
 serde = "^1.0.136"
 textwrap = "0.15.0"
 thiserror = "^1.0.30"
 unicode-normalization = "^0.1.19"
-graphql_client = { version = "0.10.0", git = "https://github.com/graphql-rust/graphql-client", rev = "64ad4e34a6f9eb120ea83934bd68af18dbaf4a15" }
-reqwest = { version = "^0.11", default-features = false, features = ["json", "rustls-tls"] }
 
 [dev-dependencies]
 smol = "^1.2.5"
