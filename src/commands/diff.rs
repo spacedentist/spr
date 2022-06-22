@@ -406,11 +406,14 @@ async fn diff_impl(
         Some(git.create_derived_commit(
             local_commit.parent_oid,
             &format!(
-                "{}\n\nCreated using spr {}\n\n[skip ci]",
+                "[𝘀𝗽𝗿] {}\n\nCreated using spr {}\n\n[skip ci]",
                 if pull_request.is_some() {
-                    "[𝘀𝗽𝗿] 𝘤𝘩𝘢𝘯𝘨𝘦𝘴 𝘪𝘯𝘵𝘳𝘰𝘥𝘶𝘤𝘦𝘥 𝘵𝘩𝘳𝘰𝘶𝘨𝘩 𝘳𝘦𝘣𝘢𝘴𝘦"
+                    "changes introduced through rebase".to_string()
                 } else {
-                    "[𝘀𝗽𝗿] 𝘤𝘩𝘢𝘯𝘨𝘦𝘴 𝘵𝘰 𝘮𝘢𝘴𝘵𝘦𝘳 𝘵𝘩𝘪𝘴 𝘤𝘰𝘮𝘮𝘪𝘵 𝘪𝘴 𝘣𝘢𝘴𝘦𝘥 𝘰𝘯"
+                    format!(
+                        "changes to {} this commit is based on",
+                        config.master_ref.branch_name()
+                    )
                 },
                 env!("CARGO_PKG_VERSION"),
             ),
@@ -467,7 +470,7 @@ async fn diff_impl(
             github_commit_message
                 .as_ref()
                 .map(|s| &s[..])
-                .unwrap_or("[𝘀𝗽𝗿] 𝘪𝘯𝘪𝘵𝘪𝘢𝘭 𝘷𝘦𝘳𝘴𝘪𝘰𝘯"),
+                .unwrap_or("[𝘀𝗽𝗿] initial version"),
             env!("CARGO_PKG_VERSION"),
         ),
         new_head_tree,
