@@ -2,6 +2,17 @@
 
 ## [Unreleased]
 
+### Fixes
+
+- get rid of italics in generated commit messages - they're silly
+- fix creation of unneccessary creation of base branches when updating PRs
+
+### Improvemets
+
+- add spr version number in PR commit messages
+- add `--all` option to `spr diff` for operating on a stack of commits
+- updated Rust dependencies
+
 ## [1.3.2] - 2022-06-16
 
 ### Fixes
