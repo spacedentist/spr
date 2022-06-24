@@ -20,6 +20,10 @@ use indoc::{formatdoc, indoc};
 
 #[derive(Debug, clap::Parser)]
 pub struct DiffOptions {
+    /// Create/update pull requests for the whole branch, not just the HEAD commit
+    #[clap(long)]
+    all: bool,
+
     /// Update the pull request title and description on GitHub from the local
     /// commit message
     #[clap(long)]
@@ -49,48 +53,76 @@ pub async fn diff(
     // Abort right here if the local Git repository is not clean
     git.check_no_uncommitted_changes()?;
 
+    let mut result = Ok(());
+
     // Look up the commits on the local branch
     let mut prepared_commits = git.get_prepared_commits(config)?;
 
-    let mut prepared_commit = match prepared_commits.pop() {
-        Some(c) => c,
-        None => {
-            output("👋", "Branch is empty - nothing to do. Good bye!")?;
-            return Ok(());
-        }
-    };
-
     // The parent of the first commit in the list is the commit on master that
     // the local branch is based on
-    let master_base_oid = prepared_commits
-        .get(0)
-        .unwrap_or(&prepared_commit)
-        .parent_oid;
+    let master_base_oid = if let Some(first_commit) = prepared_commits.get(0) {
+        first_commit.parent_oid
+    } else {
+        output("👋", "Branch is empty - nothing to do. Good bye!")?;
+        return result;
+    };
 
-    drop(prepared_commits);
+    if !opts.all {
+        // Remove all prepared commits from the vector but the last. So, if
+        // `--all` is not given, we only operate on the HEAD commit.
+        prepared_commits.drain(0..prepared_commits.len() - 1);
+    }
 
-    write_commit_title(&prepared_commit)?;
+    // Fetch Pull Request information from GitHub for all commits in parallel
+    {
+        let futures: Vec<_> = prepared_commits
+            .iter()
+            .filter_map(|prepared_commit| prepared_commit.pull_request_number)
+            .map(|number| gh.get_pull_request(number))
+            .collect();
+        for future in futures {
+            let _ = future.await?;
+        }
+    }
 
-    // The further implementation of the diff command is in a separate function.
-    // This makes it easier to run the code to update the local commit message
-    // with all the changes that the implementation makes at the end, even if
-    // the implementation encounters an error or exits early.
-    let mut result =
-        diff_impl(opts, git, gh, config, &mut prepared_commit, master_base_oid)
-            .await;
+    let mut message_on_prompt = "".to_string();
+
+    for prepared_commit in prepared_commits.iter_mut() {
+        if result.is_err() {
+            break;
+        }
+
+        write_commit_title(prepared_commit)?;
+
+        // The further implementation of the diff command is in a separate function.
+        // This makes it easier to run the code to update the local commit message
+        // with all the changes that the implementation makes at the end, even if
+        // the implementation encounters an error or exits early.
+        result = diff_impl(
+            &opts,
+            &mut message_on_prompt,
+            git,
+            gh,
+            config,
+            prepared_commit,
+            master_base_oid,
+        )
+        .await;
+    }
 
     // This updates the commit message in the local Git repository (if it was
     // changed by the implementation)
     add_error(
         &mut result,
-        git.rewrite_commit_messages(&mut [prepared_commit], None),
+        git.rewrite_commit_messages(prepared_commits.as_mut_slice(), None),
     );
 
     result
 }
 
 async fn diff_impl(
-    opts: DiffOptions,
+    opts: &DiffOptions,
+    message_on_prompt: &mut String,
     git: &crate::git::Git,
     gh: &mut crate::github::GitHub,
     config: &crate::config::Config,
@@ -352,10 +384,11 @@ async fn diff_impl(
     //     local commit was amended, but not rebased. We don't need to merge
     //     anything into the Pull Request branch.
     // (2) the parent tree has changed, but the parent of the local commit is on
-    //     master and we are not already using a base branch: in this case we
-    //     can merge the master commit we are based on into the PR branch,
-    //     without going via a base branch. Thus, we don't introduce a base
-    //     branch here and the PR continues to target the master branch.
+    //     master (or we are cherry-picking) and we are not already using a base
+    //     branch: in this case we can merge the master commit we are based on
+    //     into the PR branch, without going via a base branch. Thus, we don't
+    //     introduce a base branch here and the PR continues to target the
+    //     master branch.
     // (3) the parent tree has changed, and we need to use a base branch (either
     //     because one was already created earlier, or we find that we are not
     //     directly based on master now): we need to construct a new commit for
@@ -381,7 +414,9 @@ async fn diff_impl(
     let (pr_base_parent, base_branch) = if pr_base_tree == new_base_tree {
         // Case 1
         (None, base_branch)
-    } else if base_branch.is_none() && directly_based_on_master {
+    } else if base_branch.is_none()
+        && (directly_based_on_master || opts.cherry_pick)
+    {
         // Case 2
         (Some(master_base_oid), None)
     } else {
@@ -403,11 +438,14 @@ async fn diff_impl(
         let new_base_branch_commit = git.create_derived_commit(
             local_commit.parent_oid,
             &format!(
-                "{}\n\nCreated using spr {}\n\n[skip ci]",
+                "[𝘀𝗽𝗿] {}\n\nCreated using spr {}\n\n[skip ci]",
                 if pull_request.is_some() {
-                    "[𝘀𝗽𝗿] 𝘤𝘩𝘢𝘯𝘨𝘦𝘴 𝘪𝘯𝘵𝘳𝘰𝘥𝘶𝘤𝘦𝘥 𝘵𝘩𝘳𝘰𝘶𝘨𝘩 𝘳𝘦𝘣𝘢𝘴𝘦"
+                    "changes introduced through rebase".to_string()
                 } else {
-                    "[𝘀𝗽𝗿] 𝘤𝘩𝘢𝘯𝘨𝘦𝘴 𝘵𝘰 𝘮𝘢𝘴𝘵𝘦𝘳 𝘵𝘩𝘪𝘴 𝘤𝘰𝘮𝘮𝘪𝘵 𝘪𝘴 𝘣𝘢𝘴𝘦𝘥 𝘰𝘯"
+                    format!(
+                        "changes to {} this commit is based on",
+                        config.master_ref.branch_name()
+                    )
                 },
                 env!("CARGO_PKG_VERSION"),
             ),
@@ -432,6 +470,7 @@ async fn diff_impl(
     if pull_request.is_some() && github_commit_message.is_none() {
         let input = dialoguer::Input::<String>::new()
             .with_prompt("Message (leave empty to abort)")
+            .with_initial_text(message_on_prompt.clone())
             .allow_empty(true)
             .interact_text()?;
 
@@ -439,6 +478,7 @@ async fn diff_impl(
             return Err(Error::new("Aborted as per user request".to_string()));
         }
 
+        *message_on_prompt = input.clone();
         github_commit_message = Some(input);
     }
 
@@ -465,7 +505,7 @@ async fn diff_impl(
             github_commit_message
                 .as_ref()
                 .map(|s| &s[..])
-                .unwrap_or("[𝘀𝗽𝗿] 𝘪𝘯𝘪𝘵𝘪𝘢𝘭 𝘷𝘦𝘳𝘴𝘪𝘰𝘯"),
+                .unwrap_or("[𝘀𝗽𝗿] initial version"),
             env!("CARGO_PKG_VERSION"),
         ),
         new_head_tree,
