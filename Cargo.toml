@@ -30,6 +30,3 @@ serde = "^1.0.136"
 textwrap = "0.15.0"
 thiserror = "^1.0.30"
 unicode-normalization = "^0.1.19"
-
-[dev-dependencies]
-smol = "^1.2.5"
