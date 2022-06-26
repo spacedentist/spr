@@ -5,12 +5,10 @@
  * LICENSE file in the root directory of this source tree.
  */
 
-pub mod async_memoizer;
 pub mod commands;
 pub mod config;
 pub mod error;
 pub mod executor;
-pub mod future;
 pub mod git;
 pub mod github;
 pub mod message;
