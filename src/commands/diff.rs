@@ -411,7 +411,9 @@ async fn diff_impl(
     // commit is not directly based on master, we have to create this new PR
     // with a base branch, so that is case 3.
 
-    let (pr_base_parent, base_branch) = if pr_base_tree == new_base_tree {
+    let (pr_base_parent, base_branch) = if pr_base_tree == new_base_tree
+        && !needs_merging_master
+    {
         // Case 1
         (None, base_branch)
     } else if base_branch.is_none()
