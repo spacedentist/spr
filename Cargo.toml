@@ -10,11 +10,6 @@ edition = "2021"
 exclude = [".github", ".gitignore"]
 
 [dependencies]
-async-compat = "^0.2.1"
-async-executor = "^1.4.1"
-async-io = "^1.7.0"
-async-lock = "^2.4.0"
-async-process = "^1.3.0"
 clap = { version = "^3.2.6", features = ["derive", "wrap_help"] }
 console = "^0.15.0"
 dialoguer = "^0.10.1"
@@ -29,7 +24,5 @@ reqwest = { version = "^0.11.11", default-features = false, features = ["json", 
 serde = "^1.0.136"
 textwrap = "0.15.0"
 thiserror = "^1.0.30"
+tokio = { version = "^1.19.2", features = ["macros", "process", "rt-multi-thread", "time"] }
 unicode-normalization = "^0.1.19"
-
-[dev-dependencies]
-smol = "^1.2.5"
