@@ -158,7 +158,7 @@ pub fn spr() -> Result<()> {
         let git = crate::git::Git::new(repo);
         let mut gh = crate::github::GitHub::new(
             config.clone(),
-            &git,
+            git.clone(),
             graphql_client.clone(),
         );
 

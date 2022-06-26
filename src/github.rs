@@ -9,9 +9,7 @@ use graphql_client::{GraphQLQuery, Response};
 use serde::Deserialize;
 
 use crate::{
-    async_memoizer::AsyncMemoizer,
     error::{Error, Result, ResultExt},
-    future::Future,
     message::{
         build_github_body, parse_message, MessageSection, MessageSectionsMap,
     },
@@ -21,15 +19,10 @@ use std::collections::{HashMap, HashSet};
 
 #[derive(Clone)]
 pub struct GitHub {
-    pub config: crate::config::Config,
+    config: crate::config::Config,
+    git: crate::git::Git,
     graphql_client: reqwest::Client,
-
-    pull_request_cache: std::rc::Rc<AsyncMemoizer<u64, Result<PullRequest>>>,
-    user_cache: std::rc::Rc<AsyncMemoizer<String, Result<UserWithName>>>,
-    reviewers_cache: std::rc::Rc<AsyncMemoizer<(), Result<ReviewersMap>>>,
 }
-
-type ReviewersMap = HashMap<String, Option<String>>;
 
 #[derive(Debug, Clone)]
 pub struct PullRequest {
@@ -134,54 +127,17 @@ pub struct PullRequestMergeabilityQuery;
 impl GitHub {
     pub fn new(
         config: crate::config::Config,
-        git: &crate::git::Git,
+        git: crate::git::Git,
         graphql_client: reqwest::Client,
     ) -> Self {
-        let pull_request_cache = std::rc::Rc::new(AsyncMemoizer::new({
-            let config = config.clone();
-            let git = git.clone();
-            let graphql_client = graphql_client.clone();
-            move |number| {
-                GitHub::get_pull_request_impl(
-                    number,
-                    config.clone(),
-                    git.clone(),
-                    graphql_client.clone(),
-                )
-            }
-        }));
-
-        let user_cache =
-            std::rc::Rc::new(AsyncMemoizer::new(GitHub::get_github_user_impl));
-
-        let reviewers_cache = std::rc::Rc::new(AsyncMemoizer::new({
-            let config = config.clone();
-            let user_cache = user_cache.clone();
-
-            move |_| {
-                let user_cache = user_cache.clone();
-                GitHub::get_reviewers_impl(config.clone(), move |login| {
-                    user_cache.get(login)
-                })
-            }
-        }));
-
         Self {
             config,
-            pull_request_cache,
-            user_cache,
-            reviewers_cache,
+            git,
             graphql_client,
         }
     }
 
-    pub fn get_github_user(
-        &self,
-        login: String,
-    ) -> Future<Result<UserWithName>> {
-        self.user_cache.get(login)
-    }
-    async fn get_github_user_impl(login: String) -> Result<UserWithName> {
+    async fn get_github_user(login: String) -> Result<UserWithName> {
         octocrab::instance()
             .get::<UserWithName, _, _>(format!("users/{}", login), None::<&()>)
             .compat()
@@ -189,15 +145,13 @@ impl GitHub {
             .map_err(Error::from)
     }
 
-    pub fn get_pull_request(&self, number: u64) -> Future<Result<PullRequest>> {
-        self.pull_request_cache.get(number)
-    }
-    async fn get_pull_request_impl(
-        number: u64,
-        config: crate::config::Config,
-        git: crate::git::Git,
-        graphql_client: reqwest::Client,
-    ) -> Result<PullRequest> {
+    pub async fn get_pull_request(&self, number: u64) -> Result<PullRequest> {
+        let GitHub {
+            config,
+            git,
+            graphql_client,
+        } = self.clone();
+
         let variables = pull_request_query::Variables {
             name: config.repo.clone(),
             owner: config.owner.clone(),
@@ -420,15 +374,11 @@ impl GitHub {
         Ok(())
     }
 
-    pub fn get_reviewers(
+    pub async fn get_reviewers(
         &self,
-    ) -> Future<Result<HashMap<String, Option<String>>>> {
-        self.reviewers_cache.get(())
-    }
-    async fn get_reviewers_impl(
-        config: crate::config::Config,
-        get_github_user: impl Fn(String) -> Future<Result<UserWithName>>,
     ) -> Result<HashMap<String, Option<String>>> {
+        let github = self.clone();
+
         let (users, teams): (
             Vec<UserWithName>,
             octocrab::Page<octocrab::models::teams::RequestedTeam>,
@@ -438,7 +388,7 @@ impl GitHub {
                     .get::<Vec<octocrab::models::User>, _, _>(
                         format!(
                             "repos/{}/{}/collaborators",
-                            &config.owner, &config.repo
+                            &github.config.owner, &github.config.repo
                         ),
                         None::<&()>,
                     )
@@ -446,18 +396,17 @@ impl GitHub {
                     .await?;
 
                 let user_names = futures::future::join_all(
-                    users.into_iter().map(|u| get_github_user(u.login)),
+                    users.into_iter().map(|u| GitHub::get_github_user(u.login)),
                 )
                 .await
                 .into_iter()
-                .map(|fr| fr?)
                 .collect::<Result<Vec<_>>>()?;
 
                 Ok::<_, Error>(user_names)
             },
             async {
                 Ok(octocrab::instance()
-                    .teams(&config.owner)
+                    .teams(&github.config.owner)
                     .list()
                     .send()
                     .compat()
