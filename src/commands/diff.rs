@@ -73,18 +73,6 @@ pub async fn diff(
         prepared_commits.drain(0..prepared_commits.len() - 1);
     }
 
-    // Fetch Pull Request information from GitHub for all commits in parallel
-    {
-        let futures: Vec<_> = prepared_commits
-            .iter()
-            .filter_map(|prepared_commit| prepared_commit.pull_request_number)
-            .map(|number| gh.get_pull_request(number))
-            .collect();
-        for future in futures {
-            let _ = future.await?;
-        }
-    }
-
     let mut message_on_prompt = "".to_string();
 
     for prepared_commit in prepared_commits.iter_mut() {
@@ -199,7 +187,7 @@ async fn diff_impl(
 
     // Load Pull Request information
     let pull_request = if let Some(number) = local_commit.pull_request_number {
-        let pr = gh.get_pull_request(number).await??;
+        let pr = gh.get_pull_request(number).await?;
         if pr.state == PullRequestState::Closed {
             return Err(Error::new(formatdoc!(
                 "Pull request is closed. If you want to open a new one, \
@@ -239,7 +227,7 @@ async fn diff_impl(
     if let (Some(task), Some(reviewers)) =
         (eligible_reviewers, message.get(&MessageSection::Reviewers))
     {
-        let eligible_reviewers = task.await??;
+        let eligible_reviewers = task.await?;
 
         let reviewers = parse_name_list(reviewers);
         let mut checked_reviewers = Vec::new();
@@ -512,7 +500,7 @@ async fn diff_impl(
         &pr_commit_parents[..],
     )?;
 
-    let mut cmd = async_process::Command::new("git");
+    let mut cmd = tokio::process::Command::new("git");
     cmd.arg("push")
         .arg("--atomic")
         .arg("--no-verify")
