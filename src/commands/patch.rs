@@ -31,7 +31,7 @@ pub async fn patch(
     gh: &mut crate::github::GitHub,
     config: &crate::config::Config,
 ) -> Result<()> {
-    let pr = gh.get_pull_request(opts.pull_request).await??;
+    let pr = gh.clone().get_pull_request(opts.pull_request).await?;
     output(
         "#️⃣ ",
         &format!(
@@ -111,20 +111,18 @@ pub async fn patch(
         )?
     };
 
-    let patch_branch_commit = git.repo().find_commit(patch_branch_oid)?;
+    let repo = git.repo();
+    let patch_branch_commit = repo.find_commit(patch_branch_oid)?;
 
     // Create the new branch, now that we know the commit it shall point to
-    git.repo()
-        .branch(&branch_name, &patch_branch_commit, true)?;
+    repo.branch(&branch_name, &patch_branch_commit, true)?;
 
     output("🌱", &format!("Created new branch: {}", &branch_name))?;
 
     if !opts.no_checkout {
         // Check out the new branch
-        git.repo()
-            .checkout_tree(patch_branch_commit.as_object(), None)?;
-        git.repo()
-            .set_head(&format!("refs/heads/{}", branch_name))?;
+        repo.checkout_tree(patch_branch_commit.as_object(), None)?;
+        repo.set_head(&format!("refs/heads/{}", branch_name))?;
         output("✅", "Checked out")?;
     }
 

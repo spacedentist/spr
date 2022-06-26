@@ -5,11 +5,14 @@
  * LICENSE file in the root directory of this source tree.
  */
 
+use std::iter::zip;
+
 use crate::{
     error::{add_error, Error, Result, ResultExt},
     git::PreparedCommit,
     github::{
-        PullRequestRequestReviewers, PullRequestState, PullRequestUpdate,
+        PullRequest, PullRequestRequestReviewers, PullRequestState,
+        PullRequestUpdate,
     },
     message::{validate_commit_message, MessageSection},
     output::{output, write_commit_title},
@@ -73,24 +76,29 @@ pub async fn diff(
         prepared_commits.drain(0..prepared_commits.len() - 1);
     }
 
-    // Fetch Pull Request information from GitHub for all commits in parallel
-    {
-        let futures: Vec<_> = prepared_commits
-            .iter()
-            .filter_map(|prepared_commit| prepared_commit.pull_request_number)
-            .map(|number| gh.get_pull_request(number))
-            .collect();
-        for future in futures {
-            let _ = future.await?;
-        }
-    }
+    #[allow(clippy::needless_collect)]
+    let pull_request_tasks: Vec<_> = prepared_commits
+        .iter()
+        .map(|pc: &PreparedCommit| {
+            pc.pull_request_number
+                .map(|number| tokio::spawn(gh.clone().get_pull_request(number)))
+        })
+        .collect();
 
     let mut message_on_prompt = "".to_string();
 
-    for prepared_commit in prepared_commits.iter_mut() {
+    for (prepared_commit, pull_request_task) in
+        zip(prepared_commits.iter_mut(), pull_request_tasks.into_iter())
+    {
         if result.is_err() {
             break;
         }
+
+        let pull_request = if let Some(task) = pull_request_task {
+            Some(task.await??)
+        } else {
+            None
+        };
 
         write_commit_title(prepared_commit)?;
 
@@ -106,6 +114,7 @@ pub async fn diff(
             config,
             prepared_commit,
             master_base_oid,
+            pull_request,
         )
         .await;
     }
@@ -120,6 +129,7 @@ pub async fn diff(
     result
 }
 
+#[allow(clippy::too_many_arguments)]
 async fn diff_impl(
     opts: &DiffOptions,
     message_on_prompt: &mut String,
@@ -128,6 +138,7 @@ async fn diff_impl(
     config: &crate::config::Config,
     local_commit: &mut PreparedCommit,
     master_base_oid: Oid,
+    pull_request: Option<PullRequest>,
 ) -> Result<()> {
     // Parsed commit message of the local commit
     let message = &mut local_commit.message;
@@ -197,22 +208,15 @@ async fn diff_impl(
         validate_commit_message(message)?;
     }
 
-    // Load Pull Request information
-    let pull_request = if let Some(number) = local_commit.pull_request_number {
-        let pr = gh.get_pull_request(number).await??;
-        if pr.state == PullRequestState::Closed {
+    if let Some(ref pull_request) = pull_request {
+        if pull_request.state == PullRequestState::Closed {
             return Err(Error::new(formatdoc!(
                 "Pull request is closed. If you want to open a new one, \
                  remove the 'Pull Request' section from the commit message."
             )));
         }
-        Some(pr)
-    } else {
-        None
-    };
 
-    if !opts.update_message {
-        if let Some(ref pull_request) = pull_request {
+        if !opts.update_message {
             let mut pull_request_updates: PullRequestUpdate =
                 Default::default();
             pull_request_updates.update_message(pull_request, message);
@@ -239,7 +243,7 @@ async fn diff_impl(
     if let (Some(task), Some(reviewers)) =
         (eligible_reviewers, message.get(&MessageSection::Reviewers))
     {
-        let eligible_reviewers = task.await??;
+        let eligible_reviewers = task.await?;
 
         let reviewers = parse_name_list(reviewers);
         let mut checked_reviewers = Vec::new();
@@ -512,7 +516,7 @@ async fn diff_impl(
         &pr_commit_parents[..],
     )?;
 
-    let mut cmd = async_process::Command::new("git");
+    let mut cmd = tokio::process::Command::new("git");
     cmd.arg("push")
         .arg("--atomic")
         .arg("--no-verify")

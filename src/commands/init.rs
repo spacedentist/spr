@@ -5,7 +5,6 @@
  * LICENSE file in the root directory of this source tree.
  */
 
-use async_compat::CompatExt;
 use indoc::formatdoc;
 
 use crate::{
@@ -78,7 +77,7 @@ pub async fn init(_opts: &crate::spr::Cli) -> Result<()> {
     let octocrab = octocrab::OctocrabBuilder::new()
         .personal_token(pat.clone())
         .build()?;
-    let github_user = octocrab.current().user().compat().await?;
+    let github_user = octocrab.current().user().await?;
 
     output("👋", &formatdoc!("Hello {}!", github_user.login))?;
 
@@ -148,7 +147,6 @@ pub async fn init(_opts: &crate::spr::Cli) -> Result<()> {
             format!("repos/{}", &github_repo),
             None::<&()>,
         )
-        .compat()
         .await?;
 
     config.set_str(

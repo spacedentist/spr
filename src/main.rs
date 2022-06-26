@@ -11,8 +11,9 @@
 
 use spr::{error::Result, output::output};
 
-fn main() -> Result<()> {
-    if let Err(error) = spr::spr::spr() {
+#[tokio::main]
+async fn main() -> Result<()> {
+    if let Err(error) = spr::spr::spr().await {
         for message in error.messages() {
             output("🛑", message)?;
         }
