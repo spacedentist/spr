@@ -143,6 +143,11 @@ pub async fn land(
         )));
     }
 
+    // Okay, we are confident now that the PR can be merged and the result of
+    // that merge would be a master commit with the same tree as if we
+    // cherry-picked the commit onto master.
+    let mut pr_head_oid = pull_request.head_oid;
+
     if !base_is_master {
         // The base of the Pull Request on GitHub is not set to master. This
         // means the Pull Request uses a base branch. We tested above that
@@ -150,6 +155,78 @@ pub async fn land(
         // intended result (the same as cherry-picking the local commit onto
         // master), so what we want to do is actually merge the Pull Request as
         // it is into master. Hence, we change the base to the master branch.
+        //
+        // Before we do that, there is one more edge case to look out for: if
+        // the base branch contains changes that have since been landed on
+        // master, then Git might be able to figure out that these changes
+        // appear both in the pull request branch (via the merge branch) and in
+        // master, but are identical in those two so it is not a merge conflict
+        // but can go ahead. The result of this in master if we merge now is
+        // correct, but there is one problem: when looking at the Pull Request
+        // in GitHub after merging, it will show these change as part of the
+        // Pull Request. So when you look at the changed files of the Pull
+        // Request, you will see both changes in this commit (great!) and those
+        // in the base branch (a previous commit that has already been landed on
+        // master - not great!). This is because the changes shown are the ones
+        // that happened on this Pull Request branch (now including the base
+        // branch) since it branched off master. This can include changes in the
+        // base branch that are already on master, but were added to master
+        // after the Pull Request branch branched from master.
+        // The solution is to merge current master into the Pull Request branch.
+        // Doing that now means that the final changes done by this Pull Request
+        // are only the changes that are not yet in master. That's what we want.
+        // This final merge never introduces any changes to the Pull Request. In
+        // fact, the tree that we use for the merge commit is the one we got
+        // above from the cherry-picking of this commit on master.
+
+        // The commit on the base branch that the PR branch is currently based on
+        let pr_base_oid =
+            git.repo().merge_base(pr_head_oid, pull_request.base_oid)?;
+        let pr_base_tree = git.get_tree_oid_for_commit(pr_base_oid)?;
+
+        let pr_master_base =
+            git.repo().merge_base(pr_base_oid, current_master)?;
+        let pr_master_base_tree =
+            git.get_tree_oid_for_commit(pr_master_base)?;
+
+        if pr_base_tree != pr_master_base_tree {
+            // So the current file contents of the base branch are not the same
+            // as those of the master branch commit that the base branch is
+            // based on. In other words, the base branch is currently not
+            // "empty". Or, the base branch has changes in them. These changes
+            // must all have been landed on master in the meantime (after this
+            // base branch was branched off) or otherwise we would have aborted
+            // this whole operation further above. But in order not to show them
+            // as part of this Pull Request after landing, we have to make clear
+            // those are changes in master, not in this Pull Request.
+            // Here comes the additional merge-in-master commit on the Pull
+            // Request branch that achieves that!
+
+            pr_head_oid = git.create_derived_commit(
+                pr_head_oid,
+                &format!(
+                    "[𝘀𝗽𝗿] landed version\n\nCreated using spr {}",
+                    env!("CARGO_PKG_VERSION"),
+                ),
+                our_tree_oid,
+                &[pr_head_oid, current_master],
+            )?;
+
+            let mut cmd = async_process::Command::new("git");
+            cmd.arg("push")
+                .arg("--atomic")
+                .arg("--no-verify")
+                .arg("--")
+                .arg(&config.remote_name)
+                .arg(format!(
+                    "{}:{}",
+                    pr_head_oid,
+                    pull_request.head.on_github()
+                ));
+            run_command(&mut cmd)
+                .await
+                .reword("git push failed".to_string())?;
+        }
 
         gh.update_pull_request(
             pull_request_number,
@@ -172,7 +249,7 @@ pub async fn land(
             .get_pull_request_mergeability(pull_request_number)
             .await?;
 
-        if mergeability.head_oid != pull_request.head_oid {
+        if mergeability.head_oid != pr_head_oid {
             break Err(Error::new(formatdoc!(
                 "The Pull Request seems to have been updated externally.
                      Please try again!"
@@ -232,7 +309,7 @@ pub async fn land(
                 .method(octocrab::params::pulls::MergeMethod::Squash)
                 .title(pull_request.title)
                 .message(build_github_body_for_merging(&pull_request.sections))
-                .sha(format!("{}", pull_request.head_oid))
+                .sha(format!("{}", pr_head_oid))
                 .send()
                 .compat()
                 .await
