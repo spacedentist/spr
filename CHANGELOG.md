@@ -1,11 +1,11 @@
 # Changelog
 
-## [Unreleased]
+## [1.3.3] - 2022-06-27
 
 ### Fixes
 
 - get rid of italics in generated commit messages - they're silly
-- fix creation of unneccessary creation of base branches when updating PRs
+- fix unneccessary creation of base branches when updating PRs
 - when updating an existing PR, merge in master commit if the commit was rebased even if the base tree did not change
 - add a final rebase commit to the PR branch when landing and it is necessary to do so to not have changes in the base of this commit, that since have landed on master, displayed as part of this PR
 
@@ -112,3 +112,4 @@
 [1.3.0]: https://github.com/getcord/spr/releases/tag/v1.3.0
 [1.3.1]: https://github.com/getcord/spr/releases/tag/v1.3.1
 [1.3.2]: https://github.com/getcord/spr/releases/tag/v1.3.2
+[1.3.3]: https://github.com/getcord/spr/releases/tag/v1.3.3
