@@ -11,6 +11,10 @@
 - [Merge a Pull Request](user/merge.md)
 - [Stack Multiple Pull Requests](user/stack.md)
 
+# How To
+
+- [Format and Update Commit Messages](user/commit-message.md)
+
 # Reference Guide
 
 - [Configuration](reference/configuration.md)
