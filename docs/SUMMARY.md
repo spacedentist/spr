@@ -14,6 +14,7 @@
 # How To
 
 - [Format and Update Commit Messages](user/commit-message.md)
+- [Check Out Someone Else's PR](user/patch.md)
 
 # Reference Guide
 
