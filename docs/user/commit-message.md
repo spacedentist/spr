@@ -21,13 +21,13 @@ The `Test Plan` section is required to be present; `spr diff` will fail with an 
 
 ## Updating the commit message
 
-When you create a PR with `spr diff`, **the PR becomes the source of truth** for the title and description. If you later amend the commit message locally, subsequent runs of `spr diff` will fail with an error. Additionally, when you land a commit with `spr land`, its commit message will be amended to match the PR's title and description, regardless of what is in your local repo.
+When you create a PR with `spr diff`, **the PR becomes the source of truth** for the title and description. When you land a commit with `spr land`, its commit message will be amended to match the PR's title and description, regardless of what is in your local repo.
 
 If you want to update the title or description, there are two ways to do so:
 
 - Modify the PR through GitHub's UI.
 
-- Amend the commit message locally, then run `spr diff --update-message`. _Note that this does not update reviewers_; that must be done in the GitHub UI.
+- Amend the commit message locally, then run `spr diff --update-message`. _Note that this does not update reviewers_; that must be done in the GitHub UI. If you amend the commit message but don't include the `--update-message` flag, you'll get an error.
 
 If you want to go the other way --- that is, make your local commit message match the PR's title and description --- you can run `spr amend`.
 
