@@ -20,4 +20,3 @@
 # Reference Guide
 
 - [Configuration](reference/configuration.md)
-- [Command Line Options](reference/cli.md)
