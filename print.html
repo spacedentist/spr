@@ -76,7 +76,7 @@
 
         <nav id="sidebar" class="sidebar" aria-label="Table of contents">
             <div class="sidebar-scrollbox">
-                <ol class="chapter"><li class="chapter-item expanded affix "><a href="index.html">Introduction</a></li><li class="chapter-item expanded affix "><li class="part-title">User Guide</li><li class="chapter-item expanded "><a href="user/installation.html"><strong aria-hidden="true">1.</strong> Installation</a></li><li class="chapter-item expanded "><a href="user/setup.html"><strong aria-hidden="true">2.</strong> Set up spr</a></li><li class="chapter-item expanded "><a href="user/create.html"><strong aria-hidden="true">3.</strong> Create a Pull Request</a></li><li class="chapter-item expanded "><a href="user/update.html"><strong aria-hidden="true">4.</strong> Update a Pull Request</a></li><li class="chapter-item expanded "><a href="user/merge.html"><strong aria-hidden="true">5.</strong> Merge a Pull Request</a></li><li class="chapter-item expanded "><a href="user/stack.html"><strong aria-hidden="true">6.</strong> Stack Multiple Pull Requests</a></li><li class="chapter-item expanded affix "><li class="part-title">How To</li><li class="chapter-item expanded "><a href="user/commit-message.html"><strong aria-hidden="true">7.</strong> Format and Update Commit Messages</a></li><li class="chapter-item expanded affix "><li class="part-title">Reference Guide</li><li class="chapter-item expanded "><a href="reference/configuration.html"><strong aria-hidden="true">8.</strong> Configuration</a></li><li class="chapter-item expanded "><a href="reference/cli.html"><strong aria-hidden="true">9.</strong> Command Line Options</a></li></ol>
+                <ol class="chapter"><li class="chapter-item expanded affix "><a href="index.html">Introduction</a></li><li class="chapter-item expanded affix "><li class="part-title">User Guide</li><li class="chapter-item expanded "><a href="user/installation.html"><strong aria-hidden="true">1.</strong> Installation</a></li><li class="chapter-item expanded "><a href="user/setup.html"><strong aria-hidden="true">2.</strong> Set up spr</a></li><li class="chapter-item expanded "><a href="user/create.html"><strong aria-hidden="true">3.</strong> Create a Pull Request</a></li><li class="chapter-item expanded "><a href="user/update.html"><strong aria-hidden="true">4.</strong> Update a Pull Request</a></li><li class="chapter-item expanded "><a href="user/merge.html"><strong aria-hidden="true">5.</strong> Merge a Pull Request</a></li><li class="chapter-item expanded "><a href="user/stack.html"><strong aria-hidden="true">6.</strong> Stack Multiple Pull Requests</a></li><li class="chapter-item expanded affix "><li class="part-title">How To</li><li class="chapter-item expanded "><a href="user/commit-message.html"><strong aria-hidden="true">7.</strong> Format and Update Commit Messages</a></li><li class="chapter-item expanded "><a href="user/patch.html"><strong aria-hidden="true">8.</strong> Check Out Someone Else's PR</a></li><li class="chapter-item expanded affix "><li class="part-title">Reference Guide</li><li class="chapter-item expanded "><a href="reference/configuration.html"><strong aria-hidden="true">9.</strong> Configuration</a></li><li class="chapter-item expanded "><a href="reference/cli.html"><strong aria-hidden="true">10.</strong> Command Line Options</a></li></ol>
             </div>
             <div id="sidebar-resize-handle" class="sidebar-resize-handle"></div>
         </nav>
@@ -258,6 +258,22 @@ Pull Request: https://github.com/example/my-thing/pull/123
 <p>spr is fairly permissive in parsing your commit message: it is case-insensitive, and it mostly ignores whitespace. You can run <code>spr format</code> to rewrite your HEAD commit's message to be in a canonical format.</p>
 <p>This command does not touch GitHub; it doesn't matter whether the commit has a PR created for it or not.</p>
 <p>Note that <code>spr land</code> will write the message of the commit it lands in the canonical format; you don't need to do so yourself before landing.</p>
+<div style="break-before: page; page-break-before: always;"></div><h1 id="check-out-someone-elses-pr"><a class="header" href="#check-out-someone-elses-pr">Check Out Someone Else's PR</a></h1>
+<p>While reviewing someone else's pull request, it may be useful to pull their changes to your local repo, so you can run their code, or view it in your editor/IDE, etc.</p>
+<p>To do so, get the number of the PR you want to pull, and run <code>spr patch &lt;number&gt;</code>. This creates a local branch named <code>PR-&lt;number&gt;</code>, and checks it out.</p>
+<p>The head of this new local branch is the PR commit itself. The branch is based on the <code>main</code> commit that was closest to the PR commit in the creator's local repo. In between:</p>
+<ul>
+<li>
+<p>If the PR commit was directly on top of a <code>main</code> commit, then the PR commit will be the only one on the branch.</p>
+</li>
+<li>
+<p>If there were commits between the PR commit and the nearest <code>main</code> commit, they will be squashed into a single commit in your new local branch.</p>
+</li>
+</ul>
+<p>Thus, the new local branch always has either one or two commits on it, before joining <code>main</code>.</p>
+<p><img src="user/../images/patch.svg" alt="Diagram of the branching scheme" /></p>
+<h2 id="updating-the-pr"><a class="header" href="#updating-the-pr">Updating the PR</a></h2>
+<p>You can amend the head commit of the <code>PR-&lt;number&gt;</code> branch locally, and run <code>spr diff</code> to update the PR; it doesn't matter that you didn't create the PR. However, doing so will overwrite the contents of the PR on GitHub with what you have locally. You should coordinate with the PR creator before doing so.</p>
 <div style="break-before: page; page-break-before: always;"></div><h1 id="configuration"><a class="header" href="#configuration">Configuration</a></h1>
 <p>The recommended way to configure spr is to run <code>spr init</code>, rather than setting config values manually. You can rerun <code>spr init</code> to update config at any time.</p>
 <p>spr uses the following Git configuration values:</p>
