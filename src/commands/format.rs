@@ -42,7 +42,8 @@ pub async fn format(
 
     for commit in slice.iter() {
         write_commit_title(commit)?;
-        failure = validate_commit_message(&commit.message).is_err() || failure;
+        failure = validate_commit_message(&commit.message, &config).is_err()
+            || failure;
     }
     git.rewrite_commit_messages(slice, None)?;
 
