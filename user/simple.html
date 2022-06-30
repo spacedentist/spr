@@ -3,7 +3,7 @@
     <head>
         <!-- Book generated using mdBook -->
         <meta charset="UTF-8">
-        <title>Configuration - spr Documentation</title>
+        <title>Create and Land a Simple PR - spr Documentation</title>
         <!-- Custom HTML head -->
         <meta content="text/html; charset=utf-8" http-equiv="Content-Type">
         <meta name="description" content="">
@@ -75,7 +75,7 @@
 
         <nav id="sidebar" class="sidebar" aria-label="Table of contents">
             <div class="sidebar-scrollbox">
-                <ol class="chapter"><li class="chapter-item expanded affix "><a href="../index.html">Introduction</a></li><li class="chapter-item expanded affix "><li class="part-title">User Guide</li><li class="chapter-item expanded "><a href="../user/installation.html"><strong aria-hidden="true">1.</strong> Installation</a></li><li class="chapter-item expanded "><a href="../user/setup.html"><strong aria-hidden="true">2.</strong> Set up spr</a></li><li class="chapter-item expanded "><a href="../user/create.html"><strong aria-hidden="true">3.</strong> Create a Pull Request</a></li><li class="chapter-item expanded "><a href="../user/update.html"><strong aria-hidden="true">4.</strong> Update a Pull Request</a></li><li class="chapter-item expanded "><a href="../user/merge.html"><strong aria-hidden="true">5.</strong> Merge a Pull Request</a></li><li class="chapter-item expanded affix "><li class="part-title">How To</li><li class="chapter-item expanded "><a href="../user/simple.html"><strong aria-hidden="true">6.</strong> Create and Land a Simple PR</a></li><li class="chapter-item expanded "><a href="../user/stack.html"><strong aria-hidden="true">7.</strong> Stack Multiple PRs</a></li><li class="chapter-item expanded "><a href="../user/commit-message.html"><strong aria-hidden="true">8.</strong> Format and Update Commit Messages</a></li><li class="chapter-item expanded "><a href="../user/patch.html"><strong aria-hidden="true">9.</strong> Check Out Someone Else's PR</a></li><li class="chapter-item expanded affix "><li class="part-title">Reference Guide</li><li class="chapter-item expanded "><a href="../reference/configuration.html" class="active"><strong aria-hidden="true">10.</strong> Configuration</a></li><li class="chapter-item expanded "><a href="../reference/cli.html"><strong aria-hidden="true">11.</strong> Command Line Options</a></li></ol>
+                <ol class="chapter"><li class="chapter-item expanded affix "><a href="../index.html">Introduction</a></li><li class="chapter-item expanded affix "><li class="part-title">User Guide</li><li class="chapter-item expanded "><a href="../user/installation.html"><strong aria-hidden="true">1.</strong> Installation</a></li><li class="chapter-item expanded "><a href="../user/setup.html"><strong aria-hidden="true">2.</strong> Set up spr</a></li><li class="chapter-item expanded "><a href="../user/create.html"><strong aria-hidden="true">3.</strong> Create a Pull Request</a></li><li class="chapter-item expanded "><a href="../user/update.html"><strong aria-hidden="true">4.</strong> Update a Pull Request</a></li><li class="chapter-item expanded "><a href="../user/merge.html"><strong aria-hidden="true">5.</strong> Merge a Pull Request</a></li><li class="chapter-item expanded affix "><li class="part-title">How To</li><li class="chapter-item expanded "><a href="../user/simple.html" class="active"><strong aria-hidden="true">6.</strong> Create and Land a Simple PR</a></li><li class="chapter-item expanded "><a href="../user/stack.html"><strong aria-hidden="true">7.</strong> Stack Multiple PRs</a></li><li class="chapter-item expanded "><a href="../user/commit-message.html"><strong aria-hidden="true">8.</strong> Format and Update Commit Messages</a></li><li class="chapter-item expanded "><a href="../user/patch.html"><strong aria-hidden="true">9.</strong> Check Out Someone Else's PR</a></li><li class="chapter-item expanded affix "><li class="part-title">Reference Guide</li><li class="chapter-item expanded "><a href="../reference/configuration.html"><strong aria-hidden="true">10.</strong> Configuration</a></li><li class="chapter-item expanded "><a href="../reference/cli.html"><strong aria-hidden="true">11.</strong> Command Line Options</a></li></ol>
             </div>
             <div id="sidebar-resize-handle" class="sidebar-resize-handle"></div>
         </nav>
@@ -113,7 +113,7 @@
                         <a href="https://github.com/getcord/spr" title="Git repository" aria-label="Git repository">
                             <i id="git-repository-button" class="fa fa-github"></i>
                         </a>
-                        <a href="https://github.com/getcord/spr/edit/master/docs/reference/configuration.md" title="Suggest an edit" aria-label="Suggest an edit">
+                        <a href="https://github.com/getcord/spr/edit/master/docs/user/simple.md" title="Suggest an edit" aria-label="Suggest an edit">
                             <i id="git-edit-button" class="fa fa-edit"></i>
                         </a>
                     </div>
@@ -140,50 +140,72 @@
 
                 <div id="content" class="content">
                     <main>
-                        <h1 id="configuration"><a class="header" href="#configuration">Configuration</a></h1>
-<p>The recommended way to configure spr is to run <code>spr init</code>, rather than setting config values manually. You can rerun <code>spr init</code> to update config at any time.</p>
-<p>spr uses the following Git configuration values:</p>
-<table><thead><tr><th>config key</th><th>CLI flag</th><th>description</th><th>default<sup class="footnote-reference"><a href="#default">1</a></sup></th><th>default in <code>spr init</code><sup class="footnote-reference"><a href="#initdefault">2</a></sup></th></tr></thead><tbody>
-<tr><td><code>githubAuthToken</code></td><td><code>--github-auth-token</code><sup class="footnote-reference"><a href="#cli-token">3</a></sup></td><td>The GitHub PAT (personal authentication token) to use for accessing the GitHub API.</td><td></td><td></td></tr>
-<tr><td><code>githubRemoteName</code></td><td></td><td>Name of the git remote in this local repository that corresponds to GitHub</td><td><code>origin</code></td><td><code>origin</code></td></tr>
-<tr><td><code>githubRepository</code></td><td><code>--github-repository</code></td><td>Name of repository on github.com in <code>owner/repo</code> format</td><td></td><td>extracted from the URL of the GitHub remote</td></tr>
-<tr><td><code>githubMasterBranch</code></td><td></td><td>The name of the centrally shared branch into which the pull requests are merged</td><td><code>master</code></td><td>taken from repository configuration on GitHub</td></tr>
-<tr><td><code>branchPrefix</code></td><td><code>--branch-prefix</code></td><td>String used to prefix autogenerated names of pull request branches</td><td></td><td><code>spr/GITHUB_USERNAME/</code></td></tr>
-<tr><td><code>requireApproval</code></td><td></td><td>If true, <code>spr land</code> will refuse to land a pull request that is not accepted</td><td>false</td><td></td></tr>
-<tr><td><code>requireTestPlan</code></td><td></td><td>If true, <code>spr diff</code> will refuse to process a commit without a test plan</td><td>true</td><td></td></tr>
-</tbody></table>
+                        <h1 id="create-and-land-a-simple-pr"><a class="header" href="#create-and-land-a-simple-pr">Create and Land a Simple PR</a></h1>
+<p>This section details the process of putting a single commit up for review, and landing it (pushing it upstream). It assumes you don't have multiple reviews in flight at the same time. That situation is covered in <a href="./stack.html">another guide</a>, but you should be familiar with this single-review workflow before reading that one.</p>
+<ol>
+<li>
+<p>Pull <code>main</code> from upstream, and check it out.</p>
+</li>
+<li>
+<p>Make your change, and run <code>git commit</code>. See <a href="./commit-message.html">this guide</a> for what to put in your commit message.</p>
+</li>
+<li>
+<p>Run <code>spr diff</code>. This will create a PR for your HEAD commit.</p>
+</li>
+<li>
+<p>Wait for reviewers to approve. If you need to make changes:</p>
+<ol>
+<li>
+<p>Make whatever changes you need in your working copy.</p>
+</li>
+<li>
+<p>Amend them into your HEAD commit with <code>git commit --amend</code>.</p>
+</li>
+<li>
+<p>Run <code>spr diff</code>. If you changed the commit message in the previous step, you will need to add the flag <code>--update-message</code>; see <a href="./commit-message.html">this guide</a> for more detail.</p>
+<p>This will update the PR with the new version of your HEAD commit. spr will prompt you for a short message that describes what you changed. You can also pass the update message on the command line using the <code>--message</code>/<code>-m</code> flag of <code>spr diff</code>.</p>
+</li>
+</ol>
+</li>
+<li>
+<p>Once your PR is approved, run <code>spr land</code> to push it upstream.</p>
+</li>
+</ol>
+<p>The above instructions have you committing directly to your local <code>main</code>. Doing so will keep things simpler when you have multiple reviews in flight. However, spr does not require that you commit directly to <code>main</code>. You can make branches if you prefer. If you do, note that <code>spr land</code> will not delete your feature branch.</p>
+<h2 id="when-you-update"><a class="header" href="#when-you-update">When you update</a></h2>
+<p>When you run <code>spr diff</code> to update an existing PR, your update will be added to the PR as a new commit, so that reviewers can see exactly what changed. The new commit's message will be what you entered in step 4.3 of the instructions above.</p>
+<p>The individual commits that you see in the PR are solely for the benefit of reviewers; they will not be reflected in the commit history when the PR is landed. The commit that eventually lands on upstream <code>main</code> will always be a single commit, whose message is the title and description from the PR.</p>
+<h2 id="updating-before-landing"><a class="header" href="#updating-before-landing">Updating before landing</a></h2>
+<p>If you amend your local commit before landing, you must run <code>spr diff</code> to update the PR before landing, or else <code>spr land</code> will fail.</p>
+<p>This is because <code>spr land</code> checks to make sure that the following two operations result in exactly the same tree:</p>
 <ul>
-<li>
-<p>The config keys are all in the <code>spr</code> section; for example, <code>spr.githubAuthToken</code>.</p>
-</li>
-<li>
-<p>Values passed on the command line take precedence over values set in Git configuration.</p>
-</li>
-<li>
-<p>Values are read from Git configuration as if by <code>git config --get</code>, and thus follow its order of precedence in reading from local and global config files. See the <a href="https://git-scm.com/docs/git-config">git-config docs</a> for dteails.</p>
-</li>
-<li>
-<p><code>spr init</code> writes configured values into <code>.git/config</code> in the local repo. (It must be run inside a Git repo.)</p>
-</li>
+<li>Merging the PR directly into upstream <code>main</code>.</li>
+<li>Cherry-picking your HEAD commit onto upstream <code>main</code>.</li>
 </ul>
-<div class="footnote-definition" id="default"><sup class="footnote-definition-label">1</sup>
-<p>Value used by <code>spr</code> if not set in configuration.</p>
-</div>
-<div class="footnote-definition" id="initdefault"><sup class="footnote-definition-label">2</sup>
-<p>Value suggested by <code>spr init</code> if not previously configured.</p>
-</div>
-<div class="footnote-definition" id="cli-token"><sup class="footnote-definition-label">3</sup>
-<p>Be careful using this: your auth token will be in your shell history.</p>
-</div>
+<p>This check prevents <code>spr land</code> from either landing or silently dropping unreviewed changes.</p>
+<h2 id="conflicts-on-landing"><a class="header" href="#conflicts-on-landing">Conflicts on landing</a></h2>
+<p><code>spr land</code> may fail with conflicts; for example, there may have been new changes pushed to upstream <code>main</code> since you last rebased, and those changes conflict with your PR. In this case:</p>
+<ol>
+<li>
+<p>Rebase your PR onto latest upstream <code>main</code>, resolving conflicts in the process.</p>
+</li>
+<li>
+<p>Run <code>spr diff</code> to update the PR.</p>
+</li>
+<li>
+<p>Run <code>spr land</code> again.</p>
+</li>
+</ol>
+<p>Note that even if your local commit (and your PR) is not based on the latest upstream <code>main</code>, landing will still succeed as long as there are no conflicts with the actual latest upstream <code>main</code>.</p>
 
                     </main>
 
                     <nav class="nav-wrapper" aria-label="Page navigation">
                         <!-- Mobile navigation buttons -->
-                            <a rel="prev" href="../user/patch.html" class="mobile-nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
+                            <a rel="prev" href="../user/merge.html" class="mobile-nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
                                 <i class="fa fa-angle-left"></i>
                             </a>
-                            <a rel="next" href="../reference/cli.html" class="mobile-nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
+                            <a rel="next" href="../user/stack.html" class="mobile-nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
                                 <i class="fa fa-angle-right"></i>
                             </a>
                         <div style="clear: both"></div>
@@ -192,10 +214,10 @@
             </div>
 
             <nav class="nav-wide-wrapper" aria-label="Page navigation">
-                    <a rel="prev" href="../user/patch.html" class="nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
+                    <a rel="prev" href="../user/merge.html" class="nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
                         <i class="fa fa-angle-left"></i>
                     </a>
-                    <a rel="next" href="../reference/cli.html" class="nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
+                    <a rel="next" href="../user/stack.html" class="nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
                         <i class="fa fa-angle-right"></i>
                     </a>
             </nav>

@@ -76,7 +76,7 @@
 
         <nav id="sidebar" class="sidebar" aria-label="Table of contents">
             <div class="sidebar-scrollbox">
-                <ol class="chapter"><li class="chapter-item expanded affix "><a href="index.html">Introduction</a></li><li class="chapter-item expanded affix "><li class="part-title">User Guide</li><li class="chapter-item expanded "><a href="user/installation.html"><strong aria-hidden="true">1.</strong> Installation</a></li><li class="chapter-item expanded "><a href="user/setup.html"><strong aria-hidden="true">2.</strong> Set up spr</a></li><li class="chapter-item expanded "><a href="user/create.html"><strong aria-hidden="true">3.</strong> Create a Pull Request</a></li><li class="chapter-item expanded "><a href="user/update.html"><strong aria-hidden="true">4.</strong> Update a Pull Request</a></li><li class="chapter-item expanded "><a href="user/merge.html"><strong aria-hidden="true">5.</strong> Merge a Pull Request</a></li><li class="chapter-item expanded "><a href="user/stack.html"><strong aria-hidden="true">6.</strong> Stack Multiple Pull Requests</a></li><li class="chapter-item expanded affix "><li class="part-title">How To</li><li class="chapter-item expanded "><a href="user/commit-message.html"><strong aria-hidden="true">7.</strong> Format and Update Commit Messages</a></li><li class="chapter-item expanded "><a href="user/patch.html"><strong aria-hidden="true">8.</strong> Check Out Someone Else's PR</a></li><li class="chapter-item expanded affix "><li class="part-title">Reference Guide</li><li class="chapter-item expanded "><a href="reference/configuration.html"><strong aria-hidden="true">9.</strong> Configuration</a></li><li class="chapter-item expanded "><a href="reference/cli.html"><strong aria-hidden="true">10.</strong> Command Line Options</a></li></ol>
+                <ol class="chapter"><li class="chapter-item expanded affix "><a href="index.html">Introduction</a></li><li class="chapter-item expanded affix "><li class="part-title">User Guide</li><li class="chapter-item expanded "><a href="user/installation.html"><strong aria-hidden="true">1.</strong> Installation</a></li><li class="chapter-item expanded "><a href="user/setup.html"><strong aria-hidden="true">2.</strong> Set up spr</a></li><li class="chapter-item expanded "><a href="user/create.html"><strong aria-hidden="true">3.</strong> Create a Pull Request</a></li><li class="chapter-item expanded "><a href="user/update.html"><strong aria-hidden="true">4.</strong> Update a Pull Request</a></li><li class="chapter-item expanded "><a href="user/merge.html"><strong aria-hidden="true">5.</strong> Merge a Pull Request</a></li><li class="chapter-item expanded affix "><li class="part-title">How To</li><li class="chapter-item expanded "><a href="user/simple.html"><strong aria-hidden="true">6.</strong> Create and Land a Simple PR</a></li><li class="chapter-item expanded "><a href="user/stack.html"><strong aria-hidden="true">7.</strong> Stack Multiple PRs</a></li><li class="chapter-item expanded "><a href="user/commit-message.html"><strong aria-hidden="true">8.</strong> Format and Update Commit Messages</a></li><li class="chapter-item expanded "><a href="user/patch.html"><strong aria-hidden="true">9.</strong> Check Out Someone Else's PR</a></li><li class="chapter-item expanded affix "><li class="part-title">Reference Guide</li><li class="chapter-item expanded "><a href="reference/configuration.html"><strong aria-hidden="true">10.</strong> Configuration</a></li><li class="chapter-item expanded "><a href="reference/cli.html"><strong aria-hidden="true">11.</strong> Command Line Options</a></li></ol>
             </div>
             <div id="sidebar-resize-handle" class="sidebar-resize-handle"></div>
         </nav>
@@ -165,9 +165,182 @@
 <div style="break-before: page; page-break-before: always;"></div><h1 id="merge-a-pull-request"><a class="header" href="#merge-a-pull-request">Merge a Pull Request</a></h1>
 <h2 id="to-be-written-3"><a class="header" href="#to-be-written-3">TO BE WRITTEN...</a></h2>
 <p>The gist: run <code>spr land</code></p>
-<div style="break-before: page; page-break-before: always;"></div><h1 id="stack-multiple-pull-requests"><a class="header" href="#stack-multiple-pull-requests">Stack Multiple Pull Requests</a></h1>
-<h2 id="to-be-written-4"><a class="header" href="#to-be-written-4">TO BE WRITTEN...</a></h2>
-<p>The gist: use a local branch with multiple commits. Use <code>git rebase --interactive</code> to run <code>spr diff</code> on each or any to create/update pull request, and <code>spr land</code> to merge.</p>
+<div style="break-before: page; page-break-before: always;"></div><h1 id="create-and-land-a-simple-pr"><a class="header" href="#create-and-land-a-simple-pr">Create and Land a Simple PR</a></h1>
+<p>This section details the process of putting a single commit up for review, and landing it (pushing it upstream). It assumes you don't have multiple reviews in flight at the same time. That situation is covered in <a href="user/./stack.html">another guide</a>, but you should be familiar with this single-review workflow before reading that one.</p>
+<ol>
+<li>
+<p>Pull <code>main</code> from upstream, and check it out.</p>
+</li>
+<li>
+<p>Make your change, and run <code>git commit</code>. See <a href="user/./commit-message.html">this guide</a> for what to put in your commit message.</p>
+</li>
+<li>
+<p>Run <code>spr diff</code>. This will create a PR for your HEAD commit.</p>
+</li>
+<li>
+<p>Wait for reviewers to approve. If you need to make changes:</p>
+<ol>
+<li>
+<p>Make whatever changes you need in your working copy.</p>
+</li>
+<li>
+<p>Amend them into your HEAD commit with <code>git commit --amend</code>.</p>
+</li>
+<li>
+<p>Run <code>spr diff</code>. If you changed the commit message in the previous step, you will need to add the flag <code>--update-message</code>; see <a href="user/./commit-message.html">this guide</a> for more detail.</p>
+<p>This will update the PR with the new version of your HEAD commit. spr will prompt you for a short message that describes what you changed. You can also pass the update message on the command line using the <code>--message</code>/<code>-m</code> flag of <code>spr diff</code>.</p>
+</li>
+</ol>
+</li>
+<li>
+<p>Once your PR is approved, run <code>spr land</code> to push it upstream.</p>
+</li>
+</ol>
+<p>The above instructions have you committing directly to your local <code>main</code>. Doing so will keep things simpler when you have multiple reviews in flight. However, spr does not require that you commit directly to <code>main</code>. You can make branches if you prefer. If you do, note that <code>spr land</code> will not delete your feature branch.</p>
+<h2 id="when-you-update"><a class="header" href="#when-you-update">When you update</a></h2>
+<p>When you run <code>spr diff</code> to update an existing PR, your update will be added to the PR as a new commit, so that reviewers can see exactly what changed. The new commit's message will be what you entered in step 4.3 of the instructions above.</p>
+<p>The individual commits that you see in the PR are solely for the benefit of reviewers; they will not be reflected in the commit history when the PR is landed. The commit that eventually lands on upstream <code>main</code> will always be a single commit, whose message is the title and description from the PR.</p>
+<h2 id="updating-before-landing"><a class="header" href="#updating-before-landing">Updating before landing</a></h2>
+<p>If you amend your local commit before landing, you must run <code>spr diff</code> to update the PR before landing, or else <code>spr land</code> will fail.</p>
+<p>This is because <code>spr land</code> checks to make sure that the following two operations result in exactly the same tree:</p>
+<ul>
+<li>Merging the PR directly into upstream <code>main</code>.</li>
+<li>Cherry-picking your HEAD commit onto upstream <code>main</code>.</li>
+</ul>
+<p>This check prevents <code>spr land</code> from either landing or silently dropping unreviewed changes.</p>
+<h2 id="conflicts-on-landing"><a class="header" href="#conflicts-on-landing">Conflicts on landing</a></h2>
+<p><code>spr land</code> may fail with conflicts; for example, there may have been new changes pushed to upstream <code>main</code> since you last rebased, and those changes conflict with your PR. In this case:</p>
+<ol>
+<li>
+<p>Rebase your PR onto latest upstream <code>main</code>, resolving conflicts in the process.</p>
+</li>
+<li>
+<p>Run <code>spr diff</code> to update the PR.</p>
+</li>
+<li>
+<p>Run <code>spr land</code> again.</p>
+</li>
+</ol>
+<p>Note that even if your local commit (and your PR) is not based on the latest upstream <code>main</code>, landing will still succeed as long as there are no conflicts with the actual latest upstream <code>main</code>.</p>
+<div style="break-before: page; page-break-before: always;"></div><h1 id="stack-multiple-prs"><a class="header" href="#stack-multiple-prs">Stack Multiple PRs</a></h1>
+<p>The differences between spr's commit-based workflow and GitHub's default branch-based workflow are most apparent when you have multiple reviews in flight at the same time.</p>
+<p>This guide assumes you're already familiar with the workflow for <a href="user/./simple.html">simple, non-stacked PRs</a>.</p>
+<p>You'll use Git's <a href="https://git-scm.com/docs/git-rebase#_interactive_mode">interactive rebase</a> quite often in managing stacked-PR situations. It's a very powerful tool for reordering and combining commits in a series.</p>
+<p>This is the workflow for creating multiple PRs at the same time. This example only creates two, but the workflow works for arbitrarily deep stacks.</p>
+<ol>
+<li>
+<p>Make a change and commit it on <code>main</code>. We'll call this commit A.</p>
+</li>
+<li>
+<p>Make another change and commit it on top of commit A. We'll call this commit B.</p>
+</li>
+<li>
+<p>Run <code>spr diff --all</code>. This is equivalent to calling <code>spr diff</code> on each commit starting from <code>HEAD</code> and going to back to the first commit that is part of upstream <code>main</code>. Thus, it will create a PR for each of commits A and B.</p>
+</li>
+<li>
+<p>Suppose you need to update commit A in response to review feedback. You would:</p>
+<ol>
+<li>
+<p>Make the change and commit it on top of commit B, with a throwaway message.</p>
+</li>
+<li>
+<p>Run <code>git rebase --interactive</code>. This will bring up an editor that looks like this:</p>
+<pre><code>pick 0a0a0a Commit A
+pick 1b1b1b Commit B
+pick 2c2c2c throwaway
+</code></pre>
+<p>Modify it to look like this<sup class="footnote-reference"><a href="#rebase-cmds">1</a></sup>:</p>
+<pre><code>pick 0a0a0a Commit A
+fixup 2c2c2c throwaway
+exec spr diff
+pick 1b1b1b Commit B
+</code></pre>
+<p>This will (1) amend your latest commit into commit A, discarding the throwaway message and using commit A's message for the combined result; (2) run <code>spr diff</code> on the combined result; and (3) put commit B on top of the combined result.</p>
+</li>
+</ol>
+</li>
+<li>
+<p>You must land commit A before commit B. (See <a href="user/stack.html#cherry-picking">the next section</a> for what to do if you want to be able to land B first.) To land commit A, you would:</p>
+<ol>
+<li>
+<p>Run <code>git rebase --interactive</code>. The editor will start with this:</p>
+<pre><code>pick 3a3a3a Commit A
+pick 4b4b4b Commit B
+</code></pre>
+<p>Modify it to look like this:</p>
+<pre><code>pick 3a3a3a Commit A
+exec spr land
+pick 4b4b4b Commit B
+</code></pre>
+</li>
+</ol>
+</li>
+<li>
+<p>Now you're left with just commit B on top of upstream <code>main</code>, and you can use the non-stacked workflow to update and land it.</p>
+</li>
+</ol>
+<p>There are a few possible variations to note:</p>
+<ul>
+<li>
+<p>Instead of a single run of <code>spr diff --all</code> at the beginning, you could run plain <code>spr diff</code> right after making each commit.</p>
+</li>
+<li>
+<p>Instead of step 4, you could use interactive rebase to swap the order of commits A and B (as long as B doesn't depend on A), and then simply use the non-stacked workflow to amend A and update the PR.</p>
+</li>
+<li>
+<p>In step 4.2, if you want to update the commit message of commit A, you could instead do the following interactive rebase:</p>
+<pre><code>pick 0a0a0a Commit A
+squash 2c2c2c throwaway
+exec spr diff --update-message
+pick 1b1b1b Commit B
+</code></pre>
+<p>The <code>squash</code> command will open an editor, where you can edit the message of the combined commit. The <code>--update-message</code> flag on the next line is important; see <a href="user/./commit-message.html">this guide</a> for more detail.</p>
+</li>
+</ul>
+<h2 id="cherry-picking"><a class="header" href="#cherry-picking">Cherry-picking</a></h2>
+<p>In the above example, you would not be able to land commit B before landing commit A, even if they were totally independent of each other.</p>
+<p>First, some behind-the-scenes explanation. When you create the PR for commit B, <code>spr diff</code> will create a PR whose base branch is not <code>main</code>, but rather a synthetic branch that contains the difference between <code>main</code> and B's parent. This is so that the PR for B only shows the changes in B itself, rather than the entire difference between <code>main</code> and B.</p>
+<p>When you run <code>spr land</code>, it checks that each of these two operations would produce <em>exactly the same tree</em>:</p>
+<ul>
+<li>Merging the PR directly into upstream <code>main</code>.</li>
+<li>Cherry-picking the local commit onto upstream <code>main</code>.</li>
+</ul>
+<p>If those operations wouldn't result in the same tree, <code>spr land</code> fails. This is to prevent you from landing a commit whose contents aren't the same as what reviewers have seen.</p>
+<p>In the above example, then, the PR for commit B has a synthetic base branch that contains the changes in commit A. Thus, if you tried to land B before A, <code>spr land</code>'s &quot;merge PR vs. cherry-pick&quot; check would fail.</p>
+<p>If you want to be able to land commit B before A, do this:</p>
+<ol>
+<li>
+<p>Make commit A on top of <code>main</code> as before, and run <code>spr diff</code>.</p>
+</li>
+<li>
+<p>Make commit B on top of A as before, and run <code>spr diff --cherry-pick</code>. The flag causes <code>spr diff</code> to create the PR as if B were cherry-picked onto upstream <code>main</code>, rather than creating the synthetic base branch. (This step will fail if B does not cherry-pick cleanly onto upstream <code>main</code>, which would imply that A and B are not truly independent.)</p>
+</li>
+<li>
+<p>Once B is ready to land, you can do one of two things:</p>
+<ul>
+<li>
+<p>Run <code>spr land --cherry-pick</code>. (By default, <code>spr land</code> refuses to land a commit whose parent is not on upstream <code>main</code>; the flag makes it skip that check.)</p>
+</li>
+<li>
+<p>Do an interactive rebase that puts B directly on top of upstream <code>main</code>, then runs <code>spr land</code>, then puts A on top of B.</p>
+</li>
+</ul>
+</li>
+</ol>
+<h2 id="rebasing-the-whole-stack"><a class="header" href="#rebasing-the-whole-stack">Rebasing the whole stack</a></h2>
+<p>One of the major advantages of committing everything to local <code>main</code> is that rebasing your work onto new upstream <code>main</code> commits is much simpler than if you had a branch for every in-flight review. The difference is especially pronounced if some of your reviews depend on others, which would entail dependent feature branches in a branch-based workflow.</p>
+<p>Rebasing all your in-flight reviews and updating their PRs is as simple as:</p>
+<ol>
+<li>
+<p>Run <code>git pull --rebase</code> on <code>main</code>, resolving conflicts along the way as needed.</p>
+</li>
+<li>
+<p>Run <code>spr diff --all</code>.</p>
+</li>
+</ol>
+<div class="footnote-definition" id="rebase-cmds"><sup class="footnote-definition-label">1</sup>
+<p>You can shorten <code>exec</code> to <code>x</code>, <code>fixup</code> to <code>f</code>, and <code>squash</code> to <code>s</code>; they are spelled out here for clarity.</p>
+</div>
 <div style="break-before: page; page-break-before: always;"></div><h1 id="format-and-update-commit-messages"><a class="header" href="#format-and-update-commit-messages">Format and Update Commit Messages</a></h1>
 <p>You should format your commit messages like this:</p>
 <pre><code>One-line title
@@ -310,7 +483,7 @@ Pull Request: https://github.com/example/my-thing/pull/123
 <p>Be careful using this: your auth token will be in your shell history.</p>
 </div>
 <div style="break-before: page; page-break-before: always;"></div><h1 id="command-line-options"><a class="header" href="#command-line-options">Command Line Options</a></h1>
-<h2 id="to-be-written-5"><a class="header" href="#to-be-written-5">TO BE WRITTEN...</a></h2>
+<h2 id="to-be-written-4"><a class="header" href="#to-be-written-4">TO BE WRITTEN...</a></h2>
 
                     </main>
 
