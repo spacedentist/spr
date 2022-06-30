@@ -9,10 +9,11 @@
 - [Create a Pull Request](user/create.md)
 - [Update a Pull Request](user/update.md)
 - [Merge a Pull Request](user/merge.md)
-- [Stack Multiple Pull Requests](user/stack.md)
 
 # How To
 
+- [Create and Land a Simple PR](user/simple.md)
+- [Stack Multiple PRs](user/stack.md)
 - [Format and Update Commit Messages](user/commit-message.md)
 - [Check Out Someone Else's PR](user/patch.md)
 
