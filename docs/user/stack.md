@@ -37,7 +37,7 @@ This is the workflow for creating multiple PRs at the same time. This example on
 
       This will (1) amend your latest commit into commit A, discarding the throwaway message and using commit A's message for the combined result; (2) run `spr diff` on the combined result; and (3) put commit B on top of the combined result.
 
-5. Suppose commit A gets approved first, and you want to land it before commit B gets approved. You would:
+5. You must land commit A before commit B. (See [the next section](#cherry-picking) for what to do if you want to be able to land B first.) To land commit A, you would:
 
    1. Run `git rebase --interactive`. The editor will start with this:
 
@@ -110,4 +110,4 @@ Rebasing all your in-flight reviews and updating their PRs is as simple as:
 
 2. Run `spr diff --all`.
 
-[^rebase-cmds]: You can shorten `exec` to `x`, and `fixup` to `f`; they are spelled out here for clarity.
+[^rebase-cmds]: You can shorten `exec` to `x`, `fixup` to `f`, and `squash` to `s`; they are spelled out here for clarity.

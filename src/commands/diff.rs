@@ -194,7 +194,7 @@ async fn diff_impl(
     }
 
     if local_commit.pull_request_number.is_none() || opts.update_message {
-        validate_commit_message(message)?;
+        validate_commit_message(message, &config)?;
     }
 
     // Load Pull Request information

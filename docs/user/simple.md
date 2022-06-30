@@ -22,7 +22,9 @@ The above instructions have you committing directly to your local `main`. Doing 
 
 ## When you update
 
-When you run `spr diff` to update an existing PR, your update will be added to the PR as a new commit, so that reviewers can see exactly what changed. The new commit's message will be what you entered in step 4.3 of the instructions above. The message will not appear anywhere in the commit that eventually lands on `main`; it only appears in the PR.
+When you run `spr diff` to update an existing PR, your update will be added to the PR as a new commit, so that reviewers can see exactly what changed. The new commit's message will be what you entered in step 4.3 of the instructions above.
+
+The individual commits that you see in the PR are solely for the benefit of reviewers; they will not be reflected in the commit history when the PR is landed. The commit that eventually lands on upstream `main` will always be a single commit, whose message is the title and description from the PR.
 
 ## Updating before landing
 

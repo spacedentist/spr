@@ -60,7 +60,8 @@ pub async fn amend(
             let pull_request = pull_request.await??;
             commit.message = pull_request.sections;
         }
-        failure = validate_commit_message(&commit.message).is_err() || failure;
+        failure = validate_commit_message(&commit.message, &config).is_err()
+            || failure;
     }
     git.rewrite_commit_messages(slice, None)?;
 
