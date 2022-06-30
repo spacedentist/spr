@@ -154,7 +154,8 @@ The test plan can also be several lines long.
 Reviewers: github-username-a, github-username-b
 </code></pre>
 <p>The first line will be the title of the PR created by <code>spr diff</code>, and the rest of the lines except for the <code>Reviewers</code> line will be the PR description (i.e. the content of the first comment). The GitHub users named on the <code>Reviewers</code> line will be added to the PR as reviewers.</p>
-<p>The <code>Test Plan</code> section is required to be present; <code>spr diff</code> will fail with an error if it isn't.</p>
+<p>The <code>Test Plan</code> section is required to be present by default; <code>spr diff</code> will fail with an error if it isn't.
+You can disable this in the <a href="../reference/configuration.html">configuration</a>.</p>
 <h2 id="updating-the-commit-message"><a class="header" href="#updating-the-commit-message">Updating the commit message</a></h2>
 <p>When you create a PR with <code>spr diff</code>, <strong>the PR becomes the source of truth</strong> for the title and description. When you land a commit with <code>spr land</code>, its commit message will be amended to match the PR's title and description, regardless of what is in your local repo.</p>
 <p>If you want to update the title or description, there are two ways to do so:</p>
