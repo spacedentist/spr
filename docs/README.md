@@ -20,7 +20,9 @@ In spr's workflow, you send out individual commits for review, not entire branch
 
 3. If you need to make updates in response to feedback, amend your commit, and run `spr diff` again to send those updates to GitHub.
 
-4. Once reviewers have approved, run `spr land` to push your commit upstream.
+   Similarly, you can rebase onto newer upstream `main` and run `spr diff` to reflect any resulting changes to your commit.
+
+4. Once reviewers have approved, run `spr land`. This will put your commit on top of the latest `main` and push it upstream.
 
 In practice, you're likely to have more complex situations: multiple commits being reviewed, and possibly in-review commits that depend on others. You may need to make updates to any of these commits, or land them in any order.
 

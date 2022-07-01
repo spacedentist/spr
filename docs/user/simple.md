@@ -18,7 +18,7 @@ This section details the process of putting a single commit up for review, and l
 
 5. Once your PR is approved, run `spr land` to push it upstream.
 
-The above instructions have you committing directly to your local `main`. Doing so will keep things simpler when you have multiple reviews in flight. However, spr does not require that you commit directly to `main`. You can make branches if you prefer. If you do, note that `spr land` will not delete your feature branch.
+The above instructions have you committing directly to your local `main`. Doing so will keep things simpler when you have multiple reviews in flight. However, spr does not require that you commit directly to `main`. You can make branches if you prefer. `spr land` will always push your commit to upstream `main`, regardless of which local branch it was on. Note that `spr land` won't delete your feature branch.
 
 ## When you update
 
