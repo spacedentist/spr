@@ -155,6 +155,7 @@ mod tests {
             "master".into(),
             "spr/foo/".into(),
             false,
+            true,
         )
     }
 
