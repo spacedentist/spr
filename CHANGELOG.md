@@ -2,6 +2,11 @@
 
 ## [Unreleased]
 
+### Improvements
+
+- add config option to make test plan optional (@orausch)
+- add comprehensive documentation (@oyamauchi)
+
 ## [1.3.3] - 2022-06-27
 
 ### Fixes
