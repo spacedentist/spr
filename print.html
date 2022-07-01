@@ -76,7 +76,7 @@
 
         <nav id="sidebar" class="sidebar" aria-label="Table of contents">
             <div class="sidebar-scrollbox">
-                <ol class="chapter"><li class="chapter-item expanded affix "><a href="index.html">Introduction</a></li><li class="chapter-item expanded affix "><li class="part-title">User Guide</li><li class="chapter-item expanded "><a href="user/installation.html"><strong aria-hidden="true">1.</strong> Installation</a></li><li class="chapter-item expanded "><a href="user/setup.html"><strong aria-hidden="true">2.</strong> Set up spr</a></li><li class="chapter-item expanded "><a href="user/create.html"><strong aria-hidden="true">3.</strong> Create a Pull Request</a></li><li class="chapter-item expanded "><a href="user/update.html"><strong aria-hidden="true">4.</strong> Update a Pull Request</a></li><li class="chapter-item expanded "><a href="user/merge.html"><strong aria-hidden="true">5.</strong> Merge a Pull Request</a></li><li class="chapter-item expanded affix "><li class="part-title">How To</li><li class="chapter-item expanded "><a href="user/simple.html"><strong aria-hidden="true">6.</strong> Create and Land a Simple PR</a></li><li class="chapter-item expanded "><a href="user/stack.html"><strong aria-hidden="true">7.</strong> Stack Multiple PRs</a></li><li class="chapter-item expanded "><a href="user/commit-message.html"><strong aria-hidden="true">8.</strong> Format and Update Commit Messages</a></li><li class="chapter-item expanded "><a href="user/patch.html"><strong aria-hidden="true">9.</strong> Check Out Someone Else's PR</a></li><li class="chapter-item expanded affix "><li class="part-title">Reference Guide</li><li class="chapter-item expanded "><a href="reference/configuration.html"><strong aria-hidden="true">10.</strong> Configuration</a></li></ol>
+                <ol class="chapter"><li class="chapter-item expanded affix "><a href="index.html">Introduction</a></li><li class="chapter-item expanded affix "><li class="part-title">Getting Started</li><li class="chapter-item expanded "><a href="user/installation.html"><strong aria-hidden="true">1.</strong> Installation</a></li><li class="chapter-item expanded "><a href="user/setup.html"><strong aria-hidden="true">2.</strong> Set up spr</a></li><li class="chapter-item expanded affix "><li class="part-title">How To</li><li class="chapter-item expanded "><a href="user/simple.html"><strong aria-hidden="true">3.</strong> Create and Land a Simple PR</a></li><li class="chapter-item expanded "><a href="user/stack.html"><strong aria-hidden="true">4.</strong> Stack Multiple PRs</a></li><li class="chapter-item expanded "><a href="user/commit-message.html"><strong aria-hidden="true">5.</strong> Format and Update Commit Messages</a></li><li class="chapter-item expanded "><a href="user/patch.html"><strong aria-hidden="true">6.</strong> Check Out Someone Else's PR</a></li><li class="chapter-item expanded affix "><li class="part-title">Reference Guide</li><li class="chapter-item expanded "><a href="reference/configuration.html"><strong aria-hidden="true">7.</strong> Configuration</a></li></ol>
             </div>
             <div id="sidebar-resize-handle" class="sidebar-resize-handle"></div>
         </nav>
@@ -140,9 +140,46 @@
                     <main>
                         <p><img src="./spr.svg" alt="spr" /></p>
 <h1 id="introduction"><a class="header" href="#introduction">Introduction</a></h1>
-<p>spr is a command line tool for using a stacked diff workflow with GitHub.</p>
-<p>You do not need to have a dedicated branch in your local repository for each pull request. Instead, spr can create a pull request for an individual local commit. You can then amend and/or rebase this commit and update the pull request using spr. And finally, spr can assist you with merging the commit. It always uses “squash-merges” on GitHub, which means that the commit you worked on locally now materialises as a single commit on your centrally shared branch (traditionally called “master”, or “main”).</p>
-<p>spr is heavily inspired by Phabricator, both in terms of the workflow it enables you to use, and also in terms of the terminology used (“diff”, “land”, etc.). If you have previously used Phabricator, you should have very little problems using spr to work with GitHub.</p>
+<p>spr is a command line tool for using a stacked-diff workflow with GitHub.</p>
+<p>The idea behind spr is that your local branch management should not be dictated by your code-review tool. You should be able to send out code for review in individual commits, not branches. You make branches only when you want to, not because you <em>have</em> to for every code review.</p>
+<p>If you’ve used Phabricator and its command-line tool <code>arc</code>, you’ll find spr very familiar.</p>
+<p>To get started, see the <a href="./user/installation.html">installation instructions</a>, and the <a href="./user/setup.html">first-time setup</a>. (You’ll need to go through setup in each repo where you want to use spr.)</p>
+<h2 id="workflow-overview"><a class="header" href="#workflow-overview">Workflow overview</a></h2>
+<p>In spr’s workflow, you send out individual commits for review, not entire branches. This is the most basic version:</p>
+<ol>
+<li>
+<p>Make your change as a single commit, directly on your local <code>main</code><sup class="footnote-reference"><a href="#master">1</a></sup> branch.</p>
+</li>
+<li>
+<p>Run <code>spr diff</code> to send out your commit for review on GitHub.</p>
+</li>
+<li>
+<p>If you need to make updates in response to feedback, amend your commit, and run <code>spr diff</code> again to send those updates to GitHub.</p>
+<p>Similarly, you can rebase onto newer upstream <code>main</code> and run <code>spr diff</code> to reflect any resulting changes to your commit.</p>
+</li>
+<li>
+<p>Once reviewers have approved, run <code>spr land</code>. This will put your commit on top of the latest <code>main</code> and push it upstream.</p>
+</li>
+</ol>
+<p>In practice, you’re likely to have more complex situations: multiple commits being reviewed, and possibly in-review commits that depend on others. You may need to make updates to any of these commits, or land them in any order.</p>
+<p>spr can handle all of that, without requiring any particular way of organizing your local repo. See the guides in the “How To” section for instructions on using spr in those situations:</p>
+<ul>
+<li><a href="./user/simple.html">Simple PRs</a>: no more than one review in flight on any branch.</li>
+<li><a href="./user/stack.html">Stacked PRs</a>: multiple reviews in flight at once on your local <code>main</code>.</li>
+</ul>
+<h2 id="rationale"><a class="header" href="#rationale">Rationale</a></h2>
+<p>The reason to use spr is that it allows you to use whatever local branching scheme you want, instead of being forced to create a branch for every review. In particular, you can commit everything directly on your local <code>main</code>. This greatly simplifies rebasing: rather than rebasing every review branch individually, you can simply rebase your local <code>main</code> onto upstream <code>main</code>.</p>
+<p>You can make branches locally if you want, and it’s not uncommon for spr users to do so. You could even make a branch for every review if you don’t want to use the stacked-PR workflow. It doesn’t matter to spr.</p>
+<p>One reasonable position is to make small changes directly on <code>main</code>, but make branches for larger, more complex changes. The branch keeps the work-in-progress isolated while you get it to a reviewable state, making lots of small commits that aren’t individually reviewable. Once the branch as a whole is reviewable, you can squash it down to a single commit, which you can send out for review (either from the branch or cherry-picked onto <code>main</code>).</p>
+<h3 id="why-review-commits"><a class="header" href="#why-review-commits">Why Review Commits?</a></h3>
+<p>The principle behind spr is <strong>one commit per logical change</strong>. Each commit should be able to stand on its own: it should have a coherent thesis and be a complete change in and of itself. It should have a clear summary, description, and test plan. It should leave the codebase in a consistent state: building and passing tests, etc.</p>
+<p>In addition, ideally, it shouldn’t be possible to further split a commit into multiple commits that each stand on their own. If you <em>can</em> split a commit that way, you should.</p>
+<p>What follows from those principles is the idea that <strong>commits, not branches, should be the unit of code review</strong>. The above description of a commit also describes the ideal code review: a single, well-described change that leaves the codebase in a consistent state, and that cannot be subdivided further.</p>
+<p>If the commit is the unit of code review, then, why should the code review tool require that you make branches? spr’s answer is: it shouldn’t.</p>
+<p>Following the one-commit-per-change principle maintains the invariant that checking out any commit on <code>main</code> gives you a codebase that has been reviewed <em>in that state</em>, and that builds and passes tests, etc. This makes it easy to revert changes, and to bisect.</p>
+<div class="footnote-definition" id="master"><sup class="footnote-definition-label">1</sup>
+<p>Git’s default branch name is <code>master</code>, but GitHub’s is now <code>main</code>, so we’ll use <code>main</code> throughout this documentation.</p>
+</div>
 <div style="break-before: page; page-break-before: always;"></div><h1 id="installation"><a class="header" href="#installation">Installation</a></h1>
 <h2 id="binary-installation"><a class="header" href="#binary-installation">Binary Installation</a></h2>
 <h3 id="using-homebrew"><a class="header" href="#using-homebrew">Using Homebrew</a></h3>
@@ -154,17 +191,22 @@
 <p>spr is written in Rust. You need a Rust toolchain to build from source. See <a href="https://rustup.rs">rustup.rs</a> for information on how to install Rust if you have not got a Rust toolchain on your system already.</p>
 <p>With Rust all set up, clone this repository and run <code>cargo build --release</code>. The spr binary will be in the <code>target/release</code> directory.</p>
 <div style="break-before: page; page-break-before: always;"></div><h1 id="set-up-spr"><a class="header" href="#set-up-spr">Set up spr</a></h1>
-<h2 id="to-be-written"><a class="header" href="#to-be-written">TO BE WRITTEN…</a></h2>
-<p>The gist: run <code>spr init</code> and follow instructions</p>
-<div style="break-before: page; page-break-before: always;"></div><h1 id="create-a-pull-request"><a class="header" href="#create-a-pull-request">Create a Pull Request</a></h1>
-<h2 id="to-be-written-1"><a class="header" href="#to-be-written-1">TO BE WRITTEN…</a></h2>
-<p>The gist: run <code>spr diff</code></p>
-<div style="break-before: page; page-break-before: always;"></div><h1 id="update-a-pull-request"><a class="header" href="#update-a-pull-request">Update a Pull Request</a></h1>
-<h2 id="to-be-written-2"><a class="header" href="#to-be-written-2">TO BE WRITTEN…</a></h2>
-<p>The gist: run <code>spr diff</code></p>
-<div style="break-before: page; page-break-before: always;"></div><h1 id="merge-a-pull-request"><a class="header" href="#merge-a-pull-request">Merge a Pull Request</a></h1>
-<h2 id="to-be-written-3"><a class="header" href="#to-be-written-3">TO BE WRITTEN…</a></h2>
-<p>The gist: run <code>spr land</code></p>
+<p>In the repo you want to use spr in, run <code>spr init</code>; this will ask you several questions.</p>
+<p>You’ll need to provide a GitHub personal access token (PAT) as the first step. <a href="https://docs.github.com/en/authentication/keeping-your-account-and-data-secure/creating-a-personal-access-token">See the GitHub docs</a> on how to create one. <code>spr init</code> will tell you which scopes the token must have; make sure to set them correctly when creating the token.</p>
+<p>The rest of the settings that <code>spr init</code> asks for have sensible defaults, so almost all users can simply accept the defaults. The most common situation where you would need to diverge from the defaults is if the remote representing GitHub is not called <code>origin</code>.</p>
+<p>See the <a href="user/../reference/configuration.html">Configuration</a> reference page for full details about the available settings.</p>
+<p>After initial setup, you can update your settings in several ways:</p>
+<ul>
+<li>
+<p>Simply rerun <code>spr init</code>. The defaults it suggests will be your existing settings, so you can easily change only what you need to.</p>
+</li>
+<li>
+<p>Use <code>git config --set</code> (<a href="https://git-scm.com/docs/git-config">docs here</a>).</p>
+</li>
+<li>
+<p>Edit the <code>[spr]</code> section of <code>.git/config</code> directly.</p>
+</li>
+</ul>
 <div style="break-before: page; page-break-before: always;"></div><h1 id="create-and-land-a-simple-pr"><a class="header" href="#create-and-land-a-simple-pr">Create and Land a Simple PR</a></h1>
 <p>This section details the process of putting a single commit up for review, and landing it (pushing it upstream). It assumes you don’t have multiple reviews in flight at the same time. That situation is covered in <a href="user/./stack.html">another guide</a>, but you should be familiar with this single-review workflow before reading that one.</p>
 <ol>
@@ -196,7 +238,7 @@
 <p>Once your PR is approved, run <code>spr land</code> to push it upstream.</p>
 </li>
 </ol>
-<p>The above instructions have you committing directly to your local <code>main</code>. Doing so will keep things simpler when you have multiple reviews in flight. However, spr does not require that you commit directly to <code>main</code>. You can make branches if you prefer. If you do, note that <code>spr land</code> will not delete your feature branch.</p>
+<p>The above instructions have you committing directly to your local <code>main</code>. Doing so will keep things simpler when you have multiple reviews in flight. However, spr does not require that you commit directly to <code>main</code>. You can make branches if you prefer. <code>spr land</code> will always push your commit to upstream <code>main</code>, regardless of which local branch it was on. Note that <code>spr land</code> won’t delete your feature branch.</p>
 <h2 id="when-you-update"><a class="header" href="#when-you-update">When you update</a></h2>
 <p>When you run <code>spr diff</code> to update an existing PR, your update will be added to the PR as a new commit, so that reviewers can see exactly what changed. The new commit’s message will be what you entered in step 4.3 of the instructions above.</p>
 <p>The individual commits that you see in the PR are solely for the benefit of reviewers; they will not be reflected in the commit history when the PR is landed. The commit that eventually lands on upstream <code>main</code> will always be a single commit, whose message is the title and description from the PR.</p>
