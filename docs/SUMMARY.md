@@ -2,13 +2,10 @@
 
 [Introduction](README.md)
 
-# User Guide
+# Getting Started
 
 - [Installation](user/installation.md)
 - [Set up spr](user/setup.md)
-- [Create a Pull Request](user/create.md)
-- [Update a Pull Request](user/update.md)
-- [Merge a Pull Request](user/merge.md)
 
 # How To
 
