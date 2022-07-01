@@ -140,10 +140,10 @@
 
                 <div id="content" class="content">
                     <main>
-                        <h1 id="check-out-someone-elses-pr"><a class="header" href="#check-out-someone-elses-pr">Check Out Someone Else's PR</a></h1>
-<p>While reviewing someone else's pull request, it may be useful to pull their changes to your local repo, so you can run their code, or view it in your editor/IDE, etc.</p>
+                        <h1 id="check-out-someone-elses-pr"><a class="header" href="#check-out-someone-elses-pr">Check Out Someone Else’s PR</a></h1>
+<p>While reviewing someone else’s pull request, it may be useful to pull their changes to your local repo, so you can run their code, or view it in your editor/IDE, etc.</p>
 <p>To do so, get the number of the PR you want to pull, and run <code>spr patch &lt;number&gt;</code>. This creates a local branch named <code>PR-&lt;number&gt;</code>, and checks it out.</p>
-<p>The head of this new local branch is the PR commit itself. The branch is based on the <code>main</code> commit that was closest to the PR commit in the creator's local repo. In between:</p>
+<p>The head of this new local branch is the PR commit itself. The branch is based on the <code>main</code> commit that was closest to the PR commit in the creator’s local repo. In between:</p>
 <ul>
 <li>
 <p>If the PR commit was directly on top of a <code>main</code> commit, then the PR commit will be the only one on the branch.</p>
@@ -155,7 +155,7 @@
 <p>Thus, the new local branch always has either one or two commits on it, before joining <code>main</code>.</p>
 <p><img src="../images/patch.svg" alt="Diagram of the branching scheme" /></p>
 <h2 id="updating-the-pr"><a class="header" href="#updating-the-pr">Updating the PR</a></h2>
-<p>You can amend the head commit of the <code>PR-&lt;number&gt;</code> branch locally, and run <code>spr diff</code> to update the PR; it doesn't matter that you didn't create the PR. However, doing so will overwrite the contents of the PR on GitHub with what you have locally. You should coordinate with the PR creator before doing so.</p>
+<p>You can amend the head commit of the <code>PR-&lt;number&gt;</code> branch locally, and run <code>spr diff</code> to update the PR; it doesn’t matter that you didn’t create the PR. However, doing so will overwrite the contents of the PR on GitHub with what you have locally. You should coordinate with the PR creator before doing so.</p>
 
                     </main>
 

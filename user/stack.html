@@ -141,16 +141,16 @@
                 <div id="content" class="content">
                     <main>
                         <h1 id="stack-multiple-prs"><a class="header" href="#stack-multiple-prs">Stack Multiple PRs</a></h1>
-<p>The differences between spr's commit-based workflow and GitHub's default branch-based workflow are most apparent when you have multiple reviews in flight at the same time.</p>
-<p>This guide assumes you're already familiar with the workflow for <a href="./simple.html">simple, non-stacked PRs</a>.</p>
-<p>You'll use Git's <a href="https://git-scm.com/docs/git-rebase#_interactive_mode">interactive rebase</a> quite often in managing stacked-PR situations. It's a very powerful tool for reordering and combining commits in a series.</p>
+<p>The differences between spr’s commit-based workflow and GitHub’s default branch-based workflow are most apparent when you have multiple reviews in flight at the same time.</p>
+<p>This guide assumes you’re already familiar with the workflow for <a href="./simple.html">simple, non-stacked PRs</a>.</p>
+<p>You’ll use Git’s <a href="https://git-scm.com/docs/git-rebase#_interactive_mode">interactive rebase</a> quite often in managing stacked-PR situations. It’s a very powerful tool for reordering and combining commits in a series.</p>
 <p>This is the workflow for creating multiple PRs at the same time. This example only creates two, but the workflow works for arbitrarily deep stacks.</p>
 <ol>
 <li>
-<p>Make a change and commit it on <code>main</code>. We'll call this commit A.</p>
+<p>Make a change and commit it on <code>main</code>. We’ll call this commit A.</p>
 </li>
 <li>
-<p>Make another change and commit it on top of commit A. We'll call this commit B.</p>
+<p>Make another change and commit it on top of commit A. We’ll call this commit B.</p>
 </li>
 <li>
 <p>Run <code>spr diff --all</code>. This is equivalent to calling <code>spr diff</code> on each commit starting from <code>HEAD</code> and going to back to the first commit that is part of upstream <code>main</code>. Thus, it will create a PR for each of commits A and B.</p>
@@ -173,7 +173,7 @@ fixup 2c2c2c throwaway
 exec spr diff
 pick 1b1b1b Commit B
 </code></pre>
-<p>This will (1) amend your latest commit into commit A, discarding the throwaway message and using commit A's message for the combined result; (2) run <code>spr diff</code> on the combined result; and (3) put commit B on top of the combined result.</p>
+<p>This will (1) amend your latest commit into commit A, discarding the throwaway message and using commit A’s message for the combined result; (2) run <code>spr diff</code> on the combined result; and (3) put commit B on top of the combined result.</p>
 </li>
 </ol>
 </li>
@@ -194,7 +194,7 @@ pick 4b4b4b Commit B
 </ol>
 </li>
 <li>
-<p>Now you're left with just commit B on top of upstream <code>main</code>, and you can use the non-stacked workflow to update and land it.</p>
+<p>Now you’re left with just commit B on top of upstream <code>main</code>, and you can use the non-stacked workflow to update and land it.</p>
 </li>
 </ol>
 <p>There are a few possible variations to note:</p>
@@ -203,7 +203,7 @@ pick 4b4b4b Commit B
 <p>Instead of a single run of <code>spr diff --all</code> at the beginning, you could run plain <code>spr diff</code> right after making each commit.</p>
 </li>
 <li>
-<p>Instead of step 4, you could use interactive rebase to swap the order of commits A and B (as long as B doesn't depend on A), and then simply use the non-stacked workflow to amend A and update the PR.</p>
+<p>Instead of step 4, you could use interactive rebase to swap the order of commits A and B (as long as B doesn’t depend on A), and then simply use the non-stacked workflow to amend A and update the PR.</p>
 </li>
 <li>
 <p>In step 4.2, if you want to update the commit message of commit A, you could instead do the following interactive rebase:</p>
@@ -217,14 +217,14 @@ pick 1b1b1b Commit B
 </ul>
 <h2 id="cherry-picking"><a class="header" href="#cherry-picking">Cherry-picking</a></h2>
 <p>In the above example, you would not be able to land commit B before landing commit A, even if they were totally independent of each other.</p>
-<p>First, some behind-the-scenes explanation. When you create the PR for commit B, <code>spr diff</code> will create a PR whose base branch is not <code>main</code>, but rather a synthetic branch that contains the difference between <code>main</code> and B's parent. This is so that the PR for B only shows the changes in B itself, rather than the entire difference between <code>main</code> and B.</p>
+<p>First, some behind-the-scenes explanation. When you create the PR for commit B, <code>spr diff</code> will create a PR whose base branch is not <code>main</code>, but rather a synthetic branch that contains the difference between <code>main</code> and B’s parent. This is so that the PR for B only shows the changes in B itself, rather than the entire difference between <code>main</code> and B.</p>
 <p>When you run <code>spr land</code>, it checks that each of these two operations would produce <em>exactly the same tree</em>:</p>
 <ul>
 <li>Merging the PR directly into upstream <code>main</code>.</li>
 <li>Cherry-picking the local commit onto upstream <code>main</code>.</li>
 </ul>
-<p>If those operations wouldn't result in the same tree, <code>spr land</code> fails. This is to prevent you from landing a commit whose contents aren't the same as what reviewers have seen.</p>
-<p>In the above example, then, the PR for commit B has a synthetic base branch that contains the changes in commit A. Thus, if you tried to land B before A, <code>spr land</code>'s &quot;merge PR vs. cherry-pick&quot; check would fail.</p>
+<p>If those operations wouldn’t result in the same tree, <code>spr land</code> fails. This is to prevent you from landing a commit whose contents aren’t the same as what reviewers have seen.</p>
+<p>In the above example, then, the PR for commit B has a synthetic base branch that contains the changes in commit A. Thus, if you tried to land B before A, <code>spr land</code>’s “merge PR vs. cherry-pick” check would fail.</p>
 <p>If you want to be able to land commit B before A, do this:</p>
 <ol>
 <li>

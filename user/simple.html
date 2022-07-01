@@ -141,7 +141,7 @@
                 <div id="content" class="content">
                     <main>
                         <h1 id="create-and-land-a-simple-pr"><a class="header" href="#create-and-land-a-simple-pr">Create and Land a Simple PR</a></h1>
-<p>This section details the process of putting a single commit up for review, and landing it (pushing it upstream). It assumes you don't have multiple reviews in flight at the same time. That situation is covered in <a href="./stack.html">another guide</a>, but you should be familiar with this single-review workflow before reading that one.</p>
+<p>This section details the process of putting a single commit up for review, and landing it (pushing it upstream). It assumes you don’t have multiple reviews in flight at the same time. That situation is covered in <a href="./stack.html">another guide</a>, but you should be familiar with this single-review workflow before reading that one.</p>
 <ol>
 <li>
 <p>Pull <code>main</code> from upstream, and check it out.</p>
@@ -173,7 +173,7 @@
 </ol>
 <p>The above instructions have you committing directly to your local <code>main</code>. Doing so will keep things simpler when you have multiple reviews in flight. However, spr does not require that you commit directly to <code>main</code>. You can make branches if you prefer. If you do, note that <code>spr land</code> will not delete your feature branch.</p>
 <h2 id="when-you-update"><a class="header" href="#when-you-update">When you update</a></h2>
-<p>When you run <code>spr diff</code> to update an existing PR, your update will be added to the PR as a new commit, so that reviewers can see exactly what changed. The new commit's message will be what you entered in step 4.3 of the instructions above.</p>
+<p>When you run <code>spr diff</code> to update an existing PR, your update will be added to the PR as a new commit, so that reviewers can see exactly what changed. The new commit’s message will be what you entered in step 4.3 of the instructions above.</p>
 <p>The individual commits that you see in the PR are solely for the benefit of reviewers; they will not be reflected in the commit history when the PR is landed. The commit that eventually lands on upstream <code>main</code> will always be a single commit, whose message is the title and description from the PR.</p>
 <h2 id="updating-before-landing"><a class="header" href="#updating-before-landing">Updating before landing</a></h2>
 <p>If you amend your local commit before landing, you must run <code>spr diff</code> to update the PR before landing, or else <code>spr land</code> will fail.</p>

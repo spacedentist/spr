@@ -141,8 +141,8 @@
                         <p><img src="./spr.svg" alt="spr" /></p>
 <h1 id="introduction"><a class="header" href="#introduction">Introduction</a></h1>
 <p>spr is a command line tool for using a stacked diff workflow with GitHub.</p>
-<p>You do not need to have a dedicated branch in your local repository for each pull request. Instead, spr can create a pull request for an individual local commit. You can then amend and/or rebase this commit and update the pull request using spr. And finally, spr can assist you with merging the commit. It always uses &quot;squash-merges&quot; on GitHub, which means that the commit you worked on locally now materialises as a single commit on your centrally shared branch (traditionally called &quot;master&quot;, or &quot;main&quot;).</p>
-<p>spr is heavily inspired by Phabricator, both in terms of the workflow it enables you to use, and also in terms of the terminology used (&quot;diff&quot;, &quot;land&quot;, etc.). If you have previously used Phabricator, you should have very little problems using spr to work with GitHub.</p>
+<p>You do not need to have a dedicated branch in your local repository for each pull request. Instead, spr can create a pull request for an individual local commit. You can then amend and/or rebase this commit and update the pull request using spr. And finally, spr can assist you with merging the commit. It always uses “squash-merges” on GitHub, which means that the commit you worked on locally now materialises as a single commit on your centrally shared branch (traditionally called “master”, or “main”).</p>
+<p>spr is heavily inspired by Phabricator, both in terms of the workflow it enables you to use, and also in terms of the terminology used (“diff”, “land”, etc.). If you have previously used Phabricator, you should have very little problems using spr to work with GitHub.</p>
 <div style="break-before: page; page-break-before: always;"></div><h1 id="installation"><a class="header" href="#installation">Installation</a></h1>
 <h2 id="binary-installation"><a class="header" href="#binary-installation">Binary Installation</a></h2>
 <h3 id="using-homebrew"><a class="header" href="#using-homebrew">Using Homebrew</a></h3>
@@ -154,19 +154,19 @@
 <p>spr is written in Rust. You need a Rust toolchain to build from source. See <a href="https://rustup.rs">rustup.rs</a> for information on how to install Rust if you have not got a Rust toolchain on your system already.</p>
 <p>With Rust all set up, clone this repository and run <code>cargo build --release</code>. The spr binary will be in the <code>target/release</code> directory.</p>
 <div style="break-before: page; page-break-before: always;"></div><h1 id="set-up-spr"><a class="header" href="#set-up-spr">Set up spr</a></h1>
-<h2 id="to-be-written"><a class="header" href="#to-be-written">TO BE WRITTEN...</a></h2>
+<h2 id="to-be-written"><a class="header" href="#to-be-written">TO BE WRITTEN…</a></h2>
 <p>The gist: run <code>spr init</code> and follow instructions</p>
 <div style="break-before: page; page-break-before: always;"></div><h1 id="create-a-pull-request"><a class="header" href="#create-a-pull-request">Create a Pull Request</a></h1>
-<h2 id="to-be-written-1"><a class="header" href="#to-be-written-1">TO BE WRITTEN...</a></h2>
+<h2 id="to-be-written-1"><a class="header" href="#to-be-written-1">TO BE WRITTEN…</a></h2>
 <p>The gist: run <code>spr diff</code></p>
 <div style="break-before: page; page-break-before: always;"></div><h1 id="update-a-pull-request"><a class="header" href="#update-a-pull-request">Update a Pull Request</a></h1>
-<h2 id="to-be-written-2"><a class="header" href="#to-be-written-2">TO BE WRITTEN...</a></h2>
+<h2 id="to-be-written-2"><a class="header" href="#to-be-written-2">TO BE WRITTEN…</a></h2>
 <p>The gist: run <code>spr diff</code></p>
 <div style="break-before: page; page-break-before: always;"></div><h1 id="merge-a-pull-request"><a class="header" href="#merge-a-pull-request">Merge a Pull Request</a></h1>
-<h2 id="to-be-written-3"><a class="header" href="#to-be-written-3">TO BE WRITTEN...</a></h2>
+<h2 id="to-be-written-3"><a class="header" href="#to-be-written-3">TO BE WRITTEN…</a></h2>
 <p>The gist: run <code>spr land</code></p>
 <div style="break-before: page; page-break-before: always;"></div><h1 id="create-and-land-a-simple-pr"><a class="header" href="#create-and-land-a-simple-pr">Create and Land a Simple PR</a></h1>
-<p>This section details the process of putting a single commit up for review, and landing it (pushing it upstream). It assumes you don't have multiple reviews in flight at the same time. That situation is covered in <a href="user/./stack.html">another guide</a>, but you should be familiar with this single-review workflow before reading that one.</p>
+<p>This section details the process of putting a single commit up for review, and landing it (pushing it upstream). It assumes you don’t have multiple reviews in flight at the same time. That situation is covered in <a href="user/./stack.html">another guide</a>, but you should be familiar with this single-review workflow before reading that one.</p>
 <ol>
 <li>
 <p>Pull <code>main</code> from upstream, and check it out.</p>
@@ -198,7 +198,7 @@
 </ol>
 <p>The above instructions have you committing directly to your local <code>main</code>. Doing so will keep things simpler when you have multiple reviews in flight. However, spr does not require that you commit directly to <code>main</code>. You can make branches if you prefer. If you do, note that <code>spr land</code> will not delete your feature branch.</p>
 <h2 id="when-you-update"><a class="header" href="#when-you-update">When you update</a></h2>
-<p>When you run <code>spr diff</code> to update an existing PR, your update will be added to the PR as a new commit, so that reviewers can see exactly what changed. The new commit's message will be what you entered in step 4.3 of the instructions above.</p>
+<p>When you run <code>spr diff</code> to update an existing PR, your update will be added to the PR as a new commit, so that reviewers can see exactly what changed. The new commit’s message will be what you entered in step 4.3 of the instructions above.</p>
 <p>The individual commits that you see in the PR are solely for the benefit of reviewers; they will not be reflected in the commit history when the PR is landed. The commit that eventually lands on upstream <code>main</code> will always be a single commit, whose message is the title and description from the PR.</p>
 <h2 id="updating-before-landing"><a class="header" href="#updating-before-landing">Updating before landing</a></h2>
 <p>If you amend your local commit before landing, you must run <code>spr diff</code> to update the PR before landing, or else <code>spr land</code> will fail.</p>
@@ -223,16 +223,16 @@
 </ol>
 <p>Note that even if your local commit (and your PR) is not based on the latest upstream <code>main</code>, landing will still succeed as long as there are no conflicts with the actual latest upstream <code>main</code>.</p>
 <div style="break-before: page; page-break-before: always;"></div><h1 id="stack-multiple-prs"><a class="header" href="#stack-multiple-prs">Stack Multiple PRs</a></h1>
-<p>The differences between spr's commit-based workflow and GitHub's default branch-based workflow are most apparent when you have multiple reviews in flight at the same time.</p>
-<p>This guide assumes you're already familiar with the workflow for <a href="user/./simple.html">simple, non-stacked PRs</a>.</p>
-<p>You'll use Git's <a href="https://git-scm.com/docs/git-rebase#_interactive_mode">interactive rebase</a> quite often in managing stacked-PR situations. It's a very powerful tool for reordering and combining commits in a series.</p>
+<p>The differences between spr’s commit-based workflow and GitHub’s default branch-based workflow are most apparent when you have multiple reviews in flight at the same time.</p>
+<p>This guide assumes you’re already familiar with the workflow for <a href="user/./simple.html">simple, non-stacked PRs</a>.</p>
+<p>You’ll use Git’s <a href="https://git-scm.com/docs/git-rebase#_interactive_mode">interactive rebase</a> quite often in managing stacked-PR situations. It’s a very powerful tool for reordering and combining commits in a series.</p>
 <p>This is the workflow for creating multiple PRs at the same time. This example only creates two, but the workflow works for arbitrarily deep stacks.</p>
 <ol>
 <li>
-<p>Make a change and commit it on <code>main</code>. We'll call this commit A.</p>
+<p>Make a change and commit it on <code>main</code>. We’ll call this commit A.</p>
 </li>
 <li>
-<p>Make another change and commit it on top of commit A. We'll call this commit B.</p>
+<p>Make another change and commit it on top of commit A. We’ll call this commit B.</p>
 </li>
 <li>
 <p>Run <code>spr diff --all</code>. This is equivalent to calling <code>spr diff</code> on each commit starting from <code>HEAD</code> and going to back to the first commit that is part of upstream <code>main</code>. Thus, it will create a PR for each of commits A and B.</p>
@@ -255,7 +255,7 @@ fixup 2c2c2c throwaway
 exec spr diff
 pick 1b1b1b Commit B
 </code></pre>
-<p>This will (1) amend your latest commit into commit A, discarding the throwaway message and using commit A's message for the combined result; (2) run <code>spr diff</code> on the combined result; and (3) put commit B on top of the combined result.</p>
+<p>This will (1) amend your latest commit into commit A, discarding the throwaway message and using commit A’s message for the combined result; (2) run <code>spr diff</code> on the combined result; and (3) put commit B on top of the combined result.</p>
 </li>
 </ol>
 </li>
@@ -276,7 +276,7 @@ pick 4b4b4b Commit B
 </ol>
 </li>
 <li>
-<p>Now you're left with just commit B on top of upstream <code>main</code>, and you can use the non-stacked workflow to update and land it.</p>
+<p>Now you’re left with just commit B on top of upstream <code>main</code>, and you can use the non-stacked workflow to update and land it.</p>
 </li>
 </ol>
 <p>There are a few possible variations to note:</p>
@@ -285,7 +285,7 @@ pick 4b4b4b Commit B
 <p>Instead of a single run of <code>spr diff --all</code> at the beginning, you could run plain <code>spr diff</code> right after making each commit.</p>
 </li>
 <li>
-<p>Instead of step 4, you could use interactive rebase to swap the order of commits A and B (as long as B doesn't depend on A), and then simply use the non-stacked workflow to amend A and update the PR.</p>
+<p>Instead of step 4, you could use interactive rebase to swap the order of commits A and B (as long as B doesn’t depend on A), and then simply use the non-stacked workflow to amend A and update the PR.</p>
 </li>
 <li>
 <p>In step 4.2, if you want to update the commit message of commit A, you could instead do the following interactive rebase:</p>
@@ -299,14 +299,14 @@ pick 1b1b1b Commit B
 </ul>
 <h2 id="cherry-picking"><a class="header" href="#cherry-picking">Cherry-picking</a></h2>
 <p>In the above example, you would not be able to land commit B before landing commit A, even if they were totally independent of each other.</p>
-<p>First, some behind-the-scenes explanation. When you create the PR for commit B, <code>spr diff</code> will create a PR whose base branch is not <code>main</code>, but rather a synthetic branch that contains the difference between <code>main</code> and B's parent. This is so that the PR for B only shows the changes in B itself, rather than the entire difference between <code>main</code> and B.</p>
+<p>First, some behind-the-scenes explanation. When you create the PR for commit B, <code>spr diff</code> will create a PR whose base branch is not <code>main</code>, but rather a synthetic branch that contains the difference between <code>main</code> and B’s parent. This is so that the PR for B only shows the changes in B itself, rather than the entire difference between <code>main</code> and B.</p>
 <p>When you run <code>spr land</code>, it checks that each of these two operations would produce <em>exactly the same tree</em>:</p>
 <ul>
 <li>Merging the PR directly into upstream <code>main</code>.</li>
 <li>Cherry-picking the local commit onto upstream <code>main</code>.</li>
 </ul>
-<p>If those operations wouldn't result in the same tree, <code>spr land</code> fails. This is to prevent you from landing a commit whose contents aren't the same as what reviewers have seen.</p>
-<p>In the above example, then, the PR for commit B has a synthetic base branch that contains the changes in commit A. Thus, if you tried to land B before A, <code>spr land</code>'s &quot;merge PR vs. cherry-pick&quot; check would fail.</p>
+<p>If those operations wouldn’t result in the same tree, <code>spr land</code> fails. This is to prevent you from landing a commit whose contents aren’t the same as what reviewers have seen.</p>
+<p>In the above example, then, the PR for commit B has a synthetic base branch that contains the changes in commit A. Thus, if you tried to land B before A, <code>spr land</code>’s “merge PR vs. cherry-pick” check would fail.</p>
 <p>If you want to be able to land commit B before A, do this:</p>
 <ol>
 <li>
@@ -355,23 +355,23 @@ The test plan can also be several lines long.
 Reviewers: github-username-a, github-username-b
 </code></pre>
 <p>The first line will be the title of the PR created by <code>spr diff</code>, and the rest of the lines except for the <code>Reviewers</code> line will be the PR description (i.e. the content of the first comment). The GitHub users named on the <code>Reviewers</code> line will be added to the PR as reviewers.</p>
-<p>The <code>Test Plan</code> section is required to be present by default; <code>spr diff</code> will fail with an error if it isn't.
+<p>The <code>Test Plan</code> section is required to be present by default; <code>spr diff</code> will fail with an error if it isn’t.
 You can disable this in the <a href="user/../reference/configuration.html">configuration</a>.</p>
 <h2 id="updating-the-commit-message"><a class="header" href="#updating-the-commit-message">Updating the commit message</a></h2>
-<p>When you create a PR with <code>spr diff</code>, <strong>the PR becomes the source of truth</strong> for the title and description. When you land a commit with <code>spr land</code>, its commit message will be amended to match the PR's title and description, regardless of what is in your local repo.</p>
+<p>When you create a PR with <code>spr diff</code>, <strong>the PR becomes the source of truth</strong> for the title and description. When you land a commit with <code>spr land</code>, its commit message will be amended to match the PR’s title and description, regardless of what is in your local repo.</p>
 <p>If you want to update the title or description, there are two ways to do so:</p>
 <ul>
 <li>
-<p>Modify the PR through GitHub's UI.</p>
+<p>Modify the PR through GitHub’s UI.</p>
 </li>
 <li>
-<p>Amend the commit message locally, then run <code>spr diff --update-message</code>. <em>Note that this does not update reviewers</em>; that must be done in the GitHub UI. If you amend the commit message but don't include the <code>--update-message</code> flag, you'll get an error.</p>
+<p>Amend the commit message locally, then run <code>spr diff --update-message</code>. <em>Note that this does not update reviewers</em>; that must be done in the GitHub UI. If you amend the commit message but don’t include the <code>--update-message</code> flag, you’ll get an error.</p>
 </li>
 </ul>
-<p>If you want to go the other way --- that is, make your local commit message match the PR's title and description --- you can run <code>spr amend</code>.</p>
+<p>If you want to go the other way — that is, make your local commit message match the PR’s title and description — you can run <code>spr amend</code>.</p>
 <h2 id="further-information"><a class="header" href="#further-information">Further information</a></h2>
 <h3 id="fields-added-by-spr"><a class="header" href="#fields-added-by-spr">Fields added by spr</a></h3>
-<p>At various stages of a commit's lifecycle, <code>spr</code> will add lines to the commit message:</p>
+<p>At various stages of a commit’s lifecycle, <code>spr</code> will add lines to the commit message:</p>
 <ul>
 <li>
 <p>After first creating a PR, <code>spr diff</code> will amend the commit message to include a line like this at the end:</p>
@@ -428,13 +428,13 @@ Reviewed By: coworker-b
 Pull Request: https://github.com/example/my-thing/pull/123
 </code></pre>
 <h3 id="reformatting-the-commit-message"><a class="header" href="#reformatting-the-commit-message">Reformatting the commit message</a></h3>
-<p>spr is fairly permissive in parsing your commit message: it is case-insensitive, and it mostly ignores whitespace. You can run <code>spr format</code> to rewrite your HEAD commit's message to be in a canonical format.</p>
-<p>This command does not touch GitHub; it doesn't matter whether the commit has a PR created for it or not.</p>
-<p>Note that <code>spr land</code> will write the message of the commit it lands in the canonical format; you don't need to do so yourself before landing.</p>
-<div style="break-before: page; page-break-before: always;"></div><h1 id="check-out-someone-elses-pr"><a class="header" href="#check-out-someone-elses-pr">Check Out Someone Else's PR</a></h1>
-<p>While reviewing someone else's pull request, it may be useful to pull their changes to your local repo, so you can run their code, or view it in your editor/IDE, etc.</p>
+<p>spr is fairly permissive in parsing your commit message: it is case-insensitive, and it mostly ignores whitespace. You can run <code>spr format</code> to rewrite your HEAD commit’s message to be in a canonical format.</p>
+<p>This command does not touch GitHub; it doesn’t matter whether the commit has a PR created for it or not.</p>
+<p>Note that <code>spr land</code> will write the message of the commit it lands in the canonical format; you don’t need to do so yourself before landing.</p>
+<div style="break-before: page; page-break-before: always;"></div><h1 id="check-out-someone-elses-pr"><a class="header" href="#check-out-someone-elses-pr">Check Out Someone Else’s PR</a></h1>
+<p>While reviewing someone else’s pull request, it may be useful to pull their changes to your local repo, so you can run their code, or view it in your editor/IDE, etc.</p>
 <p>To do so, get the number of the PR you want to pull, and run <code>spr patch &lt;number&gt;</code>. This creates a local branch named <code>PR-&lt;number&gt;</code>, and checks it out.</p>
-<p>The head of this new local branch is the PR commit itself. The branch is based on the <code>main</code> commit that was closest to the PR commit in the creator's local repo. In between:</p>
+<p>The head of this new local branch is the PR commit itself. The branch is based on the <code>main</code> commit that was closest to the PR commit in the creator’s local repo. In between:</p>
 <ul>
 <li>
 <p>If the PR commit was directly on top of a <code>main</code> commit, then the PR commit will be the only one on the branch.</p>
@@ -446,7 +446,7 @@ Pull Request: https://github.com/example/my-thing/pull/123
 <p>Thus, the new local branch always has either one or two commits on it, before joining <code>main</code>.</p>
 <p><img src="user/../images/patch.svg" alt="Diagram of the branching scheme" /></p>
 <h2 id="updating-the-pr"><a class="header" href="#updating-the-pr">Updating the PR</a></h2>
-<p>You can amend the head commit of the <code>PR-&lt;number&gt;</code> branch locally, and run <code>spr diff</code> to update the PR; it doesn't matter that you didn't create the PR. However, doing so will overwrite the contents of the PR on GitHub with what you have locally. You should coordinate with the PR creator before doing so.</p>
+<p>You can amend the head commit of the <code>PR-&lt;number&gt;</code> branch locally, and run <code>spr diff</code> to update the PR; it doesn’t matter that you didn’t create the PR. However, doing so will overwrite the contents of the PR on GitHub with what you have locally. You should coordinate with the PR creator before doing so.</p>
 <div style="break-before: page; page-break-before: always;"></div><h1 id="configuration"><a class="header" href="#configuration">Configuration</a></h1>
 <p>The recommended way to configure spr is to run <code>spr init</code>, rather than setting config values manually. You can rerun <code>spr init</code> to update config at any time.</p>
 <p>spr uses the following Git configuration values:</p>
