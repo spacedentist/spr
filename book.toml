@@ -12,3 +12,4 @@ build-dir = "book"
 git-repository-url = "https://github.com/getcord/spr"
 edit-url-template = "https://github.com/getcord/spr/edit/master/{path}"
 site-url = "/spr/"
+curly-quotes = true
