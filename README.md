@@ -8,6 +8,10 @@ allow for a series of code reviews of interdependent code.
 
 spr is pronounced /ˈsuːpəɹ/, like the English word 'super'.
 
+## Documentation
+
+Comprehensive documentation is available here: https://getcord.github.io/spr/
+
 ## Installation
 
 ### Binary Installation
@@ -18,9 +22,19 @@ spr is pronounced /ˈsuːpəɹ/, like the English word 'super'.
 brew install getcord/tap/spr
 ```
 
+#### Using Nix
+
+```shell
+nix-channel --update && nix-env -i spr
+```
+
 #### Using Cargo
 
-If you have Cargo installed (the Rust build tool), you can install spr by running `cargo install spr`.
+If you have Cargo installed (the Rust build tool), you can install spr by running
+
+```shell
+cargo install spr
+```
 
 ### Install from Source
 
@@ -39,10 +53,6 @@ If you want to make changes to the pull request, amend your local commit (and/or
 To squash-merge an open pull request, run `spr land`.
 
 For more information on spr commands and options, run `spr help`. For more information on a specific spr command, run `spr help <COMMAND>` (e.g. `spr help diff`).
-
-## Documentation
-
-There is no more documentation at this point. This README will be updated as soon as there are additional resources.
 
 ## Contributing
 
