@@ -123,6 +123,8 @@ pub async fn spr() -> Result<()> {
     let branch_prefix = config.get_string("spr.branchPrefix")?;
     let require_approval =
         config.get_bool("spr.requireApproval").ok().unwrap_or(false);
+    let require_test_plan =
+        config.get_bool("spr.requireTestPlan").ok().unwrap_or(true);
 
     let config = crate::config::Config::new(
         github_owner,
@@ -131,6 +133,7 @@ pub async fn spr() -> Result<()> {
         github_master_branch,
         branch_prefix,
         require_approval,
+        require_test_plan,
     );
 
     octocrab::initialise(
