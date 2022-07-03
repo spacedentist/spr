@@ -198,8 +198,13 @@ pub fn build_github_body_for_merging(
     )
 }
 
-pub fn validate_commit_message(message: &MessageSectionsMap) -> Result<()> {
-    if !message.contains_key(&MessageSection::TestPlan) {
+pub fn validate_commit_message(
+    message: &MessageSectionsMap,
+    config: &crate::config::Config,
+) -> Result<()> {
+    if config.require_test_plan
+        && !message.contains_key(&MessageSection::TestPlan)
+    {
         output("💔", "Commit message does not have a Test Plan!")?;
         return Err(Error::empty());
     }
