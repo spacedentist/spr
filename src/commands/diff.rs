@@ -182,7 +182,7 @@ async fn diff_impl(
     }
 
     if local_commit.pull_request_number.is_none() || opts.update_message {
-        validate_commit_message(message)?;
+        validate_commit_message(message, config)?;
     }
 
     // Load Pull Request information
@@ -368,9 +368,10 @@ async fn diff_impl(
     // If it's `None`, then we will not merge anything into the new Pull Request
     // commit.
     // If we are updating an existing PR, then there are three cases here:
-    // (1) the parent tree of this commit is unchanged, which means that the
-    //     local commit was amended, but not rebased. We don't need to merge
-    //     anything into the Pull Request branch.
+    // (1) the parent tree of this commit is unchanged and we do not need to
+    //     merge in master, which means that the local commit was amended, but
+    //     not rebased. We don't need to merge anything into the Pull Request
+    //     branch.
     // (2) the parent tree has changed, but the parent of the local commit is on
     //     master (or we are cherry-picking) and we are not already using a base
     //     branch: in this case we can merge the master commit we are based on
@@ -399,7 +400,9 @@ async fn diff_impl(
     // commit is not directly based on master, we have to create this new PR
     // with a base branch, so that is case 3.
 
-    let (pr_base_parent, base_branch) = if pr_base_tree == new_base_tree {
+    let (pr_base_parent, base_branch) = if pr_base_tree == new_base_tree
+        && !needs_merging_master
+    {
         // Case 1
         (None, base_branch)
     } else if base_branch.is_none()
