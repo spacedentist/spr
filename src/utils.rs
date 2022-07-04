@@ -46,7 +46,8 @@ pub async fn run_command(cmd: &mut tokio::process::Command) -> Result<()> {
     let cmd_output = cmd
         .stdout(Stdio::null())
         .stderr(Stdio::piped())
-        .output()
+        .spawn()?
+        .wait_with_output()
         .await?;
 
     if !cmd_output.status.success() {
