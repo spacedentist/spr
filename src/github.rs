@@ -232,7 +232,7 @@ impl GitHub {
         let base = config.new_github_branch_from_ref(&pr.base_ref_name)?;
         let head = config.new_github_branch_from_ref(&pr.head_ref_name)?;
 
-        git.fetch_from_remote(&[&head, &base], &config.upstream_remote_name())
+        git.fetch_from_remote(&[&head, &base], &config.origin_remote_name())
             .await?;
 
         let base_oid = git.resolve_reference(base.local())?;
