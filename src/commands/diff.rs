@@ -520,7 +520,7 @@ async fn diff_impl(
         .arg("--atomic")
         .arg("--no-verify")
         .arg("--")
-        .arg(&config.remote_name)
+        .arg(&config.origin_remote_name())
         .arg(format!("{}:{}", pr_commit, pull_request_branch.on_github()));
 
     if let Some(pull_request) = pull_request {
@@ -615,7 +615,7 @@ async fn diff_impl(
                     .unwrap_or(&config.master_ref)
                     .on_github()
                     .to_string(),
-                pull_request_branch.on_github().to_string(),
+                config.pull_request_head(pull_request_branch),
                 opts.draft,
             )
             .await?;

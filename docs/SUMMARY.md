@@ -13,6 +13,7 @@
 - [Stack Multiple PRs](user/stack.md)
 - [Format and Update Commit Messages](user/commit-message.md)
 - [Check Out Someone Else's PR](user/patch.md)
+- [Create PRs from a Fork](user/fork.md)
 
 # Reference Guide
 
