@@ -64,6 +64,9 @@ enum Commands {
 
     /// Create a new branch with the contents of an existing Pull Request
     Patch(crate::commands::patch::PatchOptions),
+
+    /// Close a Pull request
+    Close,
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -187,6 +190,9 @@ pub fn spr() -> Result<()> {
             Commands::Patch(opts) => {
                 crate::commands::patch::patch(opts, &git, &mut gh, &config)
                     .await?
+            }
+            Commands::Close => {
+                crate::commands::close::close(&git, &mut gh, &config).await?
             }
             _ => (),
         };
