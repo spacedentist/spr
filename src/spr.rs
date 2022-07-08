@@ -85,7 +85,7 @@ pub fn spr() -> Result<()> {
     }
 
     if let Commands::Init = cli.command {
-        return crate::executor::run(async move {
+        return smol::block_on(async move {
             crate::commands::init::init(&cli).await
         });
     }
@@ -157,7 +157,7 @@ pub fn spr() -> Result<()> {
         .default_headers(headers)
         .build()?;
 
-    crate::executor::run(async move {
+    smol::block_on(async move {
         let git = crate::git::Git::new(repo);
         let mut gh = crate::github::GitHub::new(
             config.clone(),

@@ -8,7 +8,6 @@
 pub mod commands;
 pub mod config;
 pub mod error;
-pub mod executor;
 pub mod git;
 pub mod github;
 pub mod message;
