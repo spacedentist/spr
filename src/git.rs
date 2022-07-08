@@ -225,7 +225,7 @@ impl Git {
             .collect();
 
         if !missing_commit_oids.is_empty() {
-            let mut command = async_process::Command::new("git");
+            let mut command = tokio::process::Command::new("git");
             command
                 .arg("fetch")
                 .arg("--no-write-fetch-head")
@@ -250,7 +250,7 @@ impl Git {
         remote: &str,
     ) -> Result<()> {
         if !refs.is_empty() {
-            let mut command = async_process::Command::new("git");
+            let mut command = tokio::process::Command::new("git");
             command
                 .arg("fetch")
                 .arg("--no-write-fetch-head")

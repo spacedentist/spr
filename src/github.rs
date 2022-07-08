@@ -14,7 +14,6 @@ use crate::{
         build_github_body, parse_message, MessageSection, MessageSectionsMap,
     },
 };
-use async_compat::CompatExt;
 use std::collections::{HashMap, HashSet};
 
 #[derive(Clone)]
@@ -140,7 +139,6 @@ impl GitHub {
     async fn get_github_user(login: String) -> Result<UserWithName> {
         octocrab::instance()
             .get::<UserWithName, _, _>(format!("users/{}", login), None::<&()>)
-            .compat()
             .await
             .map_err(Error::from)
     }
@@ -162,7 +160,6 @@ impl GitHub {
             .post("https://api.github.com/graphql")
             .json(&request_body)
             .send()
-            .compat()
             .await?;
         let response_body: Response<pull_request_query::ResponseData> =
             res.json().await?;
@@ -327,7 +324,6 @@ impl GitHub {
             .body(build_github_body(message))
             .draft(Some(draft))
             .send()
-            .compat()
             .await?
             .number;
 
@@ -347,7 +343,6 @@ impl GitHub {
                 ),
                 Some(&updates),
             )
-            .compat()
             .await?;
 
         Ok(())
@@ -368,7 +363,6 @@ impl GitHub {
                 ),
                 Some(&reviewers),
             )
-            .compat()
             .await?;
 
         Ok(())
@@ -392,7 +386,6 @@ impl GitHub {
                         ),
                         None::<&()>,
                     )
-                    .compat()
                     .await?;
 
                 let user_names = futures::future::join_all(
@@ -409,7 +402,6 @@ impl GitHub {
                     .teams(&github.config.owner)
                     .list()
                     .send()
-                    .compat()
                     .await
                     .ok()
                     .unwrap_or_default())
@@ -445,7 +437,6 @@ impl GitHub {
             .post("https://api.github.com/graphql")
             .json(&request_body)
             .send()
-            .compat()
             .await?;
         let response_body: Response<
             pull_request_mergeability_query::ResponseData,

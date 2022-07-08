@@ -7,7 +7,7 @@
 
 use crate::error::{Error, Result};
 
-use std::io::Write;
+use std::{io::Write, process::Stdio};
 use unicode_normalization::UnicodeNormalization;
 
 pub fn slugify(s: &str) -> String {
@@ -42,11 +42,12 @@ pub fn remove_all_parens(text: &str) -> String {
     lazy_regex::regex!(r#"[()]"#).replace_all(text, "").into()
 }
 
-pub async fn run_command(cmd: &mut async_process::Command) -> Result<()> {
+pub async fn run_command(cmd: &mut tokio::process::Command) -> Result<()> {
     let cmd_output = cmd
-        .stdout(async_process::Stdio::null())
-        .stderr(async_process::Stdio::piped())
-        .output()
+        .stdout(Stdio::null())
+        .stderr(Stdio::piped())
+        .spawn()?
+        .wait_with_output()
         .await?;
 
     if !cmd_output.status.success() {

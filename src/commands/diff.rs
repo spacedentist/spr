@@ -503,7 +503,7 @@ async fn diff_impl(
         &pr_commit_parents[..],
     )?;
 
-    let mut cmd = async_process::Command::new("git");
+    let mut cmd = tokio::process::Command::new("git");
     cmd.arg("push")
         .arg("--atomic")
         .arg("--no-verify")
