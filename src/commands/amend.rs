@@ -57,7 +57,7 @@ pub async fn amend(
         write_commit_title(commit)?;
         let pull_request = pull_requests.pop().flatten();
         if let Some(pull_request) = pull_request {
-            let pull_request = pull_request.await??;
+            let pull_request = pull_request.await?;
             commit.message = pull_request.sections;
         }
         failure = validate_commit_message(&commit.message, config).is_err()
