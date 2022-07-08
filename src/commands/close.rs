@@ -5,6 +5,8 @@
  * LICENSE file in the root directory of this source tree.
  */
 
+use std::process::Stdio;
+
 use indoc::formatdoc;
 
 use crate::{
@@ -41,7 +43,7 @@ pub async fn close(
         };
 
     // Load Pull Request information
-    let pull_request = gh.get_pull_request(pull_request_number).await??;
+    let pull_request = gh.get_pull_request(pull_request_number).await?;
 
     if pull_request.state != PullRequestState::Open {
         return Err(Error::new(formatdoc!(
@@ -75,30 +77,30 @@ pub async fn close(
     output("📕", "Closed!")?;
 
     let mut remove_old_branch_child_process =
-        async_process::Command::new("git")
+        tokio::process::Command::new("git")
             .arg("push")
             .arg("--no-verify")
             .arg("--delete")
             .arg("--")
             .arg(&config.remote_name)
             .arg(pull_request.head.on_github())
-            .stdout(async_process::Stdio::null())
-            .stderr(async_process::Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
             .spawn()?;
 
     let remove_old_base_branch_child_process = if base_is_master {
         None
     } else {
         Some(
-            async_process::Command::new("git")
+            tokio::process::Command::new("git")
                 .arg("push")
                 .arg("--no-verify")
                 .arg("--delete")
                 .arg("--")
                 .arg(&config.remote_name)
                 .arg(pull_request.base.on_github())
-                .stdout(async_process::Stdio::null())
-                .stderr(async_process::Stdio::null())
+                .stdout(Stdio::null())
+                .stderr(Stdio::null())
                 .spawn()?,
         )
     };
@@ -107,9 +109,9 @@ pub async fn close(
     // but ignore the result.
     // GitHub may be configured to delete the branch automatically,
     // in which case it's gone already and this command fails.
-    remove_old_branch_child_process.status().await?;
+    remove_old_branch_child_process.wait().await?;
     if let Some(mut proc) = remove_old_base_branch_child_process {
-        proc.status().await?;
+        proc.wait().await?;
     }
 
     Ok(())
