@@ -12,6 +12,7 @@ use indoc::formatdoc;
 use crate::{
     error::{Error, Result},
     github::{PullRequestState, PullRequestUpdate},
+    message::MessageSection,
     output::{output, write_commit_title},
 };
 
@@ -75,6 +76,11 @@ pub async fn close(
     };
 
     output("📕", "Closed!")?;
+
+    // Remove Pull Request section from commit.
+    prepared_commit.message.remove(&MessageSection::PullRequest);
+    drop(prepared_commit);
+    git.rewrite_commit_messages(prepared_commits.as_mut_slice(), None)?;
 
     let mut remove_old_branch_child_process =
         tokio::process::Command::new("git")
