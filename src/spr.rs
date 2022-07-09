@@ -66,7 +66,7 @@ enum Commands {
     Patch(crate::commands::patch::PatchOptions),
 
     /// Close a Pull request
-    Close,
+    Close(crate::commands::close::CloseOptions),
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -184,8 +184,8 @@ pub async fn spr() -> Result<()> {
         Commands::Patch(opts) => {
             crate::commands::patch::patch(opts, &git, &mut gh, &config).await?
         }
-        Commands::Close => {
-            crate::commands::close::close(&git, &mut gh, &config).await?
+        Commands::Close(opts) => {
+            crate::commands::close::close(opts, &git, &mut gh, &config).await?
         }
         _ => (),
     };

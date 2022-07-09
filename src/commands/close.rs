@@ -10,29 +10,70 @@ use std::process::Stdio;
 use indoc::formatdoc;
 
 use crate::{
-    error::{Error, Result},
+    error::{add_error, Error, Result},
+    git::PreparedCommit,
     github::{PullRequestState, PullRequestUpdate},
     message::MessageSection,
     output::{output, write_commit_title},
 };
 
+#[derive(Debug, clap::Parser)]
+pub struct CloseOptions {
+    /// Close Pull Requests for the whole branch, not just the HEAD commit
+    #[clap(long)]
+    all: bool,
+}
+
 pub async fn close(
+    opts: CloseOptions,
     git: &crate::git::Git,
     gh: &mut crate::github::GitHub,
     config: &crate::config::Config,
 ) -> Result<()> {
+    let mut result = Ok(());
+
     let mut prepared_commits = git.get_prepared_commits(config)?;
 
-    let prepared_commit = match prepared_commits.last_mut() {
-        Some(c) => c,
-        None => {
-            output("👋", "Branch is empty - nothing to do. Good bye!")?;
-            return Ok(());
-        }
+    if prepared_commits.is_empty() {
+        output("👋", "Branch is empty - nothing to do. Good bye!")?;
+        return result;
     };
 
-    write_commit_title(prepared_commit)?;
+    if !opts.all {
+        // Remove all prepared commits from the vector but the last. So, if
+        // `--all` is not given, we only operate on the HEAD commit.
+        prepared_commits.drain(0..prepared_commits.len() - 1);
+    }
 
+    for prepared_commit in prepared_commits.iter_mut() {
+        if result.is_err() {
+            break;
+        }
+
+        write_commit_title(prepared_commit)?;
+
+        // The further implementation of the close command is in a separate function.
+        // This makes it easier to run the code to update the local commit message
+        // with all the changes that the implementation makes at the end, even if
+        // the implementation encounters an error or exits early.
+        result = close_impl(gh, config, prepared_commit).await;
+    }
+
+    // This updates the commit message in the local Git repository (if it was
+    // changed by the implementation)
+    add_error(
+        &mut result,
+        git.rewrite_commit_messages(prepared_commits.as_mut_slice(), None),
+    );
+
+    result
+}
+
+async fn close_impl(
+    gh: &mut crate::github::GitHub,
+    config: &crate::config::Config,
+    prepared_commit: &mut PreparedCommit,
+) -> Result<()> {
     let pull_request_number =
         if let Some(number) = prepared_commit.pull_request_number {
             output("#️⃣ ", &format!("Pull Request #{}", number))?;
@@ -79,8 +120,6 @@ pub async fn close(
 
     // Remove Pull Request section from commit.
     prepared_commit.message.remove(&MessageSection::PullRequest);
-    drop(prepared_commit);
-    git.rewrite_commit_messages(prepared_commits.as_mut_slice(), None)?;
 
     let mut remove_old_branch_child_process =
         tokio::process::Command::new("git")
