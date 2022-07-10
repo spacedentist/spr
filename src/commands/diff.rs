@@ -5,11 +5,14 @@
  * LICENSE file in the root directory of this source tree.
  */
 
+use std::iter::zip;
+
 use crate::{
     error::{add_error, Error, Result, ResultExt},
     git::PreparedCommit,
     github::{
-        PullRequestRequestReviewers, PullRequestState, PullRequestUpdate,
+        PullRequest, PullRequestRequestReviewers, PullRequestState,
+        PullRequestUpdate,
     },
     message::{validate_commit_message, MessageSection},
     output::{output, write_commit_title},
@@ -73,12 +76,29 @@ pub async fn diff(
         prepared_commits.drain(0..prepared_commits.len() - 1);
     }
 
+    #[allow(clippy::needless_collect)]
+    let pull_request_tasks: Vec<_> = prepared_commits
+        .iter()
+        .map(|pc: &PreparedCommit| {
+            pc.pull_request_number
+                .map(|number| tokio::spawn(gh.clone().get_pull_request(number)))
+        })
+        .collect();
+
     let mut message_on_prompt = "".to_string();
 
-    for prepared_commit in prepared_commits.iter_mut() {
+    for (prepared_commit, pull_request_task) in
+        zip(prepared_commits.iter_mut(), pull_request_tasks.into_iter())
+    {
         if result.is_err() {
             break;
         }
+
+        let pull_request = if let Some(task) = pull_request_task {
+            Some(task.await??)
+        } else {
+            None
+        };
 
         write_commit_title(prepared_commit)?;
 
@@ -94,6 +114,7 @@ pub async fn diff(
             config,
             prepared_commit,
             master_base_oid,
+            pull_request,
         )
         .await;
     }
@@ -108,6 +129,7 @@ pub async fn diff(
     result
 }
 
+#[allow(clippy::too_many_arguments)]
 async fn diff_impl(
     opts: &DiffOptions,
     message_on_prompt: &mut String,
@@ -116,6 +138,7 @@ async fn diff_impl(
     config: &crate::config::Config,
     local_commit: &mut PreparedCommit,
     master_base_oid: Oid,
+    pull_request: Option<PullRequest>,
 ) -> Result<()> {
     // Parsed commit message of the local commit
     let message = &mut local_commit.message;
@@ -185,22 +208,15 @@ async fn diff_impl(
         validate_commit_message(message, config)?;
     }
 
-    // Load Pull Request information
-    let pull_request = if let Some(number) = local_commit.pull_request_number {
-        let pr = gh.get_pull_request(number).await?;
-        if pr.state == PullRequestState::Closed {
+    if let Some(ref pull_request) = pull_request {
+        if pull_request.state == PullRequestState::Closed {
             return Err(Error::new(formatdoc!(
                 "Pull request is closed. If you want to open a new one, \
                  remove the 'Pull Request' section from the commit message."
             )));
         }
-        Some(pr)
-    } else {
-        None
-    };
 
-    if !opts.update_message {
-        if let Some(ref pull_request) = pull_request {
+        if !opts.update_message {
             let mut pull_request_updates: PullRequestUpdate =
                 Default::default();
             pull_request_updates.update_message(pull_request, message);
@@ -459,11 +475,18 @@ async fn diff_impl(
 
     let mut github_commit_message = opts.message.clone();
     if pull_request.is_some() && github_commit_message.is_none() {
-        let input = dialoguer::Input::<String>::new()
-            .with_prompt("Message (leave empty to abort)")
-            .with_initial_text(message_on_prompt.clone())
-            .allow_empty(true)
-            .interact_text()?;
+        let input = {
+            let message_on_prompt = message_on_prompt.clone();
+
+            tokio::task::spawn_blocking(move || {
+                dialoguer::Input::<String>::new()
+                    .with_prompt("Message (leave empty to abort)")
+                    .with_initial_text(message_on_prompt)
+                    .allow_empty(true)
+                    .interact_text()
+            })
+            .await??
+        };
 
         if input.is_empty() {
             return Err(Error::new("Aborted as per user request".to_string()));
