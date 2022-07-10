@@ -41,7 +41,7 @@ pub async fn land(
              this commit, rebase it so that it is a direct child of {master}.
              Alternatively, if you used the `--cherry-pick` option with `spr \
              diff`, then you can pass it to `spr land`, too.",
-            master = &config.master_ref.branch_name(),
+            master = &config.master_ref().branch_name(),
         )));
     }
 
@@ -91,12 +91,12 @@ pub async fn land(
             .arg("--no-write-fetch-head")
             .arg("--")
             .arg(&config.upstream_remote_name())
-            .arg(config.master_ref.on_github()),
+            .arg(config.master_ref().on_github()),
     )
     .await
     .reword("git fetch failed".to_string())?;
 
-    let current_master = git.resolve_reference(config.master_ref.local())?;
+    let current_master = git.resolve_reference(config.master_ref().local())?;
     let base_is_master = pull_request.base.is_master_branch();
     let index = git.cherrypick(prepared_commit.oid, current_master)?;
 
@@ -105,7 +105,7 @@ pub async fn land(
             "This commit cannot be applied on top of the '{master}' branch.
              Please rebase this commit on top of current \
              '{remote}/{master}'.{unlanded}",
-            master = &config.master_ref.branch_name(),
+            master = &config.master_ref().branch_name(),
             remote = &config.upstream_remote_name(),
             unlanded = if based_on_unlanded_commits {
                 " You may also have to land commits that this commit depends on first."
@@ -231,7 +231,7 @@ pub async fn land(
         gh.update_pull_request(
             pull_request_number,
             PullRequestUpdate {
-                base: Some(config.master_ref.on_github().to_string()),
+                base: Some(config.master_ref().on_github().to_string()),
                 ..Default::default()
             },
         )
@@ -397,7 +397,7 @@ pub async fn land(
                 .arg("--no-write-fetch-head")
                 .arg("--")
                 .arg(&config.upstream_remote_name())
-                .arg(config.master_ref.on_github())
+                .arg(config.master_ref().on_github())
                 .arg(&sha)
                 .stdout(Stdio::null())
                 .stderr(Stdio::piped())
