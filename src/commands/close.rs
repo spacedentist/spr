@@ -108,7 +108,7 @@ async fn close_impl(
         .await;
 
     match result {
-        Ok(closed) => closed,
+        Ok(()) => (),
         Err(error) => {
             output("❌", "GitHub Pull Request close failed")?;
 
