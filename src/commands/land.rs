@@ -5,9 +5,8 @@
  * LICENSE file in the root directory of this source tree.
  */
 
-use async_compat::CompatExt;
 use indoc::formatdoc;
-use std::{io::Write, time::Duration};
+use std::{io::Write, process::Stdio, time::Duration};
 
 use crate::{
     error::{Error, Result, ResultExt},
@@ -67,7 +66,7 @@ pub async fn land(
         };
 
     // Load Pull Request information
-    let pull_request = gh.get_pull_request(pull_request_number).await??;
+    let pull_request = gh.clone().get_pull_request(pull_request_number).await?;
 
     if pull_request.state != PullRequestState::Open {
         return Err(Error::new(formatdoc!(
@@ -87,7 +86,7 @@ pub async fn land(
 
     // Fetch current master from GitHub.
     run_command(
-        async_process::Command::new("git")
+        tokio::process::Command::new("git")
             .arg("fetch")
             .arg("--no-write-fetch-head")
             .arg("--")
@@ -122,11 +121,12 @@ pub async fn land(
 
     // Now let's predict what merging the PR into the master branch would
     // produce.
-    let merge_index = git.repo().merge_commits(
-        &git.repo().find_commit(current_master)?,
-        &git.repo().find_commit(pull_request.head_oid)?,
-        None,
-    )?;
+    let merge_index = {
+        let repo = git.repo();
+        let current_master = repo.find_commit(current_master)?;
+        let pr_head = repo.find_commit(pull_request.head_oid)?;
+        repo.merge_commits(&current_master, &pr_head, None)
+    }?;
 
     let merge_matches_cherrypick = if merge_index.has_conflicts() {
         false
@@ -212,7 +212,7 @@ pub async fn land(
                 &[pr_head_oid, current_master],
             )?;
 
-            let mut cmd = async_process::Command::new("git");
+            let mut cmd = tokio::process::Command::new("git");
             cmd.arg("push")
                 .arg("--atomic")
                 .arg("--no-verify")
@@ -293,7 +293,7 @@ pub async fn land(
         }
 
         // Wait one second before retrying
-        async_io::Timer::after(Duration::from_secs(1)).await;
+        tokio::time::sleep(Duration::from_secs(1)).await;
     };
 
     let result = match result {
@@ -311,7 +311,6 @@ pub async fn land(
                 .message(build_github_body_for_merging(&pull_request.sections))
                 .sha(format!("{}", pr_head_oid))
                 .send()
-                .compat()
                 .await
                 .convert()
                 .and_then(|merge| {
@@ -359,30 +358,30 @@ pub async fn land(
     output("🛬", "Landed!")?;
 
     let mut remove_old_branch_child_process =
-        async_process::Command::new("git")
+        tokio::process::Command::new("git")
             .arg("push")
             .arg("--no-verify")
             .arg("--delete")
             .arg("--")
             .arg(&config.origin_remote_name())
             .arg(pull_request.head.on_github())
-            .stdout(async_process::Stdio::null())
-            .stderr(async_process::Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
             .spawn()?;
 
     let remove_old_base_branch_child_process = if base_is_master {
         None
     } else {
         Some(
-            async_process::Command::new("git")
+            tokio::process::Command::new("git")
                 .arg("push")
                 .arg("--no-verify")
                 .arg("--delete")
                 .arg("--")
                 .arg(&config.origin_remote_name())
                 .arg(pull_request.base.on_github())
-                .stdout(async_process::Stdio::null())
-                .stderr(async_process::Stdio::null())
+                .stdout(Stdio::null())
+                .stderr(Stdio::null())
                 .spawn()?,
         )
     };
@@ -393,15 +392,15 @@ pub async fn land(
         // the merge might still not find the new commit.
         for i in 0..3 {
             // Fetch current master and the merge commit from GitHub.
-            let git_fetch = async_process::Command::new("git")
+            let git_fetch = tokio::process::Command::new("git")
                 .arg("fetch")
                 .arg("--no-write-fetch-head")
                 .arg("--")
                 .arg(&config.upstream_remote_name())
                 .arg(config.master_ref.on_github())
                 .arg(&sha)
-                .stdout(async_process::Stdio::null())
-                .stderr(async_process::Stdio::piped())
+                .stdout(Stdio::null())
+                .stderr(Stdio::piped())
                 .output()
                 .await?;
             if git_fetch.status.success() {
@@ -423,9 +422,9 @@ pub async fn land(
     // Wait for the "git push" to delete the old Pull Request branch to finish,
     // but ignore the result. GitHub may be configured to delete the branch
     // automatically, in which case it's gone already and this command fails.
-    remove_old_branch_child_process.status().await?;
+    remove_old_branch_child_process.wait().await?;
     if let Some(mut proc) = remove_old_base_branch_child_process {
-        proc.status().await?;
+        proc.wait().await?;
     }
 
     Ok(())

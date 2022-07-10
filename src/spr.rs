@@ -79,7 +79,7 @@ pub enum OptionsError {
     InvalidRepository(String),
 }
 
-pub fn spr() -> Result<()> {
+pub async fn spr() -> Result<()> {
     let cli = Cli::parse();
 
     if let Some(path) = &cli.cd {
@@ -90,9 +90,7 @@ pub fn spr() -> Result<()> {
     }
 
     if let Commands::Init = cli.command {
-        return crate::executor::run(async move {
-            crate::commands::init::init(&cli).await
-        });
+        return crate::commands::init::init(&cli).await;
     }
 
     let repo = git2::Repository::discover(std::env::current_dir()?)?;
@@ -186,40 +184,34 @@ pub fn spr() -> Result<()> {
         .default_headers(headers)
         .build()?;
 
-    crate::executor::run(async move {
-        let git = crate::git::Git::new(repo);
-        let mut gh = crate::github::GitHub::new(
-            config.clone(),
-            &git,
-            graphql_client.clone(),
-        );
+    let git = crate::git::Git::new(repo);
+    let mut gh = crate::github::GitHub::new(
+        config.clone(),
+        git.clone(),
+        graphql_client.clone(),
+    );
 
-        match cli.command {
-            Commands::Diff(opts) => {
-                crate::commands::diff::diff(opts, &git, &mut gh, &config)
-                    .await?
-            }
-            Commands::Land(opts) => {
-                crate::commands::land::land(opts, &git, &mut gh, &config)
-                    .await?
-            }
-            Commands::Amend(opts) => {
-                crate::commands::amend::amend(opts, &git, &mut gh, &config)
-                    .await?
-            }
-            Commands::Format(opts) => {
-                crate::commands::format::format(opts, &git, &config).await?
-            }
-            Commands::List => {
-                crate::commands::list::list(graphql_client, &config).await?
-            }
-            Commands::Patch(opts) => {
-                crate::commands::patch::patch(opts, &git, &mut gh, &config)
-                    .await?
-            }
-            _ => (),
-        };
+    match cli.command {
+        Commands::Diff(opts) => {
+            crate::commands::diff::diff(opts, &git, &mut gh, &config).await?
+        }
+        Commands::Land(opts) => {
+            crate::commands::land::land(opts, &git, &mut gh, &config).await?
+        }
+        Commands::Amend(opts) => {
+            crate::commands::amend::amend(opts, &git, &mut gh, &config).await?
+        }
+        Commands::Format(opts) => {
+            crate::commands::format::format(opts, &git, &config).await?
+        }
+        Commands::List => {
+            crate::commands::list::list(graphql_client, &config).await?
+        }
+        Commands::Patch(opts) => {
+            crate::commands::patch::patch(opts, &git, &mut gh, &config).await?
+        }
+        _ => (),
+    };
 
-        Ok::<_, Error>(())
-    })
+    Ok::<_, Error>(())
 }

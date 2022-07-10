@@ -7,7 +7,6 @@
 
 use crate::error::Error;
 use crate::error::Result;
-use async_compat::CompatExt;
 use graphql_client::{GraphQLQuery, Response};
 use reqwest;
 
@@ -37,7 +36,6 @@ pub async fn list(
         .post("https://api.github.com/graphql")
         .json(&request_body)
         .send()
-        .compat()
         .await?;
     let response_body: Response<search_query::ResponseData> =
         res.json().await?;
