@@ -7,6 +7,7 @@
 
 use crate::{
     error::{Error, Result},
+    git::PreparedCommit,
     message::validate_commit_message,
     output::{output, write_commit_title},
 };
@@ -45,9 +46,9 @@ pub async fn amend(
     let mut pull_requests: Vec<_> = slice
         .iter()
         .rev()
-        .map(|pc| {
+        .map(|pc: &PreparedCommit| {
             pc.pull_request_number
-                .map(|number| gh.get_pull_request(number))
+                .map(|number| tokio::spawn(gh.clone().get_pull_request(number)))
         })
         .collect();
 
@@ -57,7 +58,7 @@ pub async fn amend(
         write_commit_title(commit)?;
         let pull_request = pull_requests.pop().flatten();
         if let Some(pull_request) = pull_request {
-            let pull_request = pull_request.await?;
+            let pull_request = pull_request.await??;
             commit.message = pull_request.sections;
         }
         failure = validate_commit_message(&commit.message, config).is_err()

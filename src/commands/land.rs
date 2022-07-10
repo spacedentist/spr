@@ -66,7 +66,7 @@ pub async fn land(
         };
 
     // Load Pull Request information
-    let pull_request = gh.get_pull_request(pull_request_number).await?;
+    let pull_request = gh.clone().get_pull_request(pull_request_number).await?;
 
     if pull_request.state != PullRequestState::Open {
         return Err(Error::new(formatdoc!(
@@ -121,11 +121,12 @@ pub async fn land(
 
     // Now let's predict what merging the PR into the master branch would
     // produce.
-    let merge_index = git.repo().merge_commits(
-        &git.repo().find_commit(current_master)?,
-        &git.repo().find_commit(pull_request.head_oid)?,
-        None,
-    )?;
+    let merge_index = {
+        let repo = git.repo();
+        let current_master = repo.find_commit(current_master)?;
+        let pr_head = repo.find_commit(pull_request.head_oid)?;
+        repo.merge_commits(&current_master, &pr_head, None)
+    }?;
 
     let merge_matches_cherrypick = if merge_index.has_conflicts() {
         false
