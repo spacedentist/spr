@@ -25,10 +25,15 @@ pub struct Cli {
     #[clap(long)]
     github_auth_token: Option<String>,
 
-    /// GitHub repository ('org/name', if not given taken from config
+    /// GitHub origin repository ('org/name', if not given taken from config
     /// spr.githubRepository)
     #[clap(long)]
     github_repository: Option<String>,
+
+    /// GitHub upstream repository ('org/name', if not given taken from config
+    /// spr.githubUpstreamRepository)
+    #[clap(long)]
+    github_upstream_repository: Option<String>,
 
     /// prefix to be used for branches created for pull requests (if not given
     /// taken from git config spr.branchPrefix, defaulting to
@@ -120,6 +125,27 @@ pub async fn spr() -> Result<()> {
     let github_master_branch = config
         .get_string("spr.githubMasterBranch")
         .unwrap_or_else(|_| "master".to_string());
+
+    let github_upstream_repository = match cli.github_upstream_repository {
+        Some(v) => Some(v),
+        None => config.get_string("spr.githubUpstreamRepository").ok(),
+    };
+    let upstream_captures =
+        github_upstream_repository.as_ref().and_then(|repository| {
+            lazy_regex::regex!(r#"^([\w\-\.]+)/([\w\-\.]+)$"#)
+                .captures(&repository)
+        });
+    let github_upstream_owner: Option<String> = upstream_captures
+        .as_ref()
+        .map(|value| value.get(1).unwrap().as_str().to_string());
+    let github_upstream_repo: Option<String> = upstream_captures
+        .as_ref()
+        .map(|value| value.get(2).unwrap().as_str().to_string());
+    let github_upstream_remote_name =
+        config.get_string("spr.githubUpstreamRemoteName").ok();
+    let github_upstream_master_branch =
+        config.get_string("spr.githubUpstreamMasterBranch").ok();
+
     let branch_prefix = config.get_string("spr.branchPrefix")?;
     let require_approval =
         config.get_bool("spr.requireApproval").ok().unwrap_or(false);
@@ -131,6 +157,10 @@ pub async fn spr() -> Result<()> {
         github_repo,
         github_remote_name,
         github_master_branch,
+        github_upstream_owner,
+        github_upstream_repo,
+        github_upstream_remote_name,
+        github_upstream_master_branch,
         branch_prefix,
         require_approval,
         require_test_plan,

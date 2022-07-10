@@ -41,7 +41,7 @@ pub async fn land(
              this commit, rebase it so that it is a direct child of {master}.
              Alternatively, if you used the `--cherry-pick` option with `spr \
              diff`, then you can pass it to `spr land`, too.",
-            master = &config.master_ref.branch_name(),
+            master = &config.master_ref().branch_name(),
         )));
     }
 
@@ -90,13 +90,13 @@ pub async fn land(
             .arg("fetch")
             .arg("--no-write-fetch-head")
             .arg("--")
-            .arg(&config.remote_name)
-            .arg(config.master_ref.on_github()),
+            .arg(&config.upstream_remote_name())
+            .arg(config.master_ref().on_github()),
     )
     .await
     .reword("git fetch failed".to_string())?;
 
-    let current_master = git.resolve_reference(config.master_ref.local())?;
+    let current_master = git.resolve_reference(config.master_ref().local())?;
     let base_is_master = pull_request.base.is_master_branch();
     let index = git.cherrypick(prepared_commit.oid, current_master)?;
 
@@ -105,8 +105,8 @@ pub async fn land(
             "This commit cannot be applied on top of the '{master}' branch.
              Please rebase this commit on top of current \
              '{remote}/{master}'.{unlanded}",
-            master = &config.master_ref.branch_name(),
-            remote = &config.remote_name,
+            master = &config.master_ref().branch_name(),
+            remote = &config.upstream_remote_name(),
             unlanded = if based_on_unlanded_commits {
                 " You may also have to land commits that this commit depends on first."
             } else {
@@ -217,7 +217,7 @@ pub async fn land(
                 .arg("--atomic")
                 .arg("--no-verify")
                 .arg("--")
-                .arg(&config.remote_name)
+                .arg(&config.upstream_remote_name())
                 .arg(format!(
                     "{}:{}",
                     pr_head_oid,
@@ -231,7 +231,7 @@ pub async fn land(
         gh.update_pull_request(
             pull_request_number,
             PullRequestUpdate {
-                base: Some(config.master_ref.on_github().to_string()),
+                base: Some(config.master_ref().on_github().to_string()),
                 ..Default::default()
             },
         )
@@ -269,7 +269,7 @@ pub async fn land(
             if let Some(merge_commit) = mergeability.merge_commit {
                 git.fetch_commits_from_remote(
                     &[merge_commit],
-                    &config.remote_name,
+                    &config.upstream_remote_name(),
                 )
                 .await?;
 
@@ -304,7 +304,7 @@ pub async fn land(
             // target of the Pull Request is set to the master branch. So let GitHub do
             // the merge now!
             octocrab::instance()
-                .pulls(&config.owner, &config.repo)
+                .pulls(&config.owner(), &config.repo())
                 .merge(pull_request_number)
                 .method(octocrab::params::pulls::MergeMethod::Squash)
                 .title(pull_request.title)
@@ -363,7 +363,7 @@ pub async fn land(
             .arg("--no-verify")
             .arg("--delete")
             .arg("--")
-            .arg(&config.remote_name)
+            .arg(&config.origin_remote_name())
             .arg(pull_request.head.on_github())
             .stdout(Stdio::null())
             .stderr(Stdio::null())
@@ -378,7 +378,7 @@ pub async fn land(
                 .arg("--no-verify")
                 .arg("--delete")
                 .arg("--")
-                .arg(&config.remote_name)
+                .arg(&config.origin_remote_name())
                 .arg(pull_request.base.on_github())
                 .stdout(Stdio::null())
                 .stderr(Stdio::null())
@@ -396,8 +396,8 @@ pub async fn land(
                 .arg("fetch")
                 .arg("--no-write-fetch-head")
                 .arg("--")
-                .arg(&config.remote_name)
-                .arg(config.master_ref.on_github())
+                .arg(&config.upstream_remote_name())
+                .arg(config.master_ref().on_github())
                 .arg(&sha)
                 .stdout(Stdio::null())
                 .stderr(Stdio::piped())
