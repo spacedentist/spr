@@ -118,8 +118,9 @@ async fn close_impl(
 
     output("📕", "Closed!")?;
 
-    // Remove Pull Request section from commit.
+    // Remove sections from commit that are not relevant after closing.
     prepared_commit.message.remove(&MessageSection::PullRequest);
+    prepared_commit.message.remove(&MessageSection::ReviewedBy);
 
     let mut remove_old_branch_child_process =
         tokio::process::Command::new("git")
