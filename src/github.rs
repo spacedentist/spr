@@ -184,8 +184,9 @@ impl GitHub {
         let base = config.new_github_branch_from_ref(&pr.base_ref_name)?;
         let head = config.new_github_branch_from_ref(&pr.head_ref_name)?;
 
-        Git::fetch_from_remote(&[&head, &base], &config.origin_remote_name())
+        Git::fetch_from_remote(&[&base], &config.upstream_remote_name())
             .await?;
+        Git::fetch_from_remote(&[&head], &config.origin_remote_name()).await?;
 
         let base_oid = git.resolve_reference(base.local())?;
         let head_oid = git.resolve_reference(head.local())?;
