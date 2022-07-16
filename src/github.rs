@@ -55,11 +55,16 @@ pub struct PullRequestUpdate {
     pub body: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub base: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub state: Option<PullRequestState>,
 }
 
 impl PullRequestUpdate {
     pub fn is_empty(&self) -> bool {
-        self.title.is_none() && self.body.is_none() && self.base.is_none()
+        self.title.is_none()
+            && self.body.is_none()
+            && self.base.is_none()
+            && self.state.is_none()
     }
 
     pub fn update_message(
@@ -85,7 +90,8 @@ pub struct PullRequestRequestReviewers {
     pub team_reviewers: Vec<String>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
+#[serde(rename_all = "lowercase")]
 pub enum PullRequestState {
     Open,
     Closed,
