@@ -643,8 +643,18 @@ async fn diff_impl(
 
         message.insert(MessageSection::PullRequest, pull_request_url);
 
-        gh.request_reviewers(pull_request_number, requested_reviewers)
-            .await?;
+        let result = gh
+            .request_reviewers(pull_request_number, requested_reviewers)
+            .await;
+        match result {
+            Ok(()) => (),
+            Err(error) => {
+                output("⚠️", "Requesting reviewers failed")?;
+                for message in error.messages() {
+                    output("  ", message)?;
+                }
+            }
+        }
     }
 
     Ok(())
