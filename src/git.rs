@@ -57,7 +57,7 @@ impl Git {
         &self,
         config: &Config,
     ) -> Result<Vec<PreparedCommit>> {
-        self.get_commit_oids(config.master_ref.local())?
+        self.get_commit_oids(config.master_ref().local())?
             .into_iter()
             .map(|oid| self.prepare_commit(config, oid))
             .collect()
