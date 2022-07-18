@@ -93,16 +93,11 @@ pub async fn spr() -> Result<()> {
 
     let repo = git2::Repository::discover(std::env::current_dir()?)?;
 
-    let config = repo.config()?;
-
-    let github_auth_token = match cli.github_auth_token {
-        Some(v) => Ok(v),
-        None => config.get_string("spr.githubAuthToken"),
-    }?;
+    let git_config = repo.config()?;
 
     let github_repository = match cli.github_repository {
         Some(v) => Ok(v),
-        None => config.get_string("spr.githubRepository"),
+        None => git_config.get_string("spr.githubRepository"),
     }?;
 
     let (github_owner, github_repo) = {
@@ -117,17 +112,21 @@ pub async fn spr() -> Result<()> {
         )
     };
 
-    let github_remote_name = config
+    let github_remote_name = git_config
         .get_string("spr.githubRemoteName")
         .unwrap_or_else(|_| "origin".to_string());
-    let github_master_branch = config
+    let github_master_branch = git_config
         .get_string("spr.githubMasterBranch")
         .unwrap_or_else(|_| "master".to_string());
-    let branch_prefix = config.get_string("spr.branchPrefix")?;
-    let require_approval =
-        config.get_bool("spr.requireApproval").ok().unwrap_or(false);
-    let require_test_plan =
-        config.get_bool("spr.requireTestPlan").ok().unwrap_or(true);
+    let branch_prefix = git_config.get_string("spr.branchPrefix")?;
+    let require_approval = git_config
+        .get_bool("spr.requireApproval")
+        .ok()
+        .unwrap_or(false);
+    let require_test_plan = git_config
+        .get_bool("spr.requireTestPlan")
+        .ok()
+        .unwrap_or(true);
 
     let config = crate::config::Config::new(
         github_owner,
@@ -138,6 +137,17 @@ pub async fn spr() -> Result<()> {
         require_approval,
         require_test_plan,
     );
+
+    let git = crate::git::Git::new(repo);
+
+    if let Commands::Format(opts) = cli.command {
+        return crate::commands::format::format(opts, &git, &config).await;
+    }
+
+    let github_auth_token = match cli.github_auth_token {
+        Some(v) => Ok(v),
+        None => git_config.get_string("spr.githubAuthToken"),
+    }?;
 
     octocrab::initialise(
         octocrab::Octocrab::builder().personal_token(github_auth_token.clone()),
@@ -158,7 +168,6 @@ pub async fn spr() -> Result<()> {
         .default_headers(headers)
         .build()?;
 
-    let git = crate::git::Git::new(repo);
     let mut gh = crate::github::GitHub::new(
         config.clone(),
         git.clone(),
@@ -175,9 +184,6 @@ pub async fn spr() -> Result<()> {
         Commands::Amend(opts) => {
             crate::commands::amend::amend(opts, &git, &mut gh, &config).await?
         }
-        Commands::Format(opts) => {
-            crate::commands::format::format(opts, &git, &config).await?
-        }
         Commands::List => {
             crate::commands::list::list(graphql_client, &config).await?
         }
@@ -187,7 +193,9 @@ pub async fn spr() -> Result<()> {
         Commands::Close(opts) => {
             crate::commands::close::close(opts, &git, &mut gh, &config).await?
         }
-        _ => (),
+        // The following commands are executed above and return from this
+        // function before it reaches this match.
+        Commands::Init | Commands::Format(_) => (),
     };
 
     Ok::<_, Error>(())
