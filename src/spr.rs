@@ -193,6 +193,8 @@ pub async fn spr() -> Result<()> {
         Commands::Close(opts) => {
             crate::commands::close::close(opts, &git, &mut gh, &config).await?
         }
+        // The following commands are executed above and return from this
+        // function before it reaches this match.
         Commands::Init | Commands::Format(_) => (),
     };
 
