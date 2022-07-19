@@ -27,7 +27,8 @@ pub async fn list(
     let variables = search_query::Variables {
         query: format!(
             "repo:{}/{} is:open is:pr author:@me archived:false",
-            config.owner, config.repo
+            config.owner(),
+            config.repo()
         ),
     };
     let request_body = SearchQuery::build_query(variables);

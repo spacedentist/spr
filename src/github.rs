@@ -158,8 +158,8 @@ impl GitHub {
         } = self;
 
         let variables = pull_request_query::Variables {
-            name: config.repo.clone(),
-            owner: config.owner.clone(),
+            name: config.repo(),
+            owner: config.owner(),
             number: number as i64,
         };
         let request_body = PullRequestQuery::build_query(variables);
@@ -190,7 +190,7 @@ impl GitHub {
         let base = config.new_github_branch_from_ref(&pr.base_ref_name)?;
         let head = config.new_github_branch_from_ref(&pr.head_ref_name)?;
 
-        Git::fetch_from_remote(&[&head, &base], &config.remote_name).await?;
+        Git::fetch_from_remote(&[&head, &base], &config.remote_name()).await?;
 
         let base_oid = git.resolve_reference(base.local())?;
         let head_oid = git.resolve_reference(head.local())?;
@@ -319,7 +319,7 @@ impl GitHub {
         draft: bool,
     ) -> Result<u64> {
         let number = octocrab::instance()
-            .pulls(self.config.owner.clone(), self.config.repo.clone())
+            .pulls(self.config.owner(), self.config.repo())
             .create(
                 message
                     .get(&MessageSection::Title)
@@ -345,7 +345,9 @@ impl GitHub {
             .patch::<octocrab::models::pulls::PullRequest, _, _>(
                 format!(
                     "repos/{}/{}/pulls/{}",
-                    self.config.owner, self.config.repo, number
+                    self.config.owner(),
+                    self.config.repo(),
+                    number
                 ),
                 Some(&updates),
             )
@@ -365,7 +367,9 @@ impl GitHub {
             .post(
                 format!(
                     "repos/{}/{}/pulls/{}/requested_reviewers",
-                    self.config.owner, self.config.repo, number
+                    self.config.owner(),
+                    self.config.repo(),
+                    number
                 ),
                 Some(&reviewers),
             )
@@ -388,7 +392,8 @@ impl GitHub {
                     .get::<Vec<octocrab::models::User>, _, _>(
                         format!(
                             "repos/{}/{}/collaborators",
-                            &github.config.owner, &github.config.repo
+                            &github.config.owner(),
+                            &github.config.repo()
                         ),
                         None::<&()>,
                     )
@@ -405,7 +410,7 @@ impl GitHub {
             },
             async {
                 Ok(octocrab::instance()
-                    .teams(&github.config.owner)
+                    .teams(&github.config.owner())
                     .list()
                     .send()
                     .await
@@ -433,8 +438,8 @@ impl GitHub {
         number: u64,
     ) -> Result<PullRequestMergeability> {
         let variables = pull_request_mergeability_query::Variables {
-            name: self.config.repo.clone(),
-            owner: self.config.owner.clone(),
+            name: self.config.repo(),
+            owner: self.config.owner(),
             number: number as i64,
         };
         let request_body = PullRequestMergeabilityQuery::build_query(variables);
