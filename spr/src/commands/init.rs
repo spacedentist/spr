@@ -12,7 +12,7 @@ use crate::{
     output::output,
 };
 
-pub async fn init(_opts: &crate::spr::Cli) -> Result<()> {
+pub async fn init() -> Result<()> {
     output("👋", "Welcome to spr!")?;
 
     let path = std::env::current_dir()?;

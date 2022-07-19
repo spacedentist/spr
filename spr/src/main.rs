@@ -5,9 +5,17 @@
  * LICENSE file in the root directory of this source tree.
  */
 
-use crate::error::{Error, Result};
+//! A command-line tool for submitting and updating GitHub Pull Requests from
+//! local Git commits that may be amended and rebased. Pull Requests can be
+//! stacked to allow for a series of code reviews of interdependent code.
+
 use clap::{Parser, Subcommand};
 use reqwest::{self, header};
+use spr::{
+    commands,
+    error::{Error, Result},
+    output::output,
+};
 
 #[derive(Parser, Debug)]
 #[clap(
@@ -48,25 +56,25 @@ enum Commands {
 
     /// Create a new or update an existing Pull Request on GitHub from the
     /// current HEAD commit
-    Diff(crate::commands::diff::DiffOptions),
+    Diff(commands::diff::DiffOptions),
 
     /// Reformat commit message
-    Format(crate::commands::format::FormatOptions),
+    Format(commands::format::FormatOptions),
 
     /// Land a reviewed Pull Request
-    Land(crate::commands::land::LandOptions),
+    Land(commands::land::LandOptions),
 
     /// Update local commit message with content on GitHub
-    Amend(crate::commands::amend::AmendOptions),
+    Amend(commands::amend::AmendOptions),
 
     /// List open Pull Requests on GitHub and their review decision
     List,
 
     /// Create a new branch with the contents of an existing Pull Request
-    Patch(crate::commands::patch::PatchOptions),
+    Patch(commands::patch::PatchOptions),
 
     /// Close a Pull request
-    Close(crate::commands::close::CloseOptions),
+    Close(commands::close::CloseOptions),
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -88,7 +96,7 @@ pub async fn spr() -> Result<()> {
     }
 
     if let Commands::Init = cli.command {
-        return crate::commands::init::init(&cli).await;
+        return commands::init::init().await;
     }
 
     let repo = git2::Repository::discover(std::env::current_dir()?)?;
@@ -128,7 +136,7 @@ pub async fn spr() -> Result<()> {
         .ok()
         .unwrap_or(true);
 
-    let config = crate::config::Config::new(
+    let config = spr::config::Config::new(
         github_owner,
         github_repo,
         github_remote_name,
@@ -138,10 +146,10 @@ pub async fn spr() -> Result<()> {
         require_test_plan,
     );
 
-    let git = crate::git::Git::new(repo);
+    let git = spr::git::Git::new(repo);
 
     if let Commands::Format(opts) = cli.command {
-        return crate::commands::format::format(opts, &git, &config).await;
+        return commands::format::format(opts, &git, &config).await;
     }
 
     let github_auth_token = match cli.github_auth_token {
@@ -168,7 +176,7 @@ pub async fn spr() -> Result<()> {
         .default_headers(headers)
         .build()?;
 
-    let mut gh = crate::github::GitHub::new(
+    let mut gh = spr::github::GitHub::new(
         config.clone(),
         git.clone(),
         graphql_client.clone(),
@@ -176,22 +184,20 @@ pub async fn spr() -> Result<()> {
 
     match cli.command {
         Commands::Diff(opts) => {
-            crate::commands::diff::diff(opts, &git, &mut gh, &config).await?
+            commands::diff::diff(opts, &git, &mut gh, &config).await?
         }
         Commands::Land(opts) => {
-            crate::commands::land::land(opts, &git, &mut gh, &config).await?
+            commands::land::land(opts, &git, &mut gh, &config).await?
         }
         Commands::Amend(opts) => {
-            crate::commands::amend::amend(opts, &git, &mut gh, &config).await?
+            commands::amend::amend(opts, &git, &mut gh, &config).await?
         }
-        Commands::List => {
-            crate::commands::list::list(graphql_client, &config).await?
-        }
+        Commands::List => commands::list::list(graphql_client, &config).await?,
         Commands::Patch(opts) => {
-            crate::commands::patch::patch(opts, &git, &mut gh, &config).await?
+            commands::patch::patch(opts, &git, &mut gh, &config).await?
         }
         Commands::Close(opts) => {
-            crate::commands::close::close(opts, &git, &mut gh, &config).await?
+            commands::close::close(opts, &git, &mut gh, &config).await?
         }
         // The following commands are executed above and return from this
         // function before it reaches this match.
@@ -199,4 +205,16 @@ pub async fn spr() -> Result<()> {
     };
 
     Ok::<_, Error>(())
+}
+
+#[tokio::main]
+async fn main() -> Result<()> {
+    if let Err(error) = spr().await {
+        for message in error.messages() {
+            output("🛑", message)?;
+        }
+        std::process::exit(1);
+    }
+
+    Ok(())
 }
