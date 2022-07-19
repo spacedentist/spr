@@ -188,7 +188,7 @@ async fn diff_impl(
     let eligible_reviewers = if local_commit.pull_request_number.is_none()
         && message.contains_key(&MessageSection::Reviewers)
     {
-        Some(gh.get_reviewers())
+        Some(tokio::spawn(gh.clone().get_reviewers()))
     } else {
         None
     };
@@ -243,7 +243,7 @@ async fn diff_impl(
     if let (Some(task), Some(reviewers)) =
         (eligible_reviewers, message.get(&MessageSection::Reviewers))
     {
-        let eligible_reviewers = task.await?;
+        let eligible_reviewers = task.await??;
 
         let reviewers = parse_name_list(reviewers);
         let mut checked_reviewers = Vec::new();
