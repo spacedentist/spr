@@ -375,8 +375,10 @@ impl GitHub {
     }
 
     pub async fn get_reviewers(
-        self,
+        &self,
     ) -> Result<HashMap<String, Option<String>>> {
+        let github = self.clone();
+
         let (users, teams): (
             Vec<UserWithName>,
             octocrab::Page<octocrab::models::teams::RequestedTeam>,
@@ -386,7 +388,7 @@ impl GitHub {
                     .get::<Vec<octocrab::models::User>, _, _>(
                         format!(
                             "repos/{}/{}/collaborators",
-                            &self.config.owner, &self.config.repo
+                            &github.config.owner, &github.config.repo
                         ),
                         None::<&()>,
                     )
@@ -403,7 +405,7 @@ impl GitHub {
             },
             async {
                 Ok(octocrab::instance()
-                    .teams(&self.config.owner)
+                    .teams(&github.config.owner)
                     .list()
                     .send()
                     .await
