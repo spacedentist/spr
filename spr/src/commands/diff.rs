@@ -182,17 +182,6 @@ async fn diff_impl(
         (cherry_pick_tree, master_tree)
     };
 
-    // If this is a new Pull Request and the commit message has a "Reviewers"
-    // section, then start getting a list of eligible reviewers in the
-    // background;
-    let eligible_reviewers = if local_commit.pull_request_number.is_none()
-        && message.contains_key(&MessageSection::Reviewers)
-    {
-        Some(gh.get_reviewers())
-    } else {
-        None
-    };
-
     if let Some(number) = local_commit.pull_request_number {
         output(
             "#️⃣ ",
@@ -240,40 +229,45 @@ async fn diff_impl(
     // Parse "Reviewers" section, if this is a new Pull Request
     let mut requested_reviewers = PullRequestRequestReviewers::default();
 
-    if let (Some(task), Some(reviewers)) =
-        (eligible_reviewers, message.get(&MessageSection::Reviewers))
-    {
-        let eligible_reviewers = task.await?;
+    if local_commit.pull_request_number.is_none() {
+        if let Some(reviewers) = message.get(&MessageSection::Reviewers) {
+            let eligible_reviewers = gh.get_reviewers().await?;
 
-        let reviewers = parse_name_list(reviewers);
-        let mut checked_reviewers = Vec::new();
+            let reviewers = parse_name_list(reviewers);
+            let mut checked_reviewers = Vec::new();
 
-        for reviewer in reviewers {
-            if let Some(entry) = eligible_reviewers.get(&reviewer) {
-                if let Some(slug) = reviewer.strip_prefix('#') {
-                    requested_reviewers.team_reviewers.push(slug.to_string());
+            for reviewer in reviewers {
+                if let Some(entry) = eligible_reviewers.get(&reviewer) {
+                    if let Some(slug) = reviewer.strip_prefix('#') {
+                        requested_reviewers
+                            .team_reviewers
+                            .push(slug.to_string());
+                    } else {
+                        requested_reviewers.reviewers.push(reviewer.clone());
+                    }
+
+                    if let Some(name) = entry {
+                        checked_reviewers.push(format!(
+                            "{} ({})",
+                            reviewer,
+                            remove_all_parens(name)
+                        ));
+                    } else {
+                        checked_reviewers.push(reviewer);
+                    }
                 } else {
-                    requested_reviewers.reviewers.push(reviewer.clone());
+                    return Err(Error::new(format!(
+                        "Reviewers field contains unknown user/team '{}'",
+                        reviewer
+                    )));
                 }
-
-                if let Some(name) = entry {
-                    checked_reviewers.push(format!(
-                        "{} ({})",
-                        reviewer,
-                        remove_all_parens(name)
-                    ));
-                } else {
-                    checked_reviewers.push(reviewer);
-                }
-            } else {
-                return Err(Error::new(format!(
-                    "Reviewers field contains unknown user/team '{}'",
-                    reviewer
-                )));
             }
-        }
 
-        message.insert(MessageSection::Reviewers, checked_reviewers.join(", "));
+            message.insert(
+                MessageSection::Reviewers,
+                checked_reviewers.join(", "),
+            );
+        }
     }
 
     // Get the name of the existing Pull Request branch, or constuct one if
