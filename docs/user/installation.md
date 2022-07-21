@@ -5,7 +5,13 @@
 ### Using Homebrew
 
 ```shell
-brew install getcord/tap/spr
+brew install spr
+```
+
+### Using Nix
+
+```shell
+nix-channel --update && nix-env -i spr
 ```
 
 ### Using Cargo
