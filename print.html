@@ -183,7 +183,10 @@
 <div style="break-before: page; page-break-before: always;"></div><h1 id="installation"><a class="header" href="#installation">Installation</a></h1>
 <h2 id="binary-installation"><a class="header" href="#binary-installation">Binary Installation</a></h2>
 <h3 id="using-homebrew"><a class="header" href="#using-homebrew">Using Homebrew</a></h3>
-<pre><code class="language-shell">brew install getcord/tap/spr
+<pre><code class="language-shell">brew install spr
+</code></pre>
+<h3 id="using-nix"><a class="header" href="#using-nix">Using Nix</a></h3>
+<pre><code class="language-shell">nix-channel --update &amp;&amp; nix-env -i spr
 </code></pre>
 <h3 id="using-cargo"><a class="header" href="#using-cargo">Using Cargo</a></h3>
 <p>If you have Cargo installed (the Rust build tool), you can install spr by running <code>cargo install spr</code>.</p>
@@ -492,7 +495,7 @@ Pull Request: https://github.com/example/my-thing/pull/123
 <div style="break-before: page; page-break-before: always;"></div><h1 id="configuration"><a class="header" href="#configuration">Configuration</a></h1>
 <p>The recommended way to configure spr is to run <code>spr init</code>, rather than setting config values manually. You can rerun <code>spr init</code> to update config at any time.</p>
 <p>spr uses the following Git configuration values:</p>
-<table><thead><tr><th>config key</th><th>CLI flag</th><th>description</th><th>default<sup class="footnote-reference"><a href="#default">1</a></sup></th><th>default in <code>spr init</code><sup class="footnote-reference"><a href="#initdefault">2</a></sup></th></tr></thead><tbody>
+<div class="table-wrapper"><table><thead><tr><th>config key</th><th>CLI flag</th><th>description</th><th>default<sup class="footnote-reference"><a href="#default">1</a></sup></th><th>default in <code>spr init</code><sup class="footnote-reference"><a href="#initdefault">2</a></sup></th></tr></thead><tbody>
 <tr><td><code>githubAuthToken</code></td><td><code>--github-auth-token</code><sup class="footnote-reference"><a href="#cli-token">3</a></sup></td><td>The GitHub PAT (personal authentication token) to use for accessing the GitHub API.</td><td></td><td></td></tr>
 <tr><td><code>githubRemoteName</code></td><td></td><td>Name of the git remote in this local repository that corresponds to GitHub</td><td><code>origin</code></td><td><code>origin</code></td></tr>
 <tr><td><code>githubRepository</code></td><td><code>--github-repository</code></td><td>Name of repository on github.com in <code>owner/repo</code> format</td><td></td><td>extracted from the URL of the GitHub remote</td></tr>
@@ -501,6 +504,7 @@ Pull Request: https://github.com/example/my-thing/pull/123
 <tr><td><code>requireApproval</code></td><td></td><td>If true, <code>spr land</code> will refuse to land a pull request that is not accepted</td><td>false</td><td></td></tr>
 <tr><td><code>requireTestPlan</code></td><td></td><td>If true, <code>spr diff</code> will refuse to process a commit without a test plan</td><td>true</td><td></td></tr>
 </tbody></table>
+</div>
 <ul>
 <li>
 <p>The config keys are all in the <code>spr</code> section; for example, <code>spr.githubAuthToken</code>.</p>
