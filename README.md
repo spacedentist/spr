@@ -19,7 +19,7 @@ Comprehensive documentation is available here: https://getcord.github.io/spr/
 #### Using Homebrew
 
 ```shell
-brew install getcord/tap/spr
+brew install spr
 ```
 
 #### Using Nix

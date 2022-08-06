@@ -170,7 +170,7 @@ async fn diff_impl(
         if index.has_conflicts() {
             return Err(Error::new(formatdoc!(
                 "This commit cannot be cherry-picked on {master}.",
-                master = config.master_ref.branch_name(),
+                master = config.master_ref().branch_name(),
             )));
         }
 
@@ -180,17 +180,6 @@ async fn diff_impl(
         let master_tree = git.get_tree_oid_for_commit(master_base_oid)?;
 
         (cherry_pick_tree, master_tree)
-    };
-
-    // If this is a new Pull Request and the commit message has a "Reviewers"
-    // section, then start getting a list of eligible reviewers in the
-    // background;
-    let eligible_reviewers = if local_commit.pull_request_number.is_none()
-        && message.contains_key(&MessageSection::Reviewers)
-    {
-        Some(gh.get_reviewers())
-    } else {
-        None
     };
 
     if let Some(number) = local_commit.pull_request_number {
@@ -240,40 +229,45 @@ async fn diff_impl(
     // Parse "Reviewers" section, if this is a new Pull Request
     let mut requested_reviewers = PullRequestRequestReviewers::default();
 
-    if let (Some(task), Some(reviewers)) =
-        (eligible_reviewers, message.get(&MessageSection::Reviewers))
-    {
-        let eligible_reviewers = task.await?;
+    if local_commit.pull_request_number.is_none() {
+        if let Some(reviewers) = message.get(&MessageSection::Reviewers) {
+            let eligible_reviewers = gh.get_reviewers().await?;
 
-        let reviewers = parse_name_list(reviewers);
-        let mut checked_reviewers = Vec::new();
+            let reviewers = parse_name_list(reviewers);
+            let mut checked_reviewers = Vec::new();
 
-        for reviewer in reviewers {
-            if let Some(entry) = eligible_reviewers.get(&reviewer) {
-                if let Some(slug) = reviewer.strip_prefix('#') {
-                    requested_reviewers.team_reviewers.push(slug.to_string());
+            for reviewer in reviewers {
+                if let Some(entry) = eligible_reviewers.get(&reviewer) {
+                    if let Some(slug) = reviewer.strip_prefix('#') {
+                        requested_reviewers
+                            .team_reviewers
+                            .push(slug.to_string());
+                    } else {
+                        requested_reviewers.reviewers.push(reviewer.clone());
+                    }
+
+                    if let Some(name) = entry {
+                        checked_reviewers.push(format!(
+                            "{} ({})",
+                            reviewer,
+                            remove_all_parens(name)
+                        ));
+                    } else {
+                        checked_reviewers.push(reviewer);
+                    }
                 } else {
-                    requested_reviewers.reviewers.push(reviewer.clone());
+                    return Err(Error::new(format!(
+                        "Reviewers field contains unknown user/team '{}'",
+                        reviewer
+                    )));
                 }
-
-                if let Some(name) = entry {
-                    checked_reviewers.push(format!(
-                        "{} ({})",
-                        reviewer,
-                        remove_all_parens(name)
-                    ));
-                } else {
-                    checked_reviewers.push(reviewer);
-                }
-            } else {
-                return Err(Error::new(format!(
-                    "Reviewers field contains unknown user/team '{}'",
-                    reviewer
-                )));
             }
-        }
 
-        message.insert(MessageSection::Reviewers, checked_reviewers.join(", "));
+            message.insert(
+                MessageSection::Reviewers,
+                checked_reviewers.join(", "),
+            );
+        }
     }
 
     // Get the name of the existing Pull Request branch, or constuct one if
@@ -301,7 +295,7 @@ async fn diff_impl(
             let pr_head_tree = git.get_tree_oid_for_commit(pr.head_oid)?;
 
             let current_master_oid =
-                git.resolve_reference(config.master_ref.local())?;
+                git.resolve_reference(config.master_ref().local())?;
             let pr_base_oid =
                 git.repo().merge_base(pr.head_oid, pr.base_oid)?;
             let pr_base_tree = git.get_tree_oid_for_commit(pr_base_oid)?;
@@ -451,7 +445,7 @@ async fn diff_impl(
                 } else {
                     format!(
                         "changes to {} this commit is based on",
-                        config.master_ref.branch_name()
+                        config.master_ref().branch_name()
                     )
                 },
                 env!("CARGO_PKG_VERSION"),
@@ -531,7 +525,7 @@ async fn diff_impl(
         .arg("--atomic")
         .arg("--no-verify")
         .arg("--")
-        .arg(&config.remote_name)
+        .arg(&config.origin_remote_name())
         .arg(format!("{}:{}", pr_commit, pull_request_branch.on_github()));
 
     if let Some(pull_request) = pull_request {
@@ -623,10 +617,10 @@ async fn diff_impl(
                 message,
                 base_branch
                     .as_ref()
-                    .unwrap_or(&config.master_ref)
+                    .unwrap_or(&config.master_ref())
                     .on_github()
                     .to_string(),
-                pull_request_branch.on_github().to_string(),
+                config.pull_request_head(pull_request_branch),
                 opts.draft,
             )
             .await?;
@@ -643,8 +637,18 @@ async fn diff_impl(
 
         message.insert(MessageSection::PullRequest, pull_request_url);
 
-        gh.request_reviewers(pull_request_number, requested_reviewers)
-            .await?;
+        let result = gh
+            .request_reviewers(pull_request_number, requested_reviewers)
+            .await;
+        match result {
+            Ok(()) => (),
+            Err(error) => {
+                output("⚠️", "Requesting reviewers failed")?;
+                for message in error.messages() {
+                    output("  ", message)?;
+                }
+            }
+        }
     }
 
     Ok(())

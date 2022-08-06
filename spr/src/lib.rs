@@ -12,5 +12,4 @@ pub mod git;
 pub mod github;
 pub mod message;
 pub mod output;
-pub mod spr;
 pub mod utils;

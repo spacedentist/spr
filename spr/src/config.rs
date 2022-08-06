@@ -7,14 +7,15 @@
 
 use std::collections::HashSet;
 
-use crate::{error::Result, github::GitHubBranch, utils::slugify};
+use crate::{
+    error::Result,
+    github::{GitHubBranch, GitHubRemote},
+    utils::slugify,
+};
 
 #[derive(Clone, Debug)]
 pub struct Config {
-    pub owner: String,
-    pub repo: String,
-    pub remote_name: String,
-    pub master_ref: GitHubBranch,
+    remote: GitHubRemote,
     pub branch_prefix: String,
     pub require_approval: bool,
     pub require_test_plan: bool,
@@ -22,35 +23,69 @@ pub struct Config {
 
 impl Config {
     pub fn new(
-        owner: String,
-        repo: String,
-        remote_name: String,
-        master_branch: String,
+        origin_owner: String,
+        origin_repo: String,
+        origin_remote_name: String,
+        origin_master_branch: String,
+        upstream_owner: Option<String>,
+        upstream_repo: Option<String>,
+        upstream_remote_name: Option<String>,
+        upstream_master_branch: Option<String>,
         branch_prefix: String,
         require_approval: bool,
         require_test_plan: bool,
     ) -> Self {
-        let master_ref = GitHubBranch::new_from_branch_name(
-            &master_branch,
-            &remote_name,
-            &master_branch,
+        let remote = GitHubRemote::new(
+            origin_owner,
+            origin_repo,
+            origin_remote_name,
+            origin_master_branch,
+            upstream_owner,
+            upstream_repo,
+            upstream_remote_name,
+            upstream_master_branch,
         );
         Self {
-            owner,
-            repo,
-            remote_name,
-            master_ref,
+            remote,
             branch_prefix,
             require_approval,
             require_test_plan,
         }
     }
 
+    pub fn owner(&self) -> String {
+        self.remote.owner()
+    }
+
+    pub fn repo(&self) -> String {
+        self.remote.repo()
+    }
+
+    pub fn origin_remote_name(&self) -> String {
+        self.remote.origin_remote_name()
+    }
+
+    pub fn upstream_remote_name(&self) -> String {
+        self.remote.origin_remote_name()
+    }
+
+    pub fn master_ref(&self) -> GitHubBranch {
+        self.remote.upstream_master_ref()
+    }
+
+    fn origin_master_ref(&self) -> GitHubBranch {
+        self.remote.origin_master_ref()
+    }
+
+    pub fn pull_request_head(&self, branch: GitHubBranch) -> String {
+        self.remote.pull_request_head(branch)
+    }
+
     pub fn pull_request_url(&self, number: u64) -> String {
         format!(
             "https://github.com/{owner}/{repo}/pull/{number}",
-            owner = &self.owner,
-            repo = &self.repo
+            owner = &self.owner(),
+            repo = &self.repo()
         )
     }
 
@@ -70,8 +105,8 @@ impl Config {
         );
         let m = regex.captures(text);
         if let Some(caps) = m {
-            if self.owner == caps.get(1).unwrap().as_str()
-                && self.repo == caps.get(2).unwrap().as_str()
+            if self.owner() == caps.get(1).unwrap().as_str()
+                && self.repo() == caps.get(2).unwrap().as_str()
             {
                 return Some(caps.get(3).unwrap().as_str().parse().unwrap());
             }
@@ -95,7 +130,7 @@ impl Config {
     ) -> String {
         self.find_unused_branch_name(
             existing_ref_names,
-            &format!("{}.{}", self.master_ref.branch_name(), &slugify(title)),
+            &format!("{}.{}", self.master_ref().branch_name(), &slugify(title)),
         )
     }
 
@@ -104,7 +139,7 @@ impl Config {
         existing_ref_names: &HashSet<String>,
         slug: &str,
     ) -> String {
-        let remote_name = &self.remote_name;
+        let remote_name = &self.origin_remote_name();
         let branch_prefix = &self.branch_prefix;
         let mut branch_name = format!("{branch_prefix}{slug}");
         let mut suffix = 0;
@@ -128,16 +163,16 @@ impl Config {
     ) -> Result<GitHubBranch> {
         GitHubBranch::new_from_ref(
             ghref,
-            &self.remote_name,
-            self.master_ref.branch_name(),
+            &self.origin_remote_name(),
+            self.origin_master_ref().branch_name(),
         )
     }
 
     pub fn new_github_branch(&self, branch_name: &str) -> GitHubBranch {
         GitHubBranch::new_from_branch_name(
             branch_name,
-            &self.remote_name,
-            self.master_ref.branch_name(),
+            &self.origin_remote_name(),
+            self.origin_master_ref().branch_name(),
         )
     }
 }
@@ -153,10 +188,80 @@ mod tests {
             "codez".into(),
             "origin".into(),
             "master".into(),
+            None,
+            None,
+            None,
+            None,
             "spr/foo/".into(),
             false,
             true,
         )
+    }
+
+    #[test]
+    fn test_owner() {
+        let gh = config_factory();
+
+        assert_eq!(&gh.owner(), "acme");
+    }
+
+    #[test]
+    fn test_repo() {
+        let gh = config_factory();
+
+        assert_eq!(&gh.repo(), "codez");
+    }
+
+    #[test]
+    fn test_origin_remote_name() {
+        let gh = config_factory();
+
+        assert_eq!(&gh.origin_remote_name(), "origin");
+    }
+
+    #[test]
+    fn test_upstream_remote_name_without_fork() {
+        let gh = config_factory();
+
+        assert_eq!(&gh.upstream_remote_name(), "origin");
+    }
+
+    #[test]
+    fn test_upstream_remote_name_with_fork() {
+        let gh = Config::new(
+            "acme".into(),
+            "codez".into(),
+            "origin".into(),
+            "master".into(),
+            Some("upstream-acme".into()),
+            Some("upstream-codez".into()),
+            Some("upstream-origin".into()),
+            Some("upstream-master".into()),
+            "spr/foo/".into(),
+            false,
+            true,
+        );
+
+        assert_eq!(&gh.upstream_remote_name(), "origin");
+    }
+
+    #[test]
+    fn test_master_ref() {
+        let gh = config_factory();
+
+        assert_eq!(gh.master_ref().local(), "refs/remotes/origin/master");
+    }
+
+    #[test]
+    fn test_pull_request_head() {
+        let gh = config_factory();
+        let branch = GitHubBranch::new_from_branch_name(
+            "branch_name",
+            "origin",
+            "master",
+        );
+
+        assert_eq!(gh.pull_request_head(branch), "refs/heads/branch_name");
     }
 
     #[test]
