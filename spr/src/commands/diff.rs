@@ -170,7 +170,7 @@ async fn diff_impl(
         if index.has_conflicts() {
             return Err(Error::new(formatdoc!(
                 "This commit cannot be cherry-picked on {master}.",
-                master = config.master_ref().branch_name(),
+                master = config.master_ref.branch_name(),
             )));
         }
 
@@ -295,7 +295,7 @@ async fn diff_impl(
             let pr_head_tree = git.get_tree_oid_for_commit(pr.head_oid)?;
 
             let current_master_oid =
-                git.resolve_reference(config.master_ref().local())?;
+                git.resolve_reference(config.master_ref.local())?;
             let pr_base_oid =
                 git.repo().merge_base(pr.head_oid, pr.base_oid)?;
             let pr_base_tree = git.get_tree_oid_for_commit(pr_base_oid)?;
@@ -445,7 +445,7 @@ async fn diff_impl(
                 } else {
                     format!(
                         "changes to {} this commit is based on",
-                        config.master_ref().branch_name()
+                        config.master_ref.branch_name()
                     )
                 },
                 env!("CARGO_PKG_VERSION"),
@@ -525,7 +525,7 @@ async fn diff_impl(
         .arg("--atomic")
         .arg("--no-verify")
         .arg("--")
-        .arg(&config.origin_remote_name())
+        .arg(&config.remote_name)
         .arg(format!("{}:{}", pr_commit, pull_request_branch.on_github()));
 
     if let Some(pull_request) = pull_request {
@@ -617,10 +617,10 @@ async fn diff_impl(
                 message,
                 base_branch
                     .as_ref()
-                    .unwrap_or(&config.master_ref())
+                    .unwrap_or(&config.master_ref)
                     .on_github()
                     .to_string(),
-                config.pull_request_head(pull_request_branch),
+                pull_request_branch.on_github().to_string(),
                 opts.draft,
             )
             .await?;

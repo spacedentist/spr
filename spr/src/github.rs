@@ -158,8 +158,8 @@ impl GitHub {
         } = self;
 
         let variables = pull_request_query::Variables {
-            name: config.repo(),
-            owner: config.owner(),
+            name: config.repo.clone(),
+            owner: config.owner.clone(),
             number: number as i64,
         };
         let request_body = PullRequestQuery::build_query(variables);
@@ -190,9 +190,7 @@ impl GitHub {
         let base = config.new_github_branch_from_ref(&pr.base_ref_name)?;
         let head = config.new_github_branch_from_ref(&pr.head_ref_name)?;
 
-        Git::fetch_from_remote(&[&head], &config.origin_remote_name()).await?;
-        Git::fetch_from_remote(&[&base], &config.upstream_remote_name())
-            .await?;
+        Git::fetch_from_remote(&[&head, &base], &config.remote_name).await?;
 
         let base_oid = git.resolve_reference(base.local())?;
         let head_oid = git.resolve_reference(head.local())?;
@@ -321,7 +319,7 @@ impl GitHub {
         draft: bool,
     ) -> Result<u64> {
         let number = octocrab::instance()
-            .pulls(self.config.owner(), self.config.repo())
+            .pulls(self.config.owner.clone(), self.config.repo.clone())
             .create(
                 message
                     .get(&MessageSection::Title)
@@ -347,9 +345,7 @@ impl GitHub {
             .patch::<octocrab::models::pulls::PullRequest, _, _>(
                 format!(
                     "repos/{}/{}/pulls/{}",
-                    self.config.owner(),
-                    self.config.repo(),
-                    number
+                    self.config.owner, self.config.repo, number
                 ),
                 Some(&updates),
             )
@@ -369,9 +365,7 @@ impl GitHub {
             .post(
                 format!(
                     "repos/{}/{}/pulls/{}/requested_reviewers",
-                    self.config.owner(),
-                    self.config.repo(),
-                    number
+                    self.config.owner, self.config.repo, number
                 ),
                 Some(&reviewers),
             )
@@ -394,8 +388,7 @@ impl GitHub {
                     .get::<Vec<octocrab::models::User>, _, _>(
                         format!(
                             "repos/{}/{}/collaborators",
-                            &github.config.owner(),
-                            &github.config.repo()
+                            &github.config.owner, &github.config.repo
                         ),
                         None::<&()>,
                     )
@@ -412,7 +405,7 @@ impl GitHub {
             },
             async {
                 Ok(octocrab::instance()
-                    .teams(&github.config.owner())
+                    .teams(&github.config.owner)
                     .list()
                     .send()
                     .await
@@ -440,8 +433,8 @@ impl GitHub {
         number: u64,
     ) -> Result<PullRequestMergeability> {
         let variables = pull_request_mergeability_query::Variables {
-            name: self.config.repo(),
-            owner: self.config.owner(),
+            name: self.config.repo.clone(),
+            owner: self.config.owner.clone(),
             number: number as i64,
         };
         let request_body = PullRequestMergeabilityQuery::build_query(variables);
@@ -555,144 +548,6 @@ impl GitHubBranch {
     }
 }
 
-#[derive(Debug, Clone)]
-pub enum GitHubRemote {
-    /// Represents both the fork origin that a collaborator works from,
-    /// and the forked upstream repo that a collaborator creates PRs to.
-    FromFork {
-        origin_owner: String,
-        origin_repo: String,
-        origin_remote_name: String,
-        origin_master_ref: GitHubBranch,
-        upstream_owner: String,
-        upstream_repo: String,
-        upstream_remote_name: String,
-        upstream_master_ref: GitHubBranch,
-    },
-    /// Represents a single repo with no forks.
-    NoFork {
-        owner: String,
-        repo: String,
-        remote_name: String,
-        master_ref: GitHubBranch,
-    },
-}
-
-impl GitHubRemote {
-    pub fn new(
-        origin_owner: String,
-        origin_repo: String,
-        origin_remote_name: String,
-        origin_master_branch: String,
-        upstream_owner: Option<String>,
-        upstream_repo: Option<String>,
-        upstream_remote_name: Option<String>,
-        upstream_master_branch: Option<String>,
-    ) -> Self {
-        let origin_master_ref = GitHubBranch::new_from_branch_name(
-            &origin_master_branch,
-            &origin_remote_name,
-            &origin_master_branch,
-        );
-        // We have to check all of these optional values.
-        // We don't want to get into a situation where only one exists,
-        // since it's unclear what that means semantically.
-        match (
-            upstream_owner,
-            upstream_repo,
-            upstream_remote_name,
-            upstream_master_branch,
-        ) {
-            (
-                Some(owner),
-                Some(repo),
-                Some(remote_name),
-                Some(master_branch),
-            ) => Self::FromFork {
-                origin_owner,
-                origin_repo,
-                origin_remote_name,
-                origin_master_ref,
-                upstream_owner: owner,
-                upstream_repo: repo,
-                upstream_remote_name: remote_name.clone(),
-                upstream_master_ref: GitHubBranch::new_from_branch_name(
-                    &master_branch,
-                    &remote_name,
-                    &master_branch,
-                ),
-            },
-            _ => Self::NoFork {
-                owner: origin_owner,
-                repo: origin_repo,
-                remote_name: origin_remote_name,
-                master_ref: origin_master_ref,
-            },
-        }
-    }
-
-    pub fn owner(&self) -> String {
-        match self {
-            Self::FromFork { upstream_owner, .. } => upstream_owner.clone(),
-            Self::NoFork { owner, .. } => owner.clone(),
-        }
-    }
-
-    pub fn repo(&self) -> String {
-        match self {
-            Self::FromFork { upstream_repo, .. } => upstream_repo.clone(),
-            Self::NoFork { repo, .. } => repo.clone(),
-        }
-    }
-
-    pub fn origin_remote_name(&self) -> String {
-        match self {
-            Self::FromFork {
-                origin_remote_name, ..
-            } => origin_remote_name.clone(),
-            Self::NoFork { remote_name, .. } => remote_name.clone(),
-        }
-    }
-
-    pub fn upstream_remote_name(&self) -> String {
-        match self {
-            Self::FromFork {
-                upstream_remote_name,
-                ..
-            } => upstream_remote_name.clone(),
-            Self::NoFork { remote_name, .. } => remote_name.clone(),
-        }
-    }
-
-    pub fn origin_master_ref(&self) -> GitHubBranch {
-        match self {
-            Self::FromFork {
-                origin_master_ref, ..
-            } => origin_master_ref.clone(),
-            Self::NoFork { master_ref, .. } => master_ref.clone(),
-        }
-    }
-
-    pub fn upstream_master_ref(&self) -> GitHubBranch {
-        match self {
-            Self::FromFork {
-                upstream_master_ref,
-                ..
-            } => upstream_master_ref.clone(),
-            Self::NoFork { master_ref, .. } => master_ref.clone(),
-        }
-    }
-
-    pub fn pull_request_head(&self, branch: GitHubBranch) -> String {
-        match self {
-            Self::FromFork { origin_owner, .. } => {
-                format!("{}:{}", origin_owner, branch.on_github())
-            }
-            Self::NoFork { .. } => branch.on_github().to_string(),
-        }
-    }
-}
-
 #[cfg(test)]
 mod tests {
     // Note this useful idiom: importing names from outer (for mod tests) scope.
@@ -802,219 +657,5 @@ mod tests {
         assert_eq!(r.local(), "refs/remotes/github-remote/refs/heads/foo");
         assert_eq!(r.branch_name(), "refs/heads/foo");
         assert!(!r.is_master_branch());
-    }
-
-    #[test]
-    fn test_github_remote_owner_without_fork() {
-        let remote = GitHubRemote::new(
-            "acme".into(),
-            "codez".into(),
-            "origin".into(),
-            "main".into(),
-            None,
-            None,
-            None,
-            None,
-        );
-
-        assert_eq!(&remote.owner(), "acme");
-    }
-
-    #[test]
-    fn test_github_remote_owner_with_fork() {
-        let remote = GitHubRemote::new(
-            "acme".into(),
-            "codez".into(),
-            "origin".into(),
-            "main".into(),
-            Some("upstream-acme".into()),
-            Some("upstream-codez".into()),
-            Some("upstream-origin".into()),
-            Some("upstream-main".into()),
-        );
-
-        assert_eq!(&remote.owner(), "upstream-acme");
-    }
-
-    #[test]
-    fn test_github_remote_repo_without_fork() {
-        let remote = GitHubRemote::new(
-            "acme".into(),
-            "codez".into(),
-            "origin".into(),
-            "main".into(),
-            None,
-            None,
-            None,
-            None,
-        );
-
-        assert_eq!(&remote.repo(), "codez");
-    }
-
-    #[test]
-    fn test_github_remote_repo_with_fork() {
-        let remote = GitHubRemote::new(
-            "acme".into(),
-            "codez".into(),
-            "origin".into(),
-            "main".into(),
-            Some("upstream-acme".into()),
-            Some("upstream-codez".into()),
-            Some("upstream-origin".into()),
-            Some("upstream-main".into()),
-        );
-
-        assert_eq!(&remote.repo(), "upstream-codez");
-    }
-
-    #[test]
-    fn test_github_remote_origin_remote_name() {
-        let remote = GitHubRemote::new(
-            "acme".into(),
-            "codez".into(),
-            "origin".into(),
-            "main".into(),
-            None,
-            None,
-            None,
-            None,
-        );
-
-        assert_eq!(&remote.origin_remote_name(), "origin");
-    }
-
-    #[test]
-    fn test_github_remote_upstream_remote_name_without_fork() {
-        let remote = GitHubRemote::new(
-            "acme".into(),
-            "codez".into(),
-            "origin".into(),
-            "main".into(),
-            None,
-            None,
-            None,
-            None,
-        );
-
-        assert_eq!(&remote.upstream_remote_name(), "origin");
-    }
-
-    #[test]
-    fn test_github_remote_upstream_remote_name_with_fork() {
-        let remote = GitHubRemote::new(
-            "acme".into(),
-            "codez".into(),
-            "origin".into(),
-            "main".into(),
-            Some("upstream-acme".into()),
-            Some("upstream-codez".into()),
-            Some("upstream-origin".into()),
-            Some("upstream-main".into()),
-        );
-
-        assert_eq!(&remote.upstream_remote_name(), "upstream-origin");
-    }
-
-    #[test]
-    fn test_github_remote_origin_master_ref() {
-        let remote = GitHubRemote::new(
-            "acme".into(),
-            "codez".into(),
-            "origin".into(),
-            "main".into(),
-            None,
-            None,
-            None,
-            None,
-        );
-
-        assert_eq!(
-            remote.origin_master_ref().local(),
-            "refs/remotes/origin/main"
-        );
-    }
-
-    #[test]
-    fn test_github_remote_upstream_master_ref_without_fork() {
-        let remote = GitHubRemote::new(
-            "acme".into(),
-            "codez".into(),
-            "origin".into(),
-            "main".into(),
-            None,
-            None,
-            None,
-            None,
-        );
-
-        assert_eq!(
-            remote.upstream_master_ref().local(),
-            "refs/remotes/origin/main"
-        );
-    }
-
-    #[test]
-    fn test_github_remote_upstream_master_ref_with_fork() {
-        let remote = GitHubRemote::new(
-            "acme".into(),
-            "codez".into(),
-            "origin".into(),
-            "main".into(),
-            Some("upstream-acme".into()),
-            Some("upstream-codez".into()),
-            Some("upstream-origin".into()),
-            Some("upstream-main".into()),
-        );
-
-        assert_eq!(
-            remote.upstream_master_ref().local(),
-            "refs/remotes/upstream-origin/upstream-main"
-        );
-    }
-
-    #[test]
-    fn test_github_remote_pull_request_head_without_fork() {
-        let remote = GitHubRemote::new(
-            "acme".into(),
-            "codez".into(),
-            "origin".into(),
-            "main".into(),
-            None,
-            None,
-            None,
-            None,
-        );
-        let branch = GitHubBranch::new_from_branch_name(
-            "branch_name",
-            "origin",
-            "master",
-        );
-
-        assert_eq!(remote.pull_request_head(branch), "refs/heads/branch_name");
-    }
-
-    #[test]
-    fn test_github_remote_pull_request_head_with_fork() {
-        let remote = GitHubRemote::new(
-            "acme".into(),
-            "codez".into(),
-            "origin".into(),
-            "main".into(),
-            Some("upstream-acme".into()),
-            Some("upstream-codez".into()),
-            Some("upstream-origin".into()),
-            Some("upstream-main".into()),
-        );
-        let branch = GitHubBranch::new_from_branch_name(
-            "branch_name",
-            "origin",
-            "master",
-        );
-
-        assert_eq!(
-            remote.pull_request_head(branch),
-            "acme:refs/heads/branch_name"
-        );
     }
 }

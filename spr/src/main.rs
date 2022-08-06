@@ -38,11 +38,6 @@ pub struct Cli {
     #[clap(long)]
     github_repository: Option<String>,
 
-    /// GitHub upstream repository ('org/name', if not given taken from config
-    /// spr.githubUpstreamRepository)
-    #[clap(long)]
-    github_upstream_repository: Option<String>,
-
     /// prefix to be used for branches created for pull requests (if not given
     /// taken from git config spr.branchPrefix, defaulting to
     /// 'spr/<GITHUB_USERNAME>/')
@@ -108,18 +103,16 @@ pub async fn spr() -> Result<()> {
 
     let git_config = repo.config()?;
 
-    let github_origin_repository = match cli.github_repository {
+    let github_repository = match cli.github_repository {
         Some(v) => Ok(v),
         None => git_config.get_string("spr.githubRepository"),
     }?;
 
-    let (github_origin_owner, github_origin_repo) = {
+    let (github_owner, github_repo) = {
         let captures = lazy_regex::regex!(r#"^([\w\-\.]+)/([\w\-\.]+)$"#)
-            .captures(&github_origin_repository)
+            .captures(&github_repository)
             .ok_or_else(|| {
-                OptionsError::InvalidRepository(
-                    github_origin_repository.clone(),
-                )
+                OptionsError::InvalidRepository(github_repository.clone())
             })?;
         (
             captures.get(1).unwrap().as_str().to_string(),
@@ -127,41 +120,12 @@ pub async fn spr() -> Result<()> {
         )
     };
 
-    let github_origin_remote_name = git_config
+    let github_remote_name = git_config
         .get_string("spr.githubRemoteName")
         .unwrap_or_else(|_| "origin".to_string());
-    let github_origin_master_branch = git_config
+    let github_master_branch = git_config
         .get_string("spr.githubMasterBranch")
         .unwrap_or_else(|_| "master".to_string());
-
-    let github_upstream_repository: Option<String> =
-        match cli.github_upstream_repository {
-            Some(v) => Some(v),
-            None => git_config.get_string("spr.githubUpstreamRepository").ok(),
-        };
-
-    let (github_upstream_owner, github_upstream_repo): (
-        Option<String>,
-        Option<String>,
-    ) = github_upstream_repository
-        .as_ref()
-        .and_then(|repository| {
-            lazy_regex::regex!(r#"^([\w\-\.]+)/([\w\-\.]+)$"#)
-                .captures(repository)
-        })
-        .map(|captures| {
-            (
-                captures.get(1).map(|capture| capture.as_str().to_string()),
-                captures.get(2).map(|capture| capture.as_str().to_string()),
-            )
-        })
-        .unwrap_or((None, None));
-
-    let github_upstream_remote_name: Option<String> =
-        git_config.get_string("spr.githubUpstreamRemoteName").ok();
-    let github_upstream_master_branch: Option<String> =
-        git_config.get_string("spr.githubUpstreamMasterBranch").ok();
-
     let branch_prefix = git_config.get_string("spr.branchPrefix")?;
     let require_approval = git_config
         .get_bool("spr.requireApproval")
@@ -173,14 +137,10 @@ pub async fn spr() -> Result<()> {
         .unwrap_or(true);
 
     let config = spr::config::Config::new(
-        github_origin_owner,
-        github_origin_repo,
-        github_origin_remote_name,
-        github_origin_master_branch,
-        github_upstream_owner,
-        github_upstream_repo,
-        github_upstream_remote_name,
-        github_upstream_master_branch,
+        github_owner,
+        github_repo,
+        github_remote_name,
+        github_master_branch,
         branch_prefix,
         require_approval,
         require_test_plan,
