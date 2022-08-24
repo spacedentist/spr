@@ -13,9 +13,16 @@ pub fn output(icon: &str, text: &str) -> Result<()> {
     let bullet = format!("  {}  ", icon);
     let indent = console::measure_text_width(&bullet);
     let indent_string = " ".repeat(indent);
-    let options = textwrap::Options::new((term.size().1 as usize) - indent * 2)
-        .initial_indent(&bullet)
-        .subsequent_indent(&indent_string);
+    let mut options =
+        textwrap::Options::new((term.size().1 as usize) - indent * 2)
+            .initial_indent(&bullet)
+            .subsequent_indent(&indent_string);
+
+    if lazy_regex::regex_is_match!(r#"https?://"#, text) {
+        options.break_words = false;
+        options.word_separator = textwrap::WordSeparator::AsciiSpace;
+        options.word_splitter = textwrap::WordSplitter::NoHyphenation;
+    }
 
     term.write_line(&textwrap::wrap(text.trim(), &options).join("\n"))?;
     Ok(())
