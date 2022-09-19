@@ -618,7 +618,7 @@ async fn diff_impl(
                 base_branch
                     .as_ref()
                     .unwrap_or(&config.master_ref)
-                    .on_github()
+                    .branch_name()
                     .to_string(),
                 pull_request_branch.on_github().to_string(),
                 opts.draft,
