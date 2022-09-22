@@ -20,16 +20,18 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v2
 
-      - name: Setup mdBook
-        uses: peaceiris/actions-mdbook@v1
+      - name: Cache mdbook
+        id: cache-mdbook
+        uses: actions/cache@v3
         with:
-          mdbook-version: "latest"
+          path: |
+            ~/.cargo/bin/mdbook
+            ~/.cargo/bin/mdbook-mermaid
+          key: ${{ runner.os }}-mdbook
 
-      - name: Install mdbook-mermaid
-        uses: actions-rs/install@v0.1
-        with:
-          crate: mdbook-mermaid
-          version: "latest"
+      - name: Install mdBook
+        if: steps.cache-mdbook.outputs.cache-hit != 'true'
+        run: cargo install mdbook mdbook-mermaid
 
       - name: Run mdBook
         run: |
