@@ -17,4 +17,3 @@
 # Reference Guide
 
 - [Configuration](reference/configuration.md)
-- [How it works - Simple PR](reference/how-it-works-simple.md)
