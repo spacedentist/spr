@@ -23,8 +23,16 @@ jobs:
         with:
           mdbook-version: "latest"
 
+      - name: Install mdbook-mermaid
+        uses: actions-rs/install@v0.1
+        with:
+          crate: mdbook-mermaid
+          version: "latest"
+
       - name: Run mdBook
-        run: mdbook build
+        run: |
+          mdbook-mermaid install
+          mdbook build
 
       - name: Deploy
         uses: peaceiris/actions-gh-pages@v3
