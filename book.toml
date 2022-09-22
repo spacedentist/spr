@@ -13,3 +13,9 @@ git-repository-url = "https://github.com/getcord/spr"
 edit-url-template = "https://github.com/getcord/spr/edit/master/{path}"
 site-url = "/spr/"
 curly-quotes = true
+additional-js = ["mermaid.min.js", "mermaid-init.js"]
+
+[preprocessor]
+
+[preprocessor.mermaid]
+command = "mdbook-mermaid"
