@@ -15,7 +15,10 @@ pub fn output(icon: &str, text: &str) -> Result<()> {
     let indent_string = " ".repeat(indent);
     let options = textwrap::Options::new((term.size().1 as usize) - indent * 2)
         .initial_indent(&bullet)
-        .subsequent_indent(&indent_string);
+        .subsequent_indent(&indent_string)
+        .break_words(false)
+        .word_separator(textwrap::WordSeparator::AsciiSpace)
+        .word_splitter(textwrap::WordSplitter::NoHyphenation);
 
     term.write_line(&textwrap::wrap(text.trim(), &options).join("\n"))?;
     Ok(())

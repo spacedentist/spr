@@ -40,7 +40,7 @@ pub async fn init() -> Result<()> {
              Requests etc. on behalf of your GitHub user.
              You can get one by going to https://github.com/settings/tokens \
              and clicking on 'Generate new token'. The token needs the 'repo', \
-             'user' and 'read:org' permissions, so please tick those two boxes \
+             'user' and 'read:org' permissions, so please tick those three boxes \
              in the 'Select scopes' section.
              You might want to set the 'Expiration' to 'No expiration', as \
              otherwise you will have to repeat this procedure soon. Even \
