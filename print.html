@@ -76,7 +76,7 @@
 
         <nav id="sidebar" class="sidebar" aria-label="Table of contents">
             <div class="sidebar-scrollbox">
-                <ol class="chapter"><li class="chapter-item expanded affix "><a href="index.html">Introduction</a></li><li class="chapter-item expanded affix "><li class="part-title">Getting Started</li><li class="chapter-item expanded "><a href="user/installation.html"><strong aria-hidden="true">1.</strong> Installation</a></li><li class="chapter-item expanded "><a href="user/setup.html"><strong aria-hidden="true">2.</strong> Set up spr</a></li><li class="chapter-item expanded affix "><li class="part-title">How To</li><li class="chapter-item expanded "><a href="user/simple.html"><strong aria-hidden="true">3.</strong> Create and Land a Simple PR</a></li><li class="chapter-item expanded "><a href="user/stack.html"><strong aria-hidden="true">4.</strong> Stack Multiple PRs</a></li><li class="chapter-item expanded "><a href="user/commit-message.html"><strong aria-hidden="true">5.</strong> Format and Update Commit Messages</a></li><li class="chapter-item expanded "><a href="user/patch.html"><strong aria-hidden="true">6.</strong> Check Out Someone Else's PR</a></li><li class="chapter-item expanded affix "><li class="part-title">Reference Guide</li><li class="chapter-item expanded "><a href="reference/configuration.html"><strong aria-hidden="true">7.</strong> Configuration</a></li></ol>
+                <ol class="chapter"><li class="chapter-item expanded affix "><a href="index.html">Introduction</a></li><li class="chapter-item expanded affix "><li class="part-title">Getting Started</li><li class="chapter-item expanded "><a href="user/installation.html"><strong aria-hidden="true">1.</strong> Installation</a></li><li class="chapter-item expanded "><a href="user/setup.html"><strong aria-hidden="true">2.</strong> Set up spr</a></li><li class="chapter-item expanded affix "><li class="part-title">How To</li><li class="chapter-item expanded "><a href="user/simple.html"><strong aria-hidden="true">3.</strong> Create and Land a Simple PR</a></li><li class="chapter-item expanded "><a href="user/stack.html"><strong aria-hidden="true">4.</strong> Stack Multiple PRs</a></li><li class="chapter-item expanded "><a href="user/commit-message.html"><strong aria-hidden="true">5.</strong> Format and Update Commit Messages</a></li><li class="chapter-item expanded "><a href="user/patch.html"><strong aria-hidden="true">6.</strong> Check Out Someone Else's PR</a></li><li class="chapter-item expanded affix "><li class="part-title">Reference Guide</li><li class="chapter-item expanded "><a href="reference/configuration.html"><strong aria-hidden="true">7.</strong> Configuration</a></li><li class="chapter-item expanded "><a href="reference/how-it-works-simple.html"><strong aria-hidden="true">8.</strong> How it works - Simple PR</a></li></ol>
             </div>
             <div id="sidebar-resize-handle" class="sidebar-resize-handle"></div>
         </nav>
@@ -528,6 +528,95 @@ Pull Request: https://github.com/example/my-thing/pull/123
 <div class="footnote-definition" id="cli-token"><sup class="footnote-definition-label">3</sup>
 <p>Be careful using this: your auth token will be in your shell history.</p>
 </div>
+<div style="break-before: page; page-break-before: always;"></div><h1 id="how-it-works---simple-pr"><a class="header" href="#how-it-works---simple-pr">How it works - Simple PR</a></h1>
+<p>This section describes how <code>spr</code> works from a git perspective.
+This is not required to use <code>spr</code>,
+but more to understand how it works.</p>
+<p>It follows the <a href="reference/../user/simple.html">simple PR</a> workflow.
+Understanding that workflow will help understand the decisions made here.</p>
+<h2 id="creating-the-pr"><a class="header" href="#creating-the-pr">Creating the PR</a></h2>
+<p>Let’s say you have a repo with a <code>main</code> branch:</p>
+<pre class="mermaid">gitGraph
+    commit id: &quot;A&quot;
+    commit id: &quot;B&quot;
+</pre>
+<p>Now you want to make a change.
+You make a commit on the <code>main</code> branch with your change and the commit id is <code>C1</code>:</p>
+<pre class="mermaid">gitGraph
+    commit id: &quot;A&quot;
+    commit id: &quot;B&quot;
+    commit id: &quot;C1&quot;
+</pre>
+<p>When you are ready to submit a PR, you run <code>spr diff</code> from the head commit of the <code>main</code> branch (<code>C1</code>).
+This will create a transient branch that is only used to create a PR on GitHub:</p>
+<pre class="mermaid">gitGraph
+    commit id: &quot;A&quot;
+    commit id: &quot;B&quot;
+    branch spr/username/commit-title-of-C1
+    checkout main
+    commit id: &quot;C1&quot;
+    checkout spr/username/commit-title-of-C1
+    commit id: &quot;B-&gt;C1&quot;
+</pre>
+<p>This <code>spr/username/commit-title-of-C1</code> branch is pushed to GitHub and used to open a PR against the <code>main</code> branch.
+The transient branch is not something you really need to directly interact with;
+<code>spr</code> takes care of keeping it up to date, creating the correct commits, etc.
+All you need to do is continue working on the <code>main</code> branch.
+Once the PR has been created for the <code>spr/username/commit-title-of-C1</code> branch,</p>
+<p>The <code>C1</code> commit is updated with a few sections from the PR information.
+A <code>Pull Request</code> section is added that links to the PR that was created.
+This allows <code>spr</code> to know which branch/PR to update from only the commit.</p>
+<h2 id="amending-the-commit"><a class="header" href="#amending-the-commit">Amending the commit</a></h2>
+<p>Let’s say your PR needed some changes.
+What you’d do is make the changes to the commit that the PR was created from (in this case <code>C1</code>)
+amending the changes to the commit.</p>
+<pre class="mermaid">gitGraph
+    commit id: &quot;A&quot;
+    commit id: &quot;B&quot;
+    branch spr/username/commit-title-of-C1
+    checkout main
+    commit id: &quot;C2&quot;
+    checkout spr/username/commit-title-of-C1
+    commit id: &quot;B-&gt;C1&quot;
+</pre>
+<p>The next time that you use <code>spr diff</code>,
+it will compute the diff from <code>C1</code> to <code>C2</code>,
+and push that to GitHub as an additional commit:</p>
+<pre class="mermaid">gitGraph
+    commit id: &quot;A&quot;
+    commit id: &quot;B&quot;
+    branch spr/username/commit-title-of-C1
+    checkout main
+    commit id: &quot;C2&quot;
+    checkout spr/username/commit-title-of-C1
+    commit id: &quot;B-&gt;C1&quot;
+    commit id: &quot;C1-&gt;C2&quot;
+</pre>
+<p>Pushing additional commits to the PR rather than rebasing the commits that are already on the PR works better with GitHub (discussions stay intact, commits aren’t lost in the UI, changes between requests can be tracked, etc.).</p>
+<p>If you make more changes,
+it continues along this path:</p>
+<pre class="mermaid">gitGraph
+    commit id: &quot;A&quot;
+    commit id: &quot;B&quot;
+    branch spr/username/commit-title-of-C1
+    checkout main
+    commit id: &quot;C3&quot;
+    checkout spr/username/commit-title-of-C1
+    commit id: &quot;B-&gt;C1&quot;
+    commit id: &quot;C1-&gt;C2&quot;
+    commit id: &quot;C2-&gt;C3&quot;
+</pre>
+<h2 id="landing-the-change"><a class="header" href="#landing-the-change">Landing the change</a></h2>
+<p>Once you’re ready to merge the PR,
+you would use <code>spr land</code> to merge the PR.
+This will perform a squash merge on GitHub for the PR.
+Once the branch has been merged on GitHub,
+it will update the local <code>main</code> branch and delete the transient branch:</p>
+<pre class="mermaid">gitGraph
+    commit id: &quot;A&quot;
+    commit id: &quot;B&quot;
+    commit id: &quot;C3&quot;
+</pre>
 
                     </main>
 
@@ -554,6 +643,8 @@ Pull Request: https://github.com/example/my-thing/pull/123
         <script src="book.js" type="text/javascript" charset="utf-8"></script>
 
         <!-- Custom JS scripts -->
+        <script type="text/javascript" src="mermaid.min.js"></script>
+        <script type="text/javascript" src="mermaid-init.js"></script>
         <script type="text/javascript">
         window.addEventListener('load', function() {
             window.setTimeout(window.print, 100);
