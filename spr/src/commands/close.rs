@@ -20,7 +20,7 @@ use crate::{
 #[derive(Debug, clap::Parser)]
 pub struct CloseOptions {
     /// Close Pull Requests for the whole branch, not just the HEAD commit
-    #[clap(long)]
+    #[clap(long, short = 'a')]
     all: bool,
 }
 

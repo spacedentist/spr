@@ -14,7 +14,7 @@ use crate::{
 #[derive(Debug, clap::Parser)]
 pub struct FormatOptions {
     /// format all commits in branch, not just HEAD
-    #[clap(long)]
+    #[clap(long, short = 'a')]
     all: bool,
 }
 
