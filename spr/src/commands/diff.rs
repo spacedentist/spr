@@ -579,7 +579,7 @@ async fn diff_impl(
             // change that now.
             if pull_request.base.branch_name() != base_branch.branch_name() {
                 pull_request_updates.base =
-                    Some(base_branch.on_github().to_string());
+                    Some(base_branch.branch_name().to_string());
             }
         } else {
             // The Pull Request is against the master branch. In that case we
@@ -618,9 +618,9 @@ async fn diff_impl(
                 base_branch
                     .as_ref()
                     .unwrap_or(&config.master_ref)
-                    .on_github()
+                    .branch_name()
                     .to_string(),
-                pull_request_branch.on_github().to_string(),
+                pull_request_branch.branch_name().to_string(),
                 opts.draft,
             )
             .await?;
