@@ -14,8 +14,8 @@ use crate::{
 
 #[derive(Debug, clap::Parser)]
 pub struct AmendOptions {
-    /// format all commits in branch, not just HEAD
-    #[clap(long)]
+    /// Amend all commits in branch, not just HEAD
+    #[clap(long, short = 'a')]
     all: bool,
 }
 

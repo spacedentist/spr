@@ -24,7 +24,7 @@ use indoc::{formatdoc, indoc};
 #[derive(Debug, clap::Parser)]
 pub struct DiffOptions {
     /// Create/update pull requests for the whole branch, not just the HEAD commit
-    #[clap(long)]
+    #[clap(long, short = 'a')]
     all: bool,
 
     /// Update the pull request title and description on GitHub from the local
