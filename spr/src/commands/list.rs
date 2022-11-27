@@ -58,7 +58,7 @@ fn print_pr_info(
             }
             Some(
                 search_query::PullRequestReviewDecision::CHANGES_REQUESTED,
-            ) => console::style("Rejected").red(),
+            ) => console::style("Changes Requested").red(),
             None
             | Some(search_query::PullRequestReviewDecision::REVIEW_REQUIRED) => {
                 console::style("Pending")
