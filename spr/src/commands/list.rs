@@ -32,7 +32,7 @@ pub async fn list(
     };
     let request_body = SearchQuery::build_query(variables);
     let res = graphql_client
-        .post("https://api.github.com/graphql")
+        .post(config.api_base_url() + "graphql")
         .json(&request_body)
         .send()
         .await?;

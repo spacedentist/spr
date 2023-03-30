@@ -164,7 +164,7 @@ impl GitHub {
         };
         let request_body = PullRequestQuery::build_query(variables);
         let res = graphql_client
-            .post("https://api.github.com/graphql")
+            .post(config.api_base_url() + "graphql")
             .json(&request_body)
             .send()
             .await?;
@@ -440,7 +440,7 @@ impl GitHub {
         let request_body = PullRequestMergeabilityQuery::build_query(variables);
         let res = self
             .graphql_client
-            .post("https://api.github.com/graphql")
+            .post(self.config.api_base_url() + "graphql")
             .json(&request_body)
             .send()
             .await?;
