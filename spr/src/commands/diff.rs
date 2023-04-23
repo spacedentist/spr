@@ -53,41 +53,21 @@ pub struct DiffOptions {
     cherry_pick: bool,
 }
 
-fn get_oids(refs: &String, repo: &git2::Repository) -> Result<HashSet<Oid>> {
+fn get_oids(refs: &str, repo: &git2::Repository) -> Result<HashSet<Oid>> {
     // refs might be a single (eg 012345abc or HEAD) or a range (HEAD~4..HEAD~2)
     let revspec = repo.revparse(&refs)?;
-    if revspec.mode().contains(git2::RevparseMode::MERGE_BASE) {
-        // this is ok, as other code doesn't handle merges
-        return Err(Error::new("Unable to cope with merge_base --refs"));
-    } else if revspec.mode().contains(git2::RevparseMode::SINGLE) {
+
+    let from = revspec.from().ok_or(Error::new("Unexpectedly no from id in range"))?.id();
+    if revspec.mode().contains(git2::RevparseMode::SINGLE) {
         // simple case, just return the id
-        return Ok(HashSet::from([revspec.from().unwrap().id()]));
-    } else if revspec.mode().contains(git2::RevparseMode::RANGE) {
-        // If it's a range we have to walk from `from` to `to` grabbing oids
-        let mut to = revspec.to().ok_or(Error::new("Unexpectedly no to id in range"))?.id();
-        let from = revspec.from().ok_or(Error::new("Unexpectedly no from id in range"))?.id();
-        let mut ret = HashSet::new();
-        loop {
-            ret.insert(to);
-            if to == from {
-                // finished the walk
-                break;
-            }
-            let commit_to = repo.find_commit(to)?;
-            let mut oid_iter = commit_to.parent_ids();
-            let next_oid = oid_iter.next();
-            if let Some(_) = oid_iter.next() {
-                return Err(Error::new("Unexpectedly had multiple parents for commit"));
-            }
-            match next_oid {
-                None => return Err(Error::new("Unexpectedly no parent id for commit")),
-                Some(id) => to = id,
-            }
-        }
-        return Ok(ret);
-    } else {
-        return Err(Error::new("Unable to cope with this type of revspec for --refs"));
+        return Ok(HashSet::from([from]));
     }
+    let to = revspec.to().ok_or(Error::new("Unexpectedly no to id in range"))?.id();
+
+    let mut walk = repo.revwalk()?;
+    walk.push(to)?;
+    walk.hide(from)?;
+    walk.map(|r| Ok(r?)).collect()
 }
 
 pub async fn diff(
@@ -113,15 +93,25 @@ pub async fn diff(
         return result;
     };
 
-    if let Some(refs) = &opts.refs {
-        // Restrict the prepared commits to the given refset
-        let revs = get_oids(&refs, &git.repo())?;
-        prepared_commits.retain(|f| revs.contains(&f.oid));
-    } else if !opts.all {
-        // Remove all prepared commits from the vector but the last. So, if
-        // `--all` is not given, we only operate on the HEAD commit.
-        prepared_commits.drain(0..prepared_commits.len() - 1);
-    }
+    // If refs is set, we want to track which commits to run `diff`
+    // against. The simple approach would be to adjust the prepared_commits
+    // Vec (as with opts.all above). This does not work however, as we need
+    // to know the entire list (or more specifically the list after the first update)
+    // for the rewrite_commit_messages step.
+    // This is not a problem for opts.all as it only ever has a single commit to update,
+    // and so nothing after it.
+    let revs_to_pr = match(&opts.refs, opts.all) {
+        (Some(refs), false) => get_oids(refs, &git.repo()).map(|i| Some(i)),
+        (Some(_), true) => Err(Error::new("Do not use --refs with --all")),
+        (None, all) => {
+            // Remove all prepared commits from the vector but the last. So, if
+            // `--all` is not given, we only operate on the HEAD commit.
+            if !all {
+                prepared_commits.drain(0..prepared_commits.len() - 1);
+            }
+            Ok(None)
+        }
+    }?;
 
     #[allow(clippy::needless_collect)]
     let pull_request_tasks: Vec<_> = prepared_commits
@@ -139,6 +129,12 @@ pub async fn diff(
     {
         if result.is_err() {
             break;
+        }
+
+        if let Some(revs) = &revs_to_pr {
+            if !revs.contains(&prepared_commit.oid) {
+                continue;
+            }
         }
 
         let pull_request = if let Some(task) = pull_request_task {
