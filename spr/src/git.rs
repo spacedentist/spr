@@ -353,7 +353,7 @@ impl Git {
     }
 
     pub fn write_index(&self, mut index: git2::Index) -> Result<Oid> {
-        Ok(index.write_tree_to(&*self.repo())?)
+        Ok(index.write_tree_to(&self.repo())?)
     }
 
     pub fn get_tree_oid_for_commit(&self, oid: Oid) -> Result<Oid> {

@@ -11,8 +11,8 @@ use crate::{
     error::{add_error, Error, Result, ResultExt},
     git::PreparedCommit,
     github::{
-        PullRequest, PullRequestRequestReviewers, PullRequestState,
-        PullRequestUpdate, GitHub
+        GitHub, PullRequest, PullRequestRequestReviewers, PullRequestState,
+        PullRequestUpdate,
     },
     message::{validate_commit_message, MessageSection},
     output::{output, write_commit_title},
@@ -237,7 +237,12 @@ async fn diff_impl(
             for reviewer in reviewers {
                 // Teams are indicated with a leading #
                 if let Some(slug) = reviewer.strip_prefix('#') {
-                    if let Ok(team) = GitHub::get_github_team((&config.owner).into(), slug.into()).await {
+                    if let Ok(team) = GitHub::get_github_team(
+                        (&config.owner).into(),
+                        slug.into(),
+                    )
+                    .await
+                    {
                         requested_reviewers
                             .team_reviewers
                             .push(team.slug.to_string());
@@ -249,24 +254,24 @@ async fn diff_impl(
                             reviewer
                         )));
                     }
-                } else {
-                    if let Ok(user) = GitHub::get_github_user(reviewer.clone()).await {
-                        requested_reviewers.reviewers.push(user.login);
-                        if let Some(name) = user.name {
-                            checked_reviewers.push(format!(
-                                "{} ({})",
-                                reviewer.clone(),
-                                remove_all_parens(&name)
-                            ));
-                        } else {
-                            checked_reviewers.push(reviewer);
-                        }
+                } else if let Ok(user) =
+                    GitHub::get_github_user(reviewer.clone()).await
+                {
+                    requested_reviewers.reviewers.push(user.login);
+                    if let Some(name) = user.name {
+                        checked_reviewers.push(format!(
+                            "{} ({})",
+                            reviewer.clone(),
+                            remove_all_parens(&name)
+                        ));
                     } else {
-                        return Err(Error::new(format!(
-                            "Reviewers field contains unknown user '{}'",
-                            reviewer
-                        )));
+                        checked_reviewers.push(reviewer);
                     }
+                } else {
+                    return Err(Error::new(format!(
+                        "Reviewers field contains unknown user '{}'",
+                        reviewer
+                    )));
                 }
             }
 

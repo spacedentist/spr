@@ -200,7 +200,7 @@ fn validate_branch_prefix(branch_prefix: &str) -> Result<()> {
     if branch_prefix.contains("/.")
         || branch_prefix.contains(".lock/")
         || branch_prefix.ends_with(".lock")
-        || branch_prefix.starts_with(".")
+        || branch_prefix.starts_with('.')
     {
         return Err(Error::new("Branch prefix cannot have slash-separated component beginning with a dot . or ending with the sequence .lock"));
     }
@@ -251,10 +251,7 @@ mod tests {
                 "spr/.bad",
                 "Cannot start slash-separated component with dot",
             ),
-            (
-                ".bad",
-                "Cannot start slash-separated component with dot",
-            ),
+            (".bad", "Cannot start slash-separated component with dot"),
             ("spr/bad.lock", "Cannot end with .lock"),
             (
                 "spr/bad.lock/some_more",
