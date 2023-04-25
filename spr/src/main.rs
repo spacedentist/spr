@@ -89,7 +89,7 @@ pub async fn spr() -> Result<()> {
     let cli = Cli::parse();
 
     if let Some(path) = &cli.cd {
-        if let Err(err) = std::env::set_current_dir(&path) {
+        if let Err(err) = std::env::set_current_dir(path) {
             eprintln!("Could not change directory to {:?}", &path);
             return Err(err.into());
         }

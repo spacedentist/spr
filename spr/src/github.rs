@@ -150,12 +150,15 @@ impl GitHub {
             .map_err(Error::from)
     }
 
-    pub async fn get_github_team(owner: String, team: String) -> Result<octocrab::models::teams::Team> {
+    pub async fn get_github_team(
+        owner: String,
+        team: String,
+    ) -> Result<octocrab::models::teams::Team> {
         octocrab::instance()
-          .teams(owner)
-          .get(team)
-          .await
-          .map_err(Error::from)
+            .teams(owner)
+            .get(team)
+            .await
+            .map_err(Error::from)
     }
 
     pub async fn get_pull_request(self, number: u64) -> Result<PullRequest> {
