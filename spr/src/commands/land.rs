@@ -11,8 +11,8 @@ use std::{io::Write, process::Stdio, time::Duration};
 use crate::{
     error::{Error, Result, ResultExt},
     github::{PullRequestState, PullRequestUpdate, ReviewStatus},
-    message::build_github_body_for_merging,
     output::{output, write_commit_title},
+    utils::do_with_retry,
     utils::run_command,
 };
 
@@ -303,26 +303,23 @@ pub async fn land(
             // used a base branch with this Pull Request or not. We have made sure the
             // target of the Pull Request is set to the master branch. So let GitHub do
             // the merge now!
-            octocrab::instance()
-                .pulls(&config.owner, &config.repo)
-                .merge(pull_request_number)
-                .method(octocrab::params::pulls::MergeMethod::Squash)
-                .title(pull_request.title)
-                .message(build_github_body_for_merging(&pull_request.sections))
-                .sha(format!("{}", pr_head_oid))
-                .send()
-                .await
-                .convert()
-                .and_then(|merge| {
-                    if merge.merged {
-                        Ok(merge)
-                    } else {
-                        Err(Error::new(formatdoc!(
-                            "GitHub Pull Request merge failed: {}",
-                            merge.message.unwrap_or_default()
-                        )))
-                    }
-                })
+
+            // Sometimes it takes a couple of tries to land a PR. Let's try a few times.
+            do_with_retry(
+                || {
+                    gh.land_pull_request(
+                        pull_request_number,
+                        &pull_request,
+                        pr_head_oid,
+                    )
+                },
+                5,
+                |_| {
+                    output("❌", "Landing GitHub Pull Request failed, will retry in 1 second")
+                },
+                Duration::from_secs(1),
+            )
+            .await
         }
         Err(err) => Err(err),
     };
