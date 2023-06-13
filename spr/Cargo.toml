@@ -15,7 +15,7 @@ console = "^0.15.0"
 dialoguer = "^0.10.1"
 futures = "^0.3.21"
 futures-lite = "^1.12.0"
-git2 = { version = "^0.14.4", default-features = false }
+git2 = { version = "^0.17.2", default-features = false }
 graphql_client = "^0.11.0"
 indoc = "^1.0.3"
 lazy-regex = "^2.2.2"
