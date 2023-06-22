@@ -30,17 +30,23 @@ pub struct PreparedCommit {
 #[derive(Clone)]
 pub struct Git {
     repo: std::sync::Arc<std::sync::Mutex<git2::Repository>>,
+    hooks: std::sync::Arc<std::sync::Mutex<git2_ext::hooks::Hooks>>,
 }
 
 impl Git {
     pub fn new(repo: git2::Repository) -> Self {
         Self {
+            hooks: std::sync::Arc::new(std::sync::Mutex::new(git2_ext::hooks::Hooks::with_repo(&repo).unwrap())),
             repo: std::sync::Arc::new(std::sync::Mutex::new(repo)),
         }
     }
 
     pub fn repo(&self) -> std::sync::MutexGuard<git2::Repository> {
         self.repo.lock().expect("poisoned mutex")
+    }
+
+    fn hooks(&self) -> std::sync::MutexGuard<git2_ext::hooks::Hooks> {
+        self.hooks.lock().expect("poisoned mutex")
     }
 
     pub fn get_commit_oids(&self, master_ref: &str) -> Result<Vec<Oid>> {
@@ -77,6 +83,7 @@ impl Git {
         let mut message: String;
         let first_parent = commits[0].parent_oid;
         let repo = self.repo();
+        let hooks = self.hooks();
 
         for prepared_commit in commits.iter_mut() {
             let commit = repo.find_commit(prepared_commit.oid)?;
@@ -103,6 +110,10 @@ impl Git {
                     &commit.tree()?,
                     &[&repo.find_commit(parent_oid.unwrap_or(first_parent))?],
                 )?;
+                hooks.run_post_rewrite_rebase(
+                    &repo,
+                    &[(prepared_commit.oid, new_oid)],
+                );
                 prepared_commit.oid = new_oid;
                 parent_oid = Some(new_oid);
             } else {
