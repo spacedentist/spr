@@ -36,7 +36,7 @@ pub async fn init() -> Result<()> {
     output(
         "🔑",
         &formatdoc!(
-            "Okay, lets get started. First we need a 'Personal Access Token' \
+            "Okay, let's get started. First we need a 'Personal Access Token' \
              from GitHub. This will authorise spr to open/update/merge Pull \
              Requests etc. on behalf of your GitHub user.
              You can get one by going to https://github.com/settings/tokens \
