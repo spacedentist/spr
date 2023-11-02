@@ -135,6 +135,9 @@ pub async fn spr() -> Result<()> {
         .get_bool("spr.requireTestPlan")
         .ok()
         .unwrap_or(true);
+    let github_api_domain = git_config
+        .get_string("spr.githubApiDomain")
+        .unwrap_or_else(|_| "api.github.com".to_string());
 
     let config = spr::config::Config::new(
         github_owner,
@@ -144,6 +147,7 @@ pub async fn spr() -> Result<()> {
         branch_prefix,
         require_approval,
         require_test_plan,
+        github_api_domain,
     );
 
     let git = spr::git::Git::new(repo);
@@ -158,7 +162,9 @@ pub async fn spr() -> Result<()> {
     }?;
 
     octocrab::initialise(
-        octocrab::Octocrab::builder().personal_token(github_auth_token.clone()),
+        octocrab::Octocrab::builder()
+            .base_url(config.api_base_url() + "v3/")?
+            .personal_token(github_auth_token.clone())
     )?;
 
     let mut headers = header::HeaderMap::new();

@@ -18,6 +18,7 @@ pub struct Config {
     pub branch_prefix: String,
     pub require_approval: bool,
     pub require_test_plan: bool,
+    pub github_api_domain: String,
 }
 
 impl Config {
@@ -29,6 +30,7 @@ impl Config {
         branch_prefix: String,
         require_approval: bool,
         require_test_plan: bool,
+        github_api_domain: String,
     ) -> Self {
         let master_ref = GitHubBranch::new_from_branch_name(
             &master_branch,
@@ -43,15 +45,25 @@ impl Config {
             branch_prefix,
             require_approval,
             require_test_plan,
+            github_api_domain,
         }
     }
 
     pub fn pull_request_url(&self, number: u64) -> String {
-        format!(
-            "https://github.com/{owner}/{repo}/pull/{number}",
-            owner = &self.owner,
-            repo = &self.repo
-        )
+        if self.github_api_domain == "api.github.com" {
+            format!(
+                "https://github.com/{owner}/{repo}/pull/{number}",
+                owner = &self.owner,
+                repo = &self.repo
+            )
+        } else {
+            format!(
+                "https://{domain}/{owner}/{repo}/pull/{number}",
+                domain = &self.github_api_domain,
+                owner = &self.owner,
+                repo = &self.repo
+            )
+        }
     }
 
     pub fn parse_pull_request_field(&self, text: &str) -> Option<u64> {
@@ -66,7 +78,7 @@ impl Config {
         }
 
         let regex = lazy_regex::regex!(
-            r#"^\s*https?://github.com/([\w\-]+)/([\w\-]+)/pull/(\d+)([/?#].*)?\s*$"#
+            r#"^\s*https?://[^/]+/([\w\-]+)/([\w\-]+)/pull/(\d+)([/?#].*)?\s*$"#
         );
         let m = regex.captures(text);
         if let Some(caps) = m {
@@ -140,6 +152,17 @@ impl Config {
             self.master_ref.branch_name(),
         )
     }
+
+    pub fn api_base_url(&self) -> String {
+        if self.github_api_domain == "api.github.com" {
+            "https://api.github.com/".into()
+        } else {
+            format!(
+                "https://{domain}/api/",
+                domain = &self.github_api_domain,
+            )
+        }
+    }
 }
 
 #[cfg(test)]
@@ -156,6 +179,7 @@ mod tests {
             "spr/foo/".into(),
             false,
             true,
+            "api.github.com".into(),
         )
     }
 
@@ -166,6 +190,25 @@ mod tests {
         assert_eq!(
             &gh.pull_request_url(123),
             "https://github.com/acme/codez/pull/123"
+        );
+    }
+
+    #[test]
+    fn test_pull_request_url_github_enterprise() {
+        let gh = crate::config::Config::new(
+            "acme".into(),
+            "codez".into(),
+            "origin".into(),
+            "master".into(),
+            "spr/foo/".into(),
+            false,
+            true,
+            "github.acme.com".into(),
+        );
+
+        assert_eq!(
+            &gh.pull_request_url(123),
+            "https://github.acme.com/acme/codez/pull/123"
         );
     }
 
@@ -225,6 +268,47 @@ mod tests {
         assert_eq!(
             gh.parse_pull_request_field(
                 "https://github.com/acme/codez/pull/123#abc"
+            ),
+            Some(123)
+        );
+    }
+    #[test]
+    fn test_parse_pull_request_field_url_github_enterprise() {
+        let gh = config_factory();
+
+        assert_eq!(
+            gh.parse_pull_request_field(
+                "https://github.acme.com/acme/codez/pull/123"
+            ),
+            Some(123)
+        );
+        assert_eq!(
+            gh.parse_pull_request_field(
+                "  https://github.acme.com/acme/codez/pull/123  "
+            ),
+            Some(123)
+        );
+        assert_eq!(
+            gh.parse_pull_request_field(
+                "https://github.acme.com/acme/codez/pull/123/"
+            ),
+            Some(123)
+        );
+        assert_eq!(
+            gh.parse_pull_request_field(
+                "https://github.acme.com/acme/codez/pull/123?x=a"
+            ),
+            Some(123)
+        );
+        assert_eq!(
+            gh.parse_pull_request_field(
+                "https://github.acme.com/acme/codez/pull/123/foo"
+            ),
+            Some(123)
+        );
+        assert_eq!(
+            gh.parse_pull_request_field(
+                "https://github.acme.com/acme/codez/pull/123#abc"
             ),
             Some(123)
         );
