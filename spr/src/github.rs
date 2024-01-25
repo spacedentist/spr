@@ -21,7 +21,6 @@ use std::collections::{HashMap, HashSet};
 pub struct GitHub {
     config: crate::config::Config,
     git: crate::git::Git,
-    graphql_client: reqwest::Client,
 }
 
 #[derive(Debug, Clone)]
@@ -134,12 +133,10 @@ impl GitHub {
     pub fn new(
         config: crate::config::Config,
         git: crate::git::Git,
-        graphql_client: reqwest::Client,
     ) -> Self {
         Self {
             config,
             git,
-            graphql_client,
         }
     }
 
@@ -165,7 +162,6 @@ impl GitHub {
         let GitHub {
             config,
             git,
-            graphql_client,
         } = self;
 
         let variables = pull_request_query::Variables {
@@ -174,13 +170,9 @@ impl GitHub {
             number: number as i64,
         };
         let request_body = PullRequestQuery::build_query(variables);
-        let res = graphql_client
-            .post("https://api.github.com/graphql")
-            .json(&request_body)
-            .send()
+        let response_body: Response<pull_request_query::ResponseData> = octocrab::instance()
+            .post("graphql", Some(&request_body))
             .await?;
-        let response_body: Response<pull_request_query::ResponseData> =
-            res.json().await?;
 
         if let Some(errors) = response_body.errors {
             let error =
@@ -395,15 +387,10 @@ impl GitHub {
             number: number as i64,
         };
         let request_body = PullRequestMergeabilityQuery::build_query(variables);
-        let res = self
-            .graphql_client
-            .post("https://api.github.com/graphql")
-            .json(&request_body)
-            .send()
-            .await?;
-        let response_body: Response<
-            pull_request_mergeability_query::ResponseData,
-        > = res.json().await?;
+        let response_body: Response<pull_request_mergeability_query::ResponseData> =
+            octocrab::instance()
+                .post("graphql", Some(&request_body))
+                .await?;
 
         if let Some(errors) = response_body.errors {
             let error = Err(Error::new(format!(
