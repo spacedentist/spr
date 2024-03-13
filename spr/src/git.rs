@@ -30,17 +30,23 @@ pub struct PreparedCommit {
 #[derive(Clone)]
 pub struct Git {
     repo: std::sync::Arc<std::sync::Mutex<git2::Repository>>,
+    hooks: std::sync::Arc<std::sync::Mutex<git2_ext::hooks::Hooks>>,
 }
 
 impl Git {
     pub fn new(repo: git2::Repository) -> Self {
         Self {
+            hooks: std::sync::Arc::new(std::sync::Mutex::new(git2_ext::hooks::Hooks::with_repo(&repo).unwrap())),
             repo: std::sync::Arc::new(std::sync::Mutex::new(repo)),
         }
     }
 
     pub fn repo(&self) -> std::sync::MutexGuard<git2::Repository> {
         self.repo.lock().expect("poisoned mutex")
+    }
+
+    fn hooks(&self) -> std::sync::MutexGuard<git2_ext::hooks::Hooks> {
+        self.hooks.lock().expect("poisoned mutex")
     }
 
     pub fn get_commit_oids(&self, master_ref: &str) -> Result<Vec<Oid>> {
@@ -77,6 +83,7 @@ impl Git {
         let mut message: String;
         let first_parent = commits[0].parent_oid;
         let repo = self.repo();
+        let hooks = self.hooks();
 
         for prepared_commit in commits.iter_mut() {
             let commit = repo.find_commit(prepared_commit.oid)?;
@@ -103,6 +110,10 @@ impl Git {
                     &commit.tree()?,
                     &[&repo.find_commit(parent_oid.unwrap_or(first_parent))?],
                 )?;
+                hooks.run_post_rewrite_rebase(
+                    &repo,
+                    &[(prepared_commit.oid, new_oid)],
+                );
                 prepared_commit.oid = new_oid;
                 parent_oid = Some(new_oid);
             } else {
@@ -130,6 +141,7 @@ impl Git {
             return Ok(());
         }
         let repo = self.repo();
+        let hooks = self.hooks();
 
         for prepared_commit in commits.iter_mut() {
             let new_parent_commit = repo.find_commit(new_parent_oid)?;
@@ -143,8 +155,17 @@ impl Git {
 
             let tree_oid = index.write_tree_to(&repo)?;
             if tree_oid == new_parent_commit.tree_id() {
-                // Rebasing makes this an empty commit. We skip it, i.e. don't
-                // add it to the rebased branch.
+                // Rebasing makes this an empty commit. This is probably because
+                // we just landed this commit. So we should run a hook as this
+                // commit (the local pre-land commit) having been rewritten into
+                // the parent (the freshly landed and pulled commit). Although
+                // this behaviour is tuned around a land operation, it's in
+                // general not an unreasoanble thing for a rebase, ala git
+                // rebase --interactive and fixups etc.
+                hooks.run_post_rewrite_rebase(
+                    &repo,
+                    &[(prepared_commit.oid, new_parent_oid)],
+                );
                 continue;
             }
             let tree = repo.find_tree(tree_oid)?;
@@ -157,6 +178,10 @@ impl Git {
                 &tree,
                 &[&new_parent_commit],
             )?;
+            hooks.run_post_rewrite_rebase(
+                &repo,
+                &[(prepared_commit.oid, new_parent_oid)],
+            );
         }
 
         let new_oid = new_parent_oid;
@@ -353,7 +378,7 @@ impl Git {
     }
 
     pub fn write_index(&self, mut index: git2::Index) -> Result<Oid> {
-        Ok(index.write_tree_to(&*self.repo())?)
+        Ok(index.write_tree_to(&self.repo())?)
     }
 
     pub fn get_tree_oid_for_commit(&self, oid: Oid) -> Result<Oid> {

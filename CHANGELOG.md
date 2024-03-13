@@ -1,6 +1,23 @@
 # Changelog
 
-## [Unreleased]
+## Unreleased
+
+## [1.3.5] - 2023-11-02
+
+### Fixes
+
+- don't line-wrap URLs (@keyz)
+- fix base branch name for github protected branches (@rockwotj)
+- fix clippy warnings (@spacedentist)
+
+### Improvements
+
+- turn repository into Cargo workspace (@spacedentist)
+- documentation improvements (@spacedentist)
+- add shorthand for `--all` (@rockwotj)
+- don't fetch all users/teams to check reviewers (@andrewhamon)
+- add refname checking (@cadolphs)
+- run post-rewrite hooks (@jwatzman)
 
 ## [1.3.4] - 2022-07-18
 
@@ -126,3 +143,4 @@
 [1.3.2]: https://github.com/getcord/spr/releases/tag/v1.3.2
 [1.3.3]: https://github.com/getcord/spr/releases/tag/v1.3.3
 [1.3.4]: https://github.com/getcord/spr/releases/tag/v1.3.4
+[1.3.5]: https://github.com/getcord/spr/releases/tag/v1.3.5

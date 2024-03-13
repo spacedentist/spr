@@ -12,7 +12,7 @@ use crate::{
     error::{add_error, Error, Result, ResultExt},
     git::PreparedCommit,
     github::{
-        PullRequest, PullRequestRequestReviewers, PullRequestState,
+        GitHub, PullRequest, PullRequestRequestReviewers, PullRequestState,
         PullRequestUpdate,
     },
     message::{validate_commit_message, MessageSection},
@@ -274,33 +274,45 @@ async fn diff_impl(
 
     if local_commit.pull_request_number.is_none() {
         if let Some(reviewers) = message.get(&MessageSection::Reviewers) {
-            let eligible_reviewers = gh.get_reviewers().await?;
-
             let reviewers = parse_name_list(reviewers);
             let mut checked_reviewers = Vec::new();
 
             for reviewer in reviewers {
-                if let Some(entry) = eligible_reviewers.get(&reviewer) {
-                    if let Some(slug) = reviewer.strip_prefix('#') {
+                // Teams are indicated with a leading #
+                if let Some(slug) = reviewer.strip_prefix('#') {
+                    if let Ok(team) = GitHub::get_github_team(
+                        (&config.owner).into(),
+                        slug.into(),
+                    )
+                    .await
+                    {
                         requested_reviewers
                             .team_reviewers
-                            .push(slug.to_string());
-                    } else {
-                        requested_reviewers.reviewers.push(reviewer.clone());
-                    }
+                            .push(team.slug.to_string());
 
-                    if let Some(name) = entry {
+                        checked_reviewers.push(reviewer);
+                    } else {
+                        return Err(Error::new(format!(
+                            "Reviewers field contains unknown team '{}'",
+                            reviewer
+                        )));
+                    }
+                } else if let Ok(user) =
+                    GitHub::get_github_user(reviewer.clone()).await
+                {
+                    requested_reviewers.reviewers.push(user.login);
+                    if let Some(name) = user.name {
                         checked_reviewers.push(format!(
                             "{} ({})",
-                            reviewer,
-                            remove_all_parens(name)
+                            reviewer.clone(),
+                            remove_all_parens(&name)
                         ));
                     } else {
                         checked_reviewers.push(reviewer);
                     }
                 } else {
                     return Err(Error::new(format!(
-                        "Reviewers field contains unknown user/team '{}'",
+                        "Reviewers field contains unknown user '{}'",
                         reviewer
                     )));
                 }

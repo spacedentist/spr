@@ -6,6 +6,7 @@
  */
 
 use indoc::formatdoc;
+use lazy_regex::regex;
 
 use crate::{
     error::{Error, Result, ResultExt},
@@ -35,7 +36,7 @@ pub async fn init() -> Result<()> {
     output(
         "🔑",
         &formatdoc!(
-            "Okay, lets get started. First we need a 'Personal Access Token' \
+            "Okay, let's get started. First we need a 'Personal Access Token' \
              from GitHub. This will authorise spr to open/update/merge Pull \
              Requests etc. on behalf of your GitHub user.
              You can get one by going to https://github.com/settings/tokens \
@@ -184,8 +185,114 @@ pub async fn init() -> Result<()> {
     let branch_prefix = dialoguer::Input::<String>::new()
         .with_prompt("Branch prefix")
         .with_initial_text(branch_prefix)
+        .validate_with(|input: &String| -> Result<()> {
+            validate_branch_prefix(input)
+        })
         .interact_text()?;
+
     config.set_str("spr.branchPrefix", &branch_prefix)?;
 
     Ok(())
+}
+
+fn validate_branch_prefix(branch_prefix: &str) -> Result<()> {
+    // They can include slash / for hierarchical (directory) grouping, but no slash-separated component can begin with a dot . or end with the sequence .lock.
+    if branch_prefix.contains("/.")
+        || branch_prefix.contains(".lock/")
+        || branch_prefix.ends_with(".lock")
+        || branch_prefix.starts_with('.')
+    {
+        return Err(Error::new("Branch prefix cannot have slash-separated component beginning with a dot . or ending with the sequence .lock"));
+    }
+
+    if branch_prefix.contains("..") {
+        return Err(Error::new(
+            "Branch prefix cannot contain two consecutive dots anywhere.",
+        ));
+    }
+
+    if branch_prefix.chars().any(|c| c.is_ascii_control()) {
+        return Err(Error::new(
+            "Branch prefix cannot contain ASCII control sequence",
+        ));
+    }
+
+    let forbidden_chars_re = regex!(r"[ \~\^:?*\[\\]");
+    if forbidden_chars_re.is_match(branch_prefix) {
+        return Err(Error::new(
+            "Branch prefix contains one or more forbidden characters.",
+        ));
+    }
+
+    if branch_prefix.contains("//") || branch_prefix.starts_with('/') {
+        return Err(Error::new("Branch prefix contains multiple consecutive slashes or starts with slash."));
+    }
+
+    if branch_prefix.contains("@{") {
+        return Err(Error::new("Branch prefix cannot contain the sequence @{"));
+    }
+
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::validate_branch_prefix;
+
+    #[test]
+    fn test_branch_prefix_rules() {
+        // Rules taken from https://git-scm.com/docs/git-check-ref-format
+        // Note: Some rules don't need to be checked because the prefix is
+        // always embedded into a larger context. For example, rule 9 in the
+        // reference states that a _refname_ cannot be the single character @.
+        // This rule is impossible to break purely via the branch prefix.
+        let bad_prefixes: Vec<(&str, &str)> = vec![
+            (
+                "spr/.bad",
+                "Cannot start slash-separated component with dot",
+            ),
+            (".bad", "Cannot start slash-separated component with dot"),
+            ("spr/bad.lock", "Cannot end with .lock"),
+            (
+                "spr/bad.lock/some_more",
+                "Cannot end slash-separated component with .lock",
+            ),
+            (
+                "spr/b..ad/bla",
+                "They cannot contain two consecutive dots anywhere",
+            ),
+            ("spr/bad//bla", "They cannot contain consecutive slashes"),
+            ("/bad", "Prefix should not start with slash"),
+            ("/bad@{stuff", "Prefix cannot contain sequence @{"),
+        ];
+
+        for (branch_prefix, reason) in bad_prefixes {
+            assert!(
+                validate_branch_prefix(branch_prefix).is_err(),
+                "{}",
+                reason
+            );
+        }
+
+        let ok_prefix = "spr/some.lockprefix/with-stuff/foo";
+        assert!(validate_branch_prefix(ok_prefix).is_ok());
+    }
+
+    #[test]
+    fn test_branch_prefix_rejects_forbidden_characters() {
+        // Here I'm mostly concerned about escaping / not escaping in the regex :p
+        assert!(validate_branch_prefix("bad\x1F").is_err());
+        assert!(validate_branch_prefix("notbad!").is_ok());
+        assert!(
+            validate_branch_prefix("bad /space").is_err(),
+            "Reject space in prefix"
+        );
+        assert!(validate_branch_prefix("bad~").is_err(), "Reject tilde");
+        assert!(validate_branch_prefix("bad^").is_err(), "Reject caret");
+        assert!(validate_branch_prefix("bad:").is_err(), "Reject colon");
+        assert!(validate_branch_prefix("bad?").is_err(), "Reject ?");
+        assert!(validate_branch_prefix("bad*").is_err(), "Reject *");
+        assert!(validate_branch_prefix("bad[").is_err(), "Reject [");
+        assert!(validate_branch_prefix(r"bad\").is_err(), "Reject \\");
+    }
 }
