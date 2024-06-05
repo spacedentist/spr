@@ -66,7 +66,7 @@ impl Config {
         }
 
         let regex = lazy_regex::regex!(
-            r#"^\s*https?://github.com/([\w\-]+)/([\w\-]+)/pull/(\d+)([/?#].*)?\s*$"#
+            r#"^\s*https?://github.com/([\w\-\.]+)/([\w\-\.]+)/pull/(\d+)([/?#].*)?\s*$"#
         );
         let m = regex.captures(text);
         if let Some(caps) = m {
