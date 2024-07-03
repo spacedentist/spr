@@ -157,9 +157,7 @@ pub async fn spr() -> Result<()> {
         None => git_config.get_string("spr.githubAuthToken"),
     }?;
 
-    octocrab::initialise(
-        octocrab::Octocrab::builder().personal_token(github_auth_token.clone()),
-    )?;
+    octocrab::initialise(octocrab::Octocrab::builder().personal_token(github_auth_token.clone()).build()?);
 
     let mut headers = header::HeaderMap::new();
     headers.insert(header::ACCEPT, "application/json".parse()?);
