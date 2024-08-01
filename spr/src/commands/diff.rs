@@ -63,7 +63,7 @@ pub async fn diff(
 
     // The parent of the first commit in the list is the commit on master that
     // the local branch is based on
-    let master_base_oid = if let Some(first_commit) = prepared_commits.get(0) {
+    let master_base_oid = if let Some(first_commit) = prepared_commits.first() {
         first_commit.parent_oid
     } else {
         output("👋", "Branch is empty - nothing to do. Good bye!")?;
@@ -512,7 +512,7 @@ async fn diff_impl(
     if let Some(oid) = pr_base_parent {
         // ...unless if that's the same commit as the one we added to
         // pr_commit_parents first.
-        if pr_commit_parents.get(0) != Some(&oid) {
+        if pr_commit_parents.first() != Some(&oid) {
             pr_commit_parents.push(oid);
         }
     }
