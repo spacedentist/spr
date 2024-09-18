@@ -9,8 +9,8 @@ title = "spr Documentation"
 build-dir = "book"
 
 [output.html]
-git-repository-url = "https://github.com/getcord/spr"
-edit-url-template = "https://github.com/getcord/spr/edit/master/{path}"
+git-repository-url = "https://github.com/spacedentist/spr"
+edit-url-template = "https://github.com/spacedentist/spr/edit/master/{path}"
 site-url = "/spr/"
 curly-quotes = true
 additional-js = ["mermaid.min.js", "mermaid-init.js"]
