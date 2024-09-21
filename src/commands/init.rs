@@ -169,7 +169,8 @@ pub async fn init() -> Result<()> {
             format!("repos/{}", &github_repo),
             None::<&()>,
         )
-        .await?;
+        .await
+        .context("Getting github repo info".to_string())?;
 
     config.set_str(
         "spr.githubMasterBranch",

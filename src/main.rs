@@ -208,6 +208,9 @@ async fn main() -> Result<()> {
         for message in error.messages() {
             output("🛑", message)?;
         }
+        for message in error.cause_messages() {
+            output("caused by:", message)?;
+        }
         std::process::exit(1);
     }
 
