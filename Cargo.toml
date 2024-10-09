@@ -2,3 +2,4 @@
 members = [
     "spr",
 ]
+resolver = "2"
