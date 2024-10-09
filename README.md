@@ -1,6 +1,6 @@
 ![spr](./docs/spr.svg)
 
-# spr &middot; [![GitHub](https://img.shields.io/github/license/getcord/spr)](https://img.shields.io/github/license/getcord/spr) [![GitHub release](https://img.shields.io/github/v/release/getcord/spr?include_prereleases)](https://github.com/getcord/spr/releases) [![crates.io](https://img.shields.io/crates/v/spr.svg)](https://crates.io/crates/spr) [![homebrew](https://img.shields.io/homebrew/v/spr.svg)](https://formulae.brew.sh/formula/spr) [![GitHub Repo stars](https://img.shields.io/github/stars/getcord/spr?style=social)](https://github.com/getcord/spr)
+# spr &middot; [![GitHub](https://img.shields.io/github/license/spacedentist/spr)](https://img.shields.io/github/license/spacedentist/spr) [![GitHub release](https://img.shields.io/github/v/release/spacedentist/spr?include_prereleases)](https://github.com/spacedentist/spr/releases) [![crates.io](https://img.shields.io/crates/v/spr.svg)](https://crates.io/crates/spr) [![homebrew](https://img.shields.io/homebrew/v/spr.svg)](https://formulae.brew.sh/formula/spr) [![GitHub Repo stars](https://img.shields.io/github/stars/spacedentist/spr?style=social)](https://github.com/spacedentist/spr)
 
 A command-line tool for submitting and updating GitHub Pull Requests from local
 Git commits that may be amended and rebased. Pull Requests can be stacked to
@@ -10,7 +10,7 @@ spr is pronounced /ˈsuːpəɹ/, like the English word 'super'.
 
 ## Documentation
 
-Comprehensive documentation is available here: https://getcord.github.io/spr/
+Comprehensive documentation is available here: https://spacedentist.github.io/spr/
 
 ## Installation
 
@@ -56,7 +56,7 @@ For more information on spr commands and options, run `spr help`. For more infor
 
 ## Contributing
 
-Feel free to submit an issue on [GitHub](https://github.com/getcord/spr) if you have found a problem. If you can even provide a fix, please raise a pull request!
+Feel free to submit an issue on [GitHub](https://github.com/spacedentist/spr) if you have found a problem. If you can even provide a fix, please raise a pull request!
 
 If there are larger changes or features that you would like to work on, please raise an issue on GitHub first to discuss.
 
