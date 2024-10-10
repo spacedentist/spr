@@ -38,6 +38,11 @@ pub struct Cli {
     #[clap(long)]
     github_repository: Option<String>,
 
+    /// The name of the centrally shared branch into which the pull requests are merged
+    /// spr.githubMasterBranch)
+    #[clap(long)]
+    github_master_branch: Option<String>,
+
     /// prefix to be used for branches created for pull requests (if not given
     /// taken from git config spr.branchPrefix, defaulting to
     /// 'spr/<GITHUB_USERNAME>/')
@@ -108,6 +113,13 @@ pub async fn spr() -> Result<()> {
         None => git_config.get_string("spr.githubRepository"),
     }?;
 
+    let github_master_branch = match cli.github_master_branch {
+        Some(v) => Ok::<String, git2::Error>(v),
+        None => git_config
+            .get_string("spr.githubMasterBranch")
+            .or_else(|_| Ok("master".to_string())),
+    }?;
+
     let (github_owner, github_repo) = {
         let captures = lazy_regex::regex!(r#"^([\w\-\.]+)/([\w\-\.]+)$"#)
             .captures(&github_repository)
@@ -123,9 +135,6 @@ pub async fn spr() -> Result<()> {
     let github_remote_name = git_config
         .get_string("spr.githubRemoteName")
         .unwrap_or_else(|_| "origin".to_string());
-    let github_master_branch = git_config
-        .get_string("spr.githubMasterBranch")
-        .unwrap_or_else(|_| "master".to_string());
     let branch_prefix = git_config.get_string("spr.branchPrefix")?;
     let require_approval = git_config
         .get_bool("spr.requireApproval")
