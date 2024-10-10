@@ -108,6 +108,11 @@ pub async fn spr() -> Result<()> {
         None => git_config.get_string("spr.githubRepository"),
     }?;
 
+    let branch_prefix = match cli.branch_prefix {
+        Some(v) => Ok(v),
+        None => git_config.get_string("spr.branchPrefix"),
+    }?;
+
     let (github_owner, github_repo) = {
         let captures = lazy_regex::regex!(r#"^([\w\-\.]+)/([\w\-\.]+)$"#)
             .captures(&github_repository)
@@ -126,7 +131,6 @@ pub async fn spr() -> Result<()> {
     let github_master_branch = git_config
         .get_string("spr.githubMasterBranch")
         .unwrap_or_else(|_| "master".to_string());
-    let branch_prefix = git_config.get_string("spr.branchPrefix")?;
     let require_approval = git_config
         .get_bool("spr.requireApproval")
         .ok()
