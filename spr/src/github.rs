@@ -6,13 +6,15 @@
  */
 
 use graphql_client::{GraphQLQuery, Response};
+use indoc::formatdoc;
 use serde::Deserialize;
 
 use crate::{
     error::{Error, Result, ResultExt},
     git::Git,
     message::{
-        build_github_body, parse_message, MessageSection, MessageSectionsMap,
+        build_github_body, build_github_body_for_merging, parse_message,
+        MessageSection, MessageSectionsMap,
     },
 };
 use std::collections::{HashMap, HashSet};
@@ -435,6 +437,34 @@ impl GitHub {
             .merge_commit
             .and_then(|sha| git2::Oid::from_str(&sha.oid).ok()),
         })
+    }
+
+    pub async fn land_pull_request(
+        &self,
+        pull_request_number: u64,
+        pull_request: &PullRequest,
+        pull_request_head_oid: git2::Oid,
+    ) -> Result<octocrab::models::pulls::Merge> {
+        octocrab::instance()
+            .pulls(&self.config.owner, &self.config.repo)
+            .merge(pull_request_number)
+            .method(octocrab::params::pulls::MergeMethod::Squash)
+            .title(pull_request.title.clone())
+            .message(build_github_body_for_merging(&pull_request.sections))
+            .sha(format!("{}", pull_request_head_oid))
+            .send()
+            .await
+            .convert()
+            .and_then(|merge| {
+                if merge.merged {
+                    Ok(merge)
+                } else {
+                    Err(Error::new(formatdoc!(
+                        "GitHub Pull Request merge failed: {}",
+                        merge.message.unwrap_or_default()
+                    )))
+                }
+            })
     }
 }
 

@@ -7,7 +7,7 @@
 
 use crate::error::{Error, Result};
 
-use std::{io::Write, process::Stdio};
+use std::{future::Future, io::Write, process::Stdio, time::Duration};
 use unicode_normalization::UnicodeNormalization;
 
 pub fn slugify(s: &str) -> String {
@@ -56,6 +56,31 @@ pub async fn run_command(cmd: &mut tokio::process::Command) -> Result<()> {
     }
 
     Ok(())
+}
+
+pub async fn do_with_retry<F, Fut, FOut, H>(
+    f: F,
+    attempts: u64,
+    on_error: H,
+    sleep_time: Duration,
+) -> Result<FOut>
+where
+    F: Fn() -> Fut,
+    Fut: Future<Output = Result<FOut>>,
+    H: Fn(&Error) -> Result<()>,
+{
+    let mut last_error = None;
+    for _ in 0..attempts {
+        match f().await {
+            Ok(val) => return Ok(val),
+            Err(err) => {
+                on_error(&err)?;
+                tokio::time::sleep(sleep_time).await;
+                last_error = Some(err);
+            }
+        }
+    }
+    Err(last_error.unwrap())
 }
 
 #[cfg(test)]
