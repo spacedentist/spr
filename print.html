@@ -208,7 +208,8 @@
 <pre><code class="language-shell">brew install spr
 </code></pre>
 <h3 id="using-nix"><a class="header" href="#using-nix">Using Nix</a></h3>
-<pre><code class="language-shell">nix-channel --update &amp;&amp; nix-env -i spr
+<p>spr is available in nixpkgs</p>
+<pre><code class="language-shell">nix run nixpkgs#spr
 </code></pre>
 <h3 id="using-cargo"><a class="header" href="#using-cargo">Using Cargo</a></h3>
 <p>If you have Cargo installed (the Rust build tool), you can install spr by running <code>cargo install spr</code>.</p>
