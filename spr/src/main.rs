@@ -157,7 +157,11 @@ pub async fn spr() -> Result<()> {
         None => git_config.get_string("spr.githubAuthToken"),
     }?;
 
-    octocrab::initialise(octocrab::Octocrab::builder().personal_token(github_auth_token.clone()).build()?);
+    octocrab::initialise(
+        octocrab::Octocrab::builder()
+            .personal_token(github_auth_token.clone())
+            .build()?,
+    );
 
     let mut headers = header::HeaderMap::new();
     headers.insert(header::ACCEPT, "application/json".parse()?);
@@ -170,10 +174,7 @@ pub async fn spr() -> Result<()> {
         format!("Bearer {}", github_auth_token).parse()?,
     );
 
-    let mut gh = spr::github::GitHub::new(
-        config.clone(),
-        git.clone(),
-    );
+    let mut gh = spr::github::GitHub::new(config.clone(), git.clone());
 
     match cli.command {
         Commands::Diff(opts) => {
