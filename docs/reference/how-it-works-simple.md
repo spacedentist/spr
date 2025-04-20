@@ -45,7 +45,6 @@ This `spr/username/commit-title-of-C1` branch is pushed to GitHub and used to op
 The transient branch is not something you really need to directly interact with;
 `spr` takes care of keeping it up to date, creating the correct commits, etc.
 All you need to do is continue working on the `main` branch.
-Once the PR has been created for the `spr/username/commit-title-of-C1` branch,
 
 The `C1` commit is updated with a few sections from the PR information.
 A `Pull Request` section is added that links to the PR that was created.
