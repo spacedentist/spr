@@ -30,7 +30,7 @@ pub async fn list(
     };
     let request_body = SearchQuery::build_query(variables);
     let response_body: Response<search_query::ResponseData> = octocrab::instance()
-        .post("graphql",Some(&request_body))
+        .post("/graphql",Some(&request_body))
         .await?;
 
     print_pr_info(response_body).ok_or_else(|| Error::new("unexpected error"))

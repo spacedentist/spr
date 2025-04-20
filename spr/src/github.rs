@@ -171,7 +171,7 @@ impl GitHub {
         };
         let request_body = PullRequestQuery::build_query(variables);
         let response_body: Response<pull_request_query::ResponseData> = octocrab::instance()
-            .post("graphql", Some(&request_body))
+            .post("/graphql", Some(&request_body))
             .await?;
 
         if let Some(errors) = response_body.errors {
@@ -389,7 +389,7 @@ impl GitHub {
         let request_body = PullRequestMergeabilityQuery::build_query(variables);
         let response_body: Response<pull_request_mergeability_query::ResponseData> =
             octocrab::instance()
-                .post("graphql", Some(&request_body))
+                .post("/graphql", Some(&request_body))
                 .await?;
 
         if let Some(errors) = response_body.errors {
