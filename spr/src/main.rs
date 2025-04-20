@@ -10,7 +10,6 @@
 //! stacked to allow for a series of code reviews of interdependent code.
 
 use clap::{Parser, Subcommand};
-use reqwest::{self, header};
 use spr::{
     commands,
     error::{Error, Result},
@@ -161,17 +160,6 @@ pub async fn spr() -> Result<()> {
         octocrab::Octocrab::builder()
             .personal_token(github_auth_token.clone())
             .build()?,
-    );
-
-    let mut headers = header::HeaderMap::new();
-    headers.insert(header::ACCEPT, "application/json".parse()?);
-    headers.insert(
-        header::USER_AGENT,
-        format!("spr/{}", env!("CARGO_PKG_VERSION")).try_into()?,
-    );
-    headers.insert(
-        header::AUTHORIZATION,
-        format!("Bearer {}", github_auth_token).parse()?,
     );
 
     let mut gh = spr::github::GitHub::new(config.clone(), git.clone());
