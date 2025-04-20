@@ -153,7 +153,7 @@ pub fn add_error<T, U>(result: &mut Result<T>, other: Result<U>) -> Option<U> {
         Ok(result) => Some(result),
         Err(error) => {
             if let Err(e) = result {
-                e.messages.extend(error.messages.into_iter());
+                e.messages.extend(error.messages);
             } else {
                 *result = Err(error);
             }
