@@ -170,14 +170,9 @@ pub async fn spr() -> Result<()> {
         format!("Bearer {}", github_auth_token).parse()?,
     );
 
-    let graphql_client = reqwest::Client::builder()
-        .default_headers(headers)
-        .build()?;
-
     let mut gh = spr::github::GitHub::new(
         config.clone(),
         git.clone(),
-        graphql_client.clone(),
     );
 
     match cli.command {
@@ -190,7 +185,7 @@ pub async fn spr() -> Result<()> {
         Commands::Amend(opts) => {
             commands::amend::amend(opts, &git, &mut gh, &config).await?
         }
-        Commands::List => commands::list::list(graphql_client, &config).await?,
+        Commands::List => commands::list::list(&config).await?,
         Commands::Patch(opts) => {
             commands::patch::patch(opts, &git, &mut gh, &config).await?
         }
