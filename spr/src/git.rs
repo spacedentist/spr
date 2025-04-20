@@ -36,7 +36,9 @@ pub struct Git {
 impl Git {
     pub fn new(repo: git2::Repository) -> Self {
         Self {
-            hooks: std::sync::Arc::new(std::sync::Mutex::new(git2_ext::hooks::Hooks::with_repo(&repo).unwrap())),
+            hooks: std::sync::Arc::new(std::sync::Mutex::new(
+                git2_ext::hooks::Hooks::with_repo(&repo).unwrap(),
+            )),
             repo: std::sync::Arc::new(std::sync::Mutex::new(repo)),
         }
     }

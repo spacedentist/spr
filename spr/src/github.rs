@@ -130,14 +130,8 @@ type GitObjectID = String;
 pub struct PullRequestMergeabilityQuery;
 
 impl GitHub {
-    pub fn new(
-        config: crate::config::Config,
-        git: crate::git::Git,
-    ) -> Self {
-        Self {
-            config,
-            git,
-        }
+    pub fn new(config: crate::config::Config, git: crate::git::Git) -> Self {
+        Self { config, git }
     }
 
     pub async fn get_github_user(login: String) -> Result<UserWithName> {
@@ -159,10 +153,7 @@ impl GitHub {
     }
 
     pub async fn get_pull_request(self, number: u64) -> Result<PullRequest> {
-        let GitHub {
-            config,
-            git,
-        } = self;
+        let GitHub { config, git } = self;
 
         let variables = pull_request_query::Variables {
             name: config.repo.clone(),
@@ -170,9 +161,10 @@ impl GitHub {
             number: number as i64,
         };
         let request_body = PullRequestQuery::build_query(variables);
-        let response_body: Response<pull_request_query::ResponseData> = octocrab::instance()
-            .post("/graphql", Some(&request_body))
-            .await?;
+        let response_body: Response<pull_request_query::ResponseData> =
+            octocrab::instance()
+                .post("/graphql", Some(&request_body))
+                .await?;
 
         if let Some(errors) = response_body.errors {
             let error =
@@ -387,10 +379,11 @@ impl GitHub {
             number: number as i64,
         };
         let request_body = PullRequestMergeabilityQuery::build_query(variables);
-        let response_body: Response<pull_request_mergeability_query::ResponseData> =
-            octocrab::instance()
-                .post("/graphql", Some(&request_body))
-                .await?;
+        let response_body: Response<
+            pull_request_mergeability_query::ResponseData,
+        > = octocrab::instance()
+            .post("/graphql", Some(&request_body))
+            .await?;
 
         if let Some(errors) = response_body.errors {
             let error = Err(Error::new(format!(
