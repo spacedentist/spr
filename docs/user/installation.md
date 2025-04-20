@@ -10,8 +10,10 @@ brew install spr
 
 ### Using Nix
 
+spr is available in nixpkgs
+
 ```shell
-nix-channel --update && nix-env -i spr
+nix run nixpkgs#spr
 ```
 
 ### Using Cargo

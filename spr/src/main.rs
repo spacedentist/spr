@@ -10,7 +10,6 @@
 //! stacked to allow for a series of code reviews of interdependent code.
 
 use clap::{Parser, Subcommand};
-use reqwest::{self, header};
 use spr::{
     commands,
     error::{Error, Result},
@@ -120,6 +119,11 @@ pub async fn spr() -> Result<()> {
             .or_else(|_| Ok("master".to_string())),
     }?;
 
+    let branch_prefix = match cli.branch_prefix {
+        Some(v) => Ok(v),
+        None => git_config.get_string("spr.branchPrefix"),
+    }?;
+
     let (github_owner, github_repo) = {
         let captures = lazy_regex::regex!(r#"^([\w\-\.]+)/([\w\-\.]+)$"#)
             .captures(&github_repository)
@@ -135,7 +139,6 @@ pub async fn spr() -> Result<()> {
     let github_remote_name = git_config
         .get_string("spr.githubRemoteName")
         .unwrap_or_else(|_| "origin".to_string());
-    let branch_prefix = git_config.get_string("spr.branchPrefix")?;
     let require_approval = git_config
         .get_bool("spr.requireApproval")
         .ok()
@@ -167,29 +170,12 @@ pub async fn spr() -> Result<()> {
     }?;
 
     octocrab::initialise(
-        octocrab::Octocrab::builder().personal_token(github_auth_token.clone()),
-    )?;
-
-    let mut headers = header::HeaderMap::new();
-    headers.insert(header::ACCEPT, "application/json".parse()?);
-    headers.insert(
-        header::USER_AGENT,
-        format!("spr/{}", env!("CARGO_PKG_VERSION")).try_into()?,
-    );
-    headers.insert(
-        header::AUTHORIZATION,
-        format!("Bearer {}", github_auth_token).parse()?,
+        octocrab::Octocrab::builder()
+            .personal_token(github_auth_token.clone())
+            .build()?,
     );
 
-    let graphql_client = reqwest::Client::builder()
-        .default_headers(headers)
-        .build()?;
-
-    let mut gh = spr::github::GitHub::new(
-        config.clone(),
-        git.clone(),
-        graphql_client.clone(),
-    );
+    let mut gh = spr::github::GitHub::new(config.clone(), git.clone());
 
     match cli.command {
         Commands::Diff(opts) => {
@@ -201,7 +187,7 @@ pub async fn spr() -> Result<()> {
         Commands::Amend(opts) => {
             commands::amend::amend(opts, &git, &mut gh, &config).await?
         }
-        Commands::List => commands::list::list(graphql_client, &config).await?,
+        Commands::List => commands::list::list(&config).await?,
         Commands::Patch(opts) => {
             commands::patch::patch(opts, &git, &mut gh, &config).await?
         }

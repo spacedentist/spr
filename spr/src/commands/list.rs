@@ -8,7 +8,6 @@
 use crate::error::Error;
 use crate::error::Result;
 use graphql_client::{GraphQLQuery, Response};
-use reqwest;
 
 #[allow(clippy::upper_case_acronyms)]
 type URI = String;
@@ -20,10 +19,7 @@ type URI = String;
 )]
 pub struct SearchQuery;
 
-pub async fn list(
-    graphql_client: reqwest::Client,
-    config: &crate::config::Config,
-) -> Result<()> {
+pub async fn list(config: &crate::config::Config) -> Result<()> {
     let variables = search_query::Variables {
         query: format!(
             "repo:{}/{} is:open is:pr author:@me archived:false",
@@ -31,13 +27,10 @@ pub async fn list(
         ),
     };
     let request_body = SearchQuery::build_query(variables);
-    let res = graphql_client
-        .post("https://api.github.com/graphql")
-        .json(&request_body)
-        .send()
-        .await?;
     let response_body: Response<search_query::ResponseData> =
-        res.json().await?;
+        octocrab::instance()
+            .post("/graphql", Some(&request_body))
+            .await?;
 
     print_pr_info(response_body).ok_or_else(|| Error::new("unexpected error"))
 }
