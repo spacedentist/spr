@@ -6,6 +6,7 @@
  */
 
 use std::iter::zip;
+use std::collections::HashSet;
 
 use crate::{
     error::{add_error, Error, Result, ResultExt},
@@ -41,10 +42,32 @@ pub struct DiffOptions {
     #[clap(long, short = 'm')]
     message: Option<String>,
 
+    /// Which commits in the branch should be created/updated. This can be a
+    /// revspec such as HEAD~4..HEAD~1 or just one commit like HEAD~7.
+    #[clap(long, short = 'r')]
+    refs: Option<String>,
+
     /// Submit this commit as if it was cherry-picked on master. Do not base it
     /// on any intermediate changes between the master branch and this commit.
     #[clap(long)]
     cherry_pick: bool,
+}
+
+fn get_oids(refs: &str, repo: &git2::Repository) -> Result<HashSet<Oid>> {
+    // refs might be a single (eg 012345abc or HEAD) or a range (HEAD~4..HEAD~2)
+    let revspec = repo.revparse(&refs)?;
+
+    let from = revspec.from().ok_or(Error::new("Unexpectedly no from id in range"))?.id();
+    if revspec.mode().contains(git2::RevparseMode::SINGLE) {
+        // simple case, just return the id
+        return Ok(HashSet::from([from]));
+    }
+    let to = revspec.to().ok_or(Error::new("Unexpectedly no to id in range"))?.id();
+
+    let mut walk = repo.revwalk()?;
+    walk.push(to)?;
+    walk.hide(from)?;
+    walk.map(|r| Ok(r?)).collect()
 }
 
 pub async fn diff(
@@ -70,11 +93,25 @@ pub async fn diff(
         return result;
     };
 
-    if !opts.all {
-        // Remove all prepared commits from the vector but the last. So, if
-        // `--all` is not given, we only operate on the HEAD commit.
-        prepared_commits.drain(0..prepared_commits.len() - 1);
-    }
+    // If refs is set, we want to track which commits to run `diff`
+    // against. The simple approach would be to adjust the prepared_commits
+    // Vec (as with opts.all above). This does not work however, as we need
+    // to know the entire list (or more specifically the list after the first update)
+    // for the rewrite_commit_messages step.
+    // This is not a problem for opts.all as it only ever has a single commit to update,
+    // and so nothing after it.
+    let revs_to_pr = match(&opts.refs, opts.all) {
+        (Some(refs), false) => get_oids(refs, &git.repo()).map(|i| Some(i)),
+        (Some(_), true) => Err(Error::new("Do not use --refs with --all")),
+        (None, all) => {
+            // Remove all prepared commits from the vector but the last. So, if
+            // `--all` is not given, we only operate on the HEAD commit.
+            if !all {
+                prepared_commits.drain(0..prepared_commits.len() - 1);
+            }
+            Ok(None)
+        }
+    }?;
 
     #[allow(clippy::needless_collect)]
     let pull_request_tasks: Vec<_> = prepared_commits
@@ -92,6 +129,12 @@ pub async fn diff(
     {
         if result.is_err() {
             break;
+        }
+
+        if let Some(revs) = &revs_to_pr {
+            if !revs.contains(&prepared_commit.oid) {
+                continue;
+            }
         }
 
         let pull_request = if let Some(task) = pull_request_task {
