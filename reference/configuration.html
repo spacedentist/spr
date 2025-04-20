@@ -1,5 +1,5 @@
 <!DOCTYPE HTML>
-<html lang="en" class="light" dir="ltr">
+<html lang="en" class="light sidebar-visible" dir="ltr">
     <head>
         <!-- Book generated using mdBook -->
         <meta charset="UTF-8">
@@ -7,7 +7,7 @@
 
 
         <!-- Custom HTML head -->
-        
+
         <meta name="description" content="">
         <meta name="viewport" content="width=device-width, initial-scale=1">
         <meta name="theme-color" content="#ffffff">
@@ -24,26 +24,29 @@
         <link rel="stylesheet" href="../fonts/fonts.css">
 
         <!-- Highlight.js Stylesheets -->
-        <link rel="stylesheet" href="../highlight.css">
-        <link rel="stylesheet" href="../tomorrow-night.css">
-        <link rel="stylesheet" href="../ayu-highlight.css">
+        <link rel="stylesheet" id="highlight-css" href="../highlight.css">
+        <link rel="stylesheet" id="tomorrow-night-css" href="../tomorrow-night.css">
+        <link rel="stylesheet" id="ayu-highlight-css" href="../ayu-highlight.css">
 
         <!-- Custom theme stylesheets -->
 
-    </head>
-    <body class="sidebar-visible no-js">
-    <div id="body-container">
-        <!-- Provide site root to javascript -->
-        <script>
-            var path_to_root = "../";
-            var default_theme = window.matchMedia("(prefers-color-scheme: dark)").matches ? "navy" : "light";
-        </script>
 
+        <!-- Provide site root and default themes to javascript -->
+        <script>
+            const path_to_root = "../";
+            const default_light_theme = "light";
+            const default_dark_theme = "navy";
+        </script>
+        <!-- Start loading toc.js asap -->
+        <script src="../toc.js"></script>
+    </head>
+    <body>
+    <div id="body-container">
         <!-- Work around some values being stored in localStorage wrapped in quotes -->
         <script>
             try {
-                var theme = localStorage.getItem('mdbook-theme');
-                var sidebar = localStorage.getItem('mdbook-sidebar');
+                let theme = localStorage.getItem('mdbook-theme');
+                let sidebar = localStorage.getItem('mdbook-sidebar');
 
                 if (theme.startsWith('"') && theme.endsWith('"')) {
                     localStorage.setItem('mdbook-theme', theme.slice(1, theme.length - 1));
@@ -57,24 +60,22 @@
 
         <!-- Set the theme before any content is loaded, prevents flash -->
         <script>
-            var theme;
+            const default_theme = window.matchMedia("(prefers-color-scheme: dark)").matches ? default_dark_theme : default_light_theme;
+            let theme;
             try { theme = localStorage.getItem('mdbook-theme'); } catch(e) { }
             if (theme === null || theme === undefined) { theme = default_theme; }
-            var html = document.querySelector('html');
+            const html = document.documentElement;
             html.classList.remove('light')
             html.classList.add(theme);
-            var body = document.querySelector('body');
-            body.classList.remove('no-js')
-            body.classList.add('js');
+            html.classList.add("js");
         </script>
 
         <input type="checkbox" id="sidebar-toggle-anchor" class="hidden">
 
         <!-- Hide / unhide sidebar before it is displayed -->
         <script>
-            var body = document.querySelector('body');
-            var sidebar = null;
-            var sidebar_toggle = document.getElementById("sidebar-toggle-anchor");
+            let sidebar = null;
+            const sidebar_toggle = document.getElementById("sidebar-toggle-anchor");
             if (document.body.clientWidth >= 1080) {
                 try { sidebar = localStorage.getItem('mdbook-sidebar'); } catch(e) { }
                 sidebar = sidebar || 'visible';
@@ -82,45 +83,25 @@
                 sidebar = 'hidden';
             }
             sidebar_toggle.checked = sidebar === 'visible';
-            body.classList.remove('sidebar-visible');
-            body.classList.add("sidebar-" + sidebar);
+            html.classList.remove('sidebar-visible');
+            html.classList.add("sidebar-" + sidebar);
         </script>
 
         <nav id="sidebar" class="sidebar" aria-label="Table of contents">
-            <div class="sidebar-scrollbox">
-                <ol class="chapter"><li class="chapter-item expanded affix "><a href="../index.html">Introduction</a></li><li class="chapter-item expanded affix "><li class="part-title">Getting Started</li><li class="chapter-item expanded "><a href="../user/installation.html"><strong aria-hidden="true">1.</strong> Installation</a></li><li class="chapter-item expanded "><a href="../user/setup.html"><strong aria-hidden="true">2.</strong> Set up spr</a></li><li class="chapter-item expanded affix "><li class="part-title">How To</li><li class="chapter-item expanded "><a href="../user/simple.html"><strong aria-hidden="true">3.</strong> Create and Land a Simple PR</a></li><li class="chapter-item expanded "><a href="../user/stack.html"><strong aria-hidden="true">4.</strong> Stack Multiple PRs</a></li><li class="chapter-item expanded "><a href="../user/commit-message.html"><strong aria-hidden="true">5.</strong> Format and Update Commit Messages</a></li><li class="chapter-item expanded "><a href="../user/patch.html"><strong aria-hidden="true">6.</strong> Check Out Someone Else's PR</a></li><li class="chapter-item expanded affix "><li class="part-title">Reference Guide</li><li class="chapter-item expanded "><a href="../reference/configuration.html" class="active"><strong aria-hidden="true">7.</strong> Configuration</a></li></ol>
-            </div>
+            <!-- populated by js -->
+            <mdbook-sidebar-scrollbox class="sidebar-scrollbox"></mdbook-sidebar-scrollbox>
+            <noscript>
+                <iframe class="sidebar-iframe-outer" src="../toc.html"></iframe>
+            </noscript>
             <div id="sidebar-resize-handle" class="sidebar-resize-handle">
                 <div class="sidebar-resize-indicator"></div>
             </div>
         </nav>
 
-        <!-- Track and set sidebar scroll position -->
-        <script>
-            var sidebarScrollbox = document.querySelector('#sidebar .sidebar-scrollbox');
-            sidebarScrollbox.addEventListener('click', function(e) {
-                if (e.target.tagName === 'A') {
-                    sessionStorage.setItem('sidebar-scroll', sidebarScrollbox.scrollTop);
-                }
-            }, { passive: true });
-            var sidebarScrollTop = sessionStorage.getItem('sidebar-scroll');
-            sessionStorage.removeItem('sidebar-scroll');
-            if (sidebarScrollTop) {
-                // preserve sidebar scroll position when navigating via links within sidebar
-                sidebarScrollbox.scrollTop = sidebarScrollTop;
-            } else {
-                // scroll sidebar to current active section when navigating via "next/previous chapter" buttons
-                var activeSection = document.querySelector('#sidebar .active');
-                if (activeSection) {
-                    activeSection.scrollIntoView({ block: 'center' });
-                }
-            }
-        </script>
-
         <div id="page-wrapper" class="page-wrapper">
 
             <div class="page">
-                                <div id="menu-bar-hover-placeholder"></div>
+                <div id="menu-bar-hover-placeholder"></div>
                 <div id="menu-bar" class="menu-bar sticky">
                     <div class="left-buttons">
                         <label id="sidebar-toggle" class="icon-button" for="sidebar-toggle-anchor" title="Toggle Table of Contents" aria-label="Toggle Table of Contents" aria-controls="sidebar">
@@ -130,6 +111,7 @@
                             <i class="fa fa-paint-brush"></i>
                         </button>
                         <ul id="theme-list" class="theme-popup" aria-label="Themes" role="menu">
+                            <li role="none"><button role="menuitem" class="theme" id="default_theme">Auto</button></li>
                             <li role="none"><button role="menuitem" class="theme" id="light">Light</button></li>
                             <li role="none"><button role="menuitem" class="theme" id="rust">Rust</button></li>
                             <li role="none"><button role="menuitem" class="theme" id="coal">Coal</button></li>
@@ -182,8 +164,8 @@
                         <h1 id="configuration"><a class="header" href="#configuration">Configuration</a></h1>
 <p>The recommended way to configure spr is to run <code>spr init</code>, rather than setting config values manually. You can rerun <code>spr init</code> to update config at any time.</p>
 <p>spr uses the following Git configuration values:</p>
-<div class="table-wrapper"><table><thead><tr><th>config key</th><th>CLI flag</th><th>description</th><th>default<sup class="footnote-reference"><a href="#default">1</a></sup></th><th>default in <code>spr init</code><sup class="footnote-reference"><a href="#initdefault">2</a></sup></th></tr></thead><tbody>
-<tr><td><code>githubAuthToken</code></td><td><code>--github-auth-token</code><sup class="footnote-reference"><a href="#cli-token">3</a></sup></td><td>The GitHub PAT (personal authentication token) to use for accessing the GitHub API.</td><td></td><td></td></tr>
+<div class="table-wrapper"><table><thead><tr><th>config key</th><th>CLI flag</th><th>description</th><th>default<sup class="footnote-reference" id="fr-default-1"><a href="#footnote-default">1</a></sup></th><th>default in <code>spr init</code><sup class="footnote-reference" id="fr-initdefault-1"><a href="#footnote-initdefault">2</a></sup></th></tr></thead><tbody>
+<tr><td><code>githubAuthToken</code></td><td><code>--github-auth-token</code><sup class="footnote-reference" id="fr-cli-token-1"><a href="#footnote-cli-token">3</a></sup></td><td>The GitHub PAT (personal authentication token) to use for accessing the GitHub API.</td><td></td><td></td></tr>
 <tr><td><code>githubRemoteName</code></td><td></td><td>Name of the git remote in this local repository that corresponds to GitHub</td><td><code>origin</code></td><td><code>origin</code></td></tr>
 <tr><td><code>githubRepository</code></td><td><code>--github-repository</code></td><td>Name of repository on github.com in <code>owner/repo</code> format</td><td></td><td>extracted from the URL of the GitHub remote</td></tr>
 <tr><td><code>githubMasterBranch</code></td><td></td><td>The name of the centrally shared branch into which the pull requests are merged</td><td><code>master</code></td><td>taken from repository configuration on GitHub</td></tr>
@@ -206,16 +188,17 @@
 <p><code>spr init</code> writes configured values into <code>.git/config</code> in the local repo. (It must be run inside a Git repo.)</p>
 </li>
 </ul>
-<div class="footnote-definition" id="default"><sup class="footnote-definition-label">1</sup>
-<p>Value used by <code>spr</code> if not set in configuration.</p>
-</div>
-<div class="footnote-definition" id="initdefault"><sup class="footnote-definition-label">2</sup>
-<p>Value suggested by <code>spr init</code> if not previously configured.</p>
-</div>
-<div class="footnote-definition" id="cli-token"><sup class="footnote-definition-label">3</sup>
-<p>Be careful using this: your auth token will be in your shell history.</p>
-</div>
-
+<hr>
+<ol class="footnote-definition"><li id="footnote-default">
+<p>Value used by <code>spr</code> if not set in configuration. <a href="#fr-default-1">↩</a></p>
+</li>
+<li id="footnote-initdefault">
+<p>Value suggested by <code>spr init</code> if not previously configured. <a href="#fr-initdefault-1">↩</a></p>
+</li>
+<li id="footnote-cli-token">
+<p>Be careful using this: your auth token will be in your shell history. <a href="#fr-cli-token-1">↩</a></p>
+</li>
+</ol>
                     </main>
 
                     <nav class="nav-wrapper" aria-label="Page navigation">
@@ -224,6 +207,9 @@
                                 <i class="fa fa-angle-left"></i>
                             </a>
 
+                            <a rel="next prefetch" href="../reference/how-it-works-simple.html" class="mobile-nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
+                                <i class="fa fa-angle-right"></i>
+                            </a>
 
                         <div style="clear: both"></div>
                     </nav>
@@ -235,6 +221,9 @@
                         <i class="fa fa-angle-left"></i>
                     </a>
 
+                    <a rel="next prefetch" href="../reference/how-it-works-simple.html" class="nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
+                        <i class="fa fa-angle-right"></i>
+                    </a>
             </nav>
 
         </div>
