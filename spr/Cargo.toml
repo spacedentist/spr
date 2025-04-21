@@ -10,19 +10,19 @@ edition = "2021"
 exclude = [".github", ".gitignore"]
 
 [dependencies]
-clap = { version = "^3.2.25", features = ["derive", "wrap_help"] }
+clap = { version = "^4.5.37", features = ["derive", "wrap_help"] }
 console = "^0.15.11"
-dialoguer = "^0.10.4"
+dialoguer = "^0.11.0"
 futures = "^0.3.31"
-futures-lite = "^1.13.0"
+futures-lite = "^2.6.0"
 git2 = { version = "^0.20.1", default-features = false }
 git2-ext ={ git="https://github.com/mhammerly/git2-ext.git", rev = "115a912b7b89d91c03d1e52e0d39b60adb04dde6" }
-graphql_client = "^0.11.0"
-indoc = "^1.0.9"
-lazy-regex = "^2.5.0"
-octocrab = { version = "^0.38.0", default-features = false, features = ["opentls", "default-client"] }
+graphql_client = "^0.14.0"
+indoc = "^2.0.6"
+lazy-regex = "^3.4.1"
+octocrab = { version = "^0.44.0", default-features = false, features = ["opentls", "default-client"] }
 serde = "^1.0.219"
-textwrap = "0.15.2"
-thiserror = "^1.0.69"
+textwrap = "0.16.2"
+thiserror = "^2.0.12"
 tokio = { version = "^1.44.2", features = ["macros", "process", "rt-multi-thread", "time"] }
 unicode-normalization = "^0.1.24"
