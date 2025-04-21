@@ -5,8 +5,8 @@
  * LICENSE file in the root directory of this source tree.
  */
 
-use std::iter::zip;
 use std::collections::HashSet;
+use std::iter::zip;
 
 use crate::{
     error::{add_error, Error, Result, ResultExt},
@@ -55,14 +55,20 @@ pub struct DiffOptions {
 
 fn get_oids(refs: &str, repo: &git2::Repository) -> Result<HashSet<Oid>> {
     // refs might be a single (eg 012345abc or HEAD) or a range (HEAD~4..HEAD~2)
-    let revspec = repo.revparse(&refs)?;
+    let revspec = repo.revparse(refs)?;
 
-    let from = revspec.from().ok_or(Error::new("Unexpectedly no from id in range"))?.id();
+    let from = revspec
+        .from()
+        .ok_or(Error::new("Unexpectedly no from id in range"))?
+        .id();
     if revspec.mode().contains(git2::RevparseMode::SINGLE) {
         // simple case, just return the id
         return Ok(HashSet::from([from]));
     }
-    let to = revspec.to().ok_or(Error::new("Unexpectedly no to id in range"))?.id();
+    let to = revspec
+        .to()
+        .ok_or(Error::new("Unexpectedly no to id in range"))?
+        .id();
 
     let mut walk = repo.revwalk()?;
     walk.push(to)?;
@@ -93,32 +99,47 @@ pub async fn diff(
         return result;
     };
 
-    // If refs is set, we want to track which commits to run `diff`
-    // against. The simple approach would be to adjust the prepared_commits
-    // Vec (as with opts.all above). This does not work however, as we need
-    // to know the entire list (or more specifically the list after the first update)
-    // for the rewrite_commit_messages step.
-    // This is not a problem for opts.all as it only ever has a single commit to update,
-    // and so nothing after it.
-    let revs_to_pr = match(&opts.refs, opts.all) {
-        (Some(refs), false) => get_oids(refs, &git.repo()).map(|i| Some(i)),
-        (Some(_), true) => Err(Error::new("Do not use --refs with --all")),
-        (None, all) => {
-            // Remove all prepared commits from the vector but the last. So, if
-            // `--all` is not given, we only operate on the HEAD commit.
-            if !all {
-                prepared_commits.drain(0..prepared_commits.len() - 1);
-            }
-            Ok(None)
+    // If refs is set, we want to track which commits to run `diff` against. The
+    // simple approach would be to adjust the prepared_commits Vec (as with
+    // opts.all above). This does not work however, as we need to know the
+    // entire list (or more specifically the list after the first update) for
+    // the rewrite_commit_messages step. This is not a problem for opts.all as
+    // it only ever has a single commit to update, and so nothing after it.
+    let revs_to_pr = match (opts.refs.as_deref(), opts.all) {
+        (Some(refs), false) => Some(get_oids(refs, &git.repo())?),
+        (Some(_), true) => {
+            return Err(Error::new("Do not use --refs with --all"))
         }
-    }?;
+        (None, true) => {
+            // Operate on all commits
+            None
+        }
+        (None, false) => {
+            // Only operate on the HEAD commit.
+            prepared_commits.drain(0..prepared_commits.len() - 1);
+            None
+        }
+    };
 
     #[allow(clippy::needless_collect)]
     let pull_request_tasks: Vec<_> = prepared_commits
         .iter()
         .map(|pc: &PreparedCommit| {
-            pc.pull_request_number
-                .map(|number| tokio::spawn(gh.clone().get_pull_request(number)))
+            if revs_to_pr
+                .as_ref()
+                .map(|revs| revs.contains(&pc.oid))
+                .unwrap_or(true)
+            {
+                // We are going to want to look at this pull request below.
+                pc.pull_request_number.map(|number| {
+                    tokio::spawn(gh.clone().get_pull_request(number))
+                })
+            } else {
+                // We will be skipping this commit below, because we have as set
+                // of commit oids to operate on, and this commit is not in
+                // there.
+                None
+            }
         })
         .collect();
 
@@ -131,10 +152,14 @@ pub async fn diff(
             break;
         }
 
-        if let Some(revs) = &revs_to_pr {
-            if !revs.contains(&prepared_commit.oid) {
-                continue;
-            }
+        // Check whether to skip this commit because we have a hashset of oids
+        // to operate on, but it doesn't contain this commit oid
+        if revs_to_pr
+            .as_ref()
+            .map(|revs| !revs.contains(&prepared_commit.oid))
+            .unwrap_or(false)
+        {
+            continue;
         }
 
         let pull_request = if let Some(task) = pull_request_task {
@@ -145,10 +170,11 @@ pub async fn diff(
 
         write_commit_title(prepared_commit)?;
 
-        // The further implementation of the diff command is in a separate function.
-        // This makes it easier to run the code to update the local commit message
-        // with all the changes that the implementation makes at the end, even if
-        // the implementation encounters an error or exits early.
+        // The further implementation of the diff command is in a separate
+        // function. This makes it easier to run the code to update the local
+        // commit message with all the changes that the implementation makes at
+        // the end, even if the implementation encounters an error or exits
+        // early.
         result = diff_impl(
             &opts,
             &mut message_on_prompt,
