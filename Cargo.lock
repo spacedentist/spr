@@ -540,8 +540,9 @@ dependencies = [
 
 [[package]]
 name = "git2-ext"
-version = "0.6.2"
-source = "git+https://github.com/mhammerly/git2-ext.git?rev=115a912b7b89d91c03d1e52e0d39b60adb04dde6#115a912b7b89d91c03d1e52e0d39b60adb04dde6"
+version = "0.6.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4902819113d2dad808b4695e535ea808cdebc152f54bce94ed878ac24a6afd01"
 dependencies = [
  "bstr",
  "git2",
