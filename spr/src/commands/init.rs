@@ -255,46 +255,33 @@ struct AuthScopes {
     scopes: Vec<String>,
 }
 
+#[async_trait::async_trait]
 impl FromResponse for AuthScopes {
-    fn from_response<'async_trait, B>(
+    async fn from_response<B>(
         response: http::Response<B>,
-    ) -> ::core::pin::Pin<
-        Box<
-            dyn ::core::future::Future<Output = octocrab::Result<Self>>
-                + ::core::marker::Send
-                + 'async_trait,
-        >,
-    >
+    ) -> octocrab::Result<Self>
     where
         B: http_body::Body<Data = bytes::Bytes, Error = octocrab::Error> + Send,
-        B: 'async_trait,
-        Self: 'async_trait,
     {
-        fn imp<BB>(
-            response: http::Response<BB>,
-        ) -> octocrab::Result<AuthScopes> {
-            let scopes = response
-                .headers()
-                .get("x-oauth-scopes")
-                .map(|v| v.to_str())
-                .transpose()
-                .map_err(|err| octocrab::Error::Other {
-                    source: Box::new(err),
-                    backtrace: std::backtrace::Backtrace::capture(),
-                })?
-                .map(|value| {
-                    value
-                        .split(',')
-                        .map(str::trim)
-                        .filter(|x| !x.is_empty())
-                        .map(String::from)
-                        .collect::<Vec<_>>()
-                })
-                .unwrap_or_default();
-            Ok(AuthScopes { scopes })
-        }
-
-        Box::pin(std::future::ready(imp(response)))
+        let scopes = response
+            .headers()
+            .get("x-oauth-scopes")
+            .map(|v| v.to_str())
+            .transpose()
+            .map_err(|err| octocrab::Error::Other {
+                source: Box::new(err),
+                backtrace: std::backtrace::Backtrace::capture(),
+            })?
+            .map(|value| {
+                value
+                    .split(',')
+                    .map(str::trim)
+                    .filter(|x| !x.is_empty())
+                    .map(String::from)
+                    .collect::<Vec<_>>()
+            })
+            .unwrap_or_default();
+        Ok(AuthScopes { scopes })
     }
 }
 
