@@ -594,7 +594,7 @@ async fn diff_impl(
             github_commit_message
                 .as_ref()
                 .map(|s| &s[..])
-                .unwrap_or("[𝘀𝗽𝗿] initial version"),
+                .unwrap_or(title),
             env!("CARGO_PKG_VERSION"),
         ),
         new_head_tree,
