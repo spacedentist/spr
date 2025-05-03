@@ -7,6 +7,8 @@
 
 use indoc::formatdoc;
 use lazy_regex::regex;
+use octocrab::FromResponse;
+use secrecy::ExposeSecret as _;
 
 use crate::{
     error::{Error, Result, ResultExt},
@@ -26,63 +28,82 @@ pub async fn init() -> Result<()> {
 
     // GitHub Personal Access Token
 
-    console::Term::stdout().write_line("")?;
-
     let github_auth_token = config
         .get_string("spr.githubAuthToken")
         .ok()
         .and_then(|value| if value.is_empty() { None } else { Some(value) });
 
-    output(
-        "🔑",
-        &formatdoc!(
-            "Okay, let's get started. First we need a 'Personal Access Token' \
-             from GitHub. This will authorise spr to open/update/merge Pull \
-             Requests etc. on behalf of your GitHub user.
-             You can get one by going to https://github.com/settings/tokens \
-             and clicking on 'Generate new token'. The token needs the 'repo', \
-             'user' and 'read:org' permissions, so please tick those three boxes \
-             in the 'Select scopes' section.
-             You might want to set the 'Expiration' to 'No expiration', as \
-             otherwise you will have to repeat this procedure soon. Even \
-             if the token does not expire, you can always revoke it in case \
-             you fear someone got hold of it.
-             {}",
-            if github_auth_token.is_some() {
-                "Actually, you have set up a PAT already. Just press enter to keep that one, or enter a new one!"
-            } else {
-                "Please paste in your PAT and press enter. (The input will not be displayed.)"
-            }
-        ),
-    )?;
+    let scopes = if let Some(token) = github_auth_token.as_deref() {
+        let response: AuthScopes = octocrab::OctocrabBuilder::new()
+            .personal_token(token)
+            .build()?
+            .get("/", Some(&()))
+            .await?;
 
-    let pat = dialoguer::Password::new()
-        .with_prompt(if github_auth_token.is_some() {
-            "GitHub PAT (leave empty to keep using existing one)"
-        } else {
-            "GitHub Personal Access Token"
-        })
-        .allow_empty_password(github_auth_token.is_some())
-        .interact()?;
-
-    let pat = if pat.is_empty() {
-        github_auth_token.unwrap_or_default()
+        response.scopes
     } else {
-        pat
+        vec![]
     };
 
-    if pat.is_empty() {
-        return Err(Error::new("Cannot continue without an access token."));
-    }
+    let valid_auth = scopes.iter().any(|s| s == "repo")
+        && scopes.iter().any(|s| s == "user")
+        && scopes.iter().any(|s| s == "org" || s == "read:org");
+
+    let github_auth_token = if valid_auth {
+        github_auth_token.unwrap()
+    } else {
+        console::Term::stdout().write_line("")?;
+
+        let client_id = "Ov23liD6WOMYlLy12wkg";
+
+        let client = octocrab::OctocrabBuilder::new()
+            .base_uri("https://github.com")?
+            .add_header(
+                http::HeaderName::from_static("accept"),
+                "application/json".into(),
+            )
+            .build()?;
+
+        let device_codes = client
+            .authenticate_as_device(&client_id.into(), ["repo user read:org"])
+            .await?;
+
+        open::that_detached(&device_codes.verification_uri)?;
+        output(
+        "🔑",
+        &formatdoc!("
+            Okay, let's get started.
+
+            To authenticate spr with GitHub, please go to
+
+            -----> {} <-----
+
+            and enter code
+
+            > > > > > {} < < < < <
+
+            For your convenience, the link should open in your web browser now.",
+            &device_codes.verification_uri,
+            &device_codes.user_code,
+            )
+        )?;
+
+        let auth = device_codes
+            .poll_until_available(&client, &client_id.into())
+            .await?;
+        let token: String = auth.access_token.expose_secret().into();
+
+        config.set_str("spr.githubAuthToken", &token)?;
+
+        token
+    };
 
     let octocrab = octocrab::OctocrabBuilder::new()
-        .personal_token(pat.clone())
+        .personal_token(github_auth_token.clone())
         .build()?;
     let github_user = octocrab.current().user().await?;
 
     output("👋", &formatdoc!("Hello {}!", github_user.login))?;
-
-    config.set_str("spr.githubAuthToken", &pat)?;
 
     // Name of remote
 
@@ -233,6 +254,41 @@ fn validate_branch_prefix(branch_prefix: &str) -> Result<()> {
     }
 
     Ok(())
+}
+
+#[derive(Debug)]
+struct AuthScopes {
+    scopes: Vec<String>,
+}
+
+#[async_trait::async_trait]
+impl FromResponse for AuthScopes {
+    async fn from_response<B>(
+        response: http::Response<B>,
+    ) -> octocrab::Result<Self>
+    where
+        B: http_body::Body<Data = bytes::Bytes, Error = octocrab::Error> + Send,
+    {
+        let scopes = response
+            .headers()
+            .get("x-oauth-scopes")
+            .map(|v| v.to_str())
+            .transpose()
+            .map_err(|err| octocrab::Error::Other {
+                source: Box::new(err),
+                backtrace: std::backtrace::Backtrace::capture(),
+            })?
+            .map(|value| {
+                value
+                    .split(',')
+                    .map(str::trim)
+                    .filter(|x| !x.is_empty())
+                    .map(String::from)
+                    .collect::<Vec<_>>()
+            })
+            .unwrap_or_default();
+        Ok(AuthScopes { scopes })
+    }
 }
 
 #[cfg(test)]
