@@ -218,7 +218,7 @@
 <p>With Rust all set up, clone this repository and run <code>cargo build --release</code>. The spr binary will be in the <code>target/release</code> directory.</p>
 <div style="break-before: page; page-break-before: always;"></div><h1 id="set-up-spr"><a class="header" href="#set-up-spr">Set up spr</a></h1>
 <p>In the repo you want to use spr in, run <code>spr init</code>; this will ask you several questions.</p>
-<p>You’ll need to provide a GitHub personal access token (PAT) as the first step. <a href="https://docs.github.com/en/authentication/keeping-your-account-and-data-secure/creating-a-personal-access-token">See the GitHub docs</a> on how to create one. <code>spr init</code> will tell you which scopes the token must have; make sure to set them correctly when creating the token.</p>
+<p>You’ll need to authorise spr with your GitHub account. <code>spr init</code> will guide you through the process.</p>
 <p>The rest of the settings that <code>spr init</code> asks for have sensible defaults, so almost all users can simply accept the defaults. The most common situation where you would need to diverge from the defaults is if the remote representing GitHub is not called <code>origin</code>.</p>
 <p>See the <a href="user/../reference/configuration.html">Configuration</a> reference page for full details about the available settings.</p>
 <p>After initial setup, you can update your settings in several ways:</p>
@@ -520,7 +520,7 @@ Pull Request: https://github.com/example/my-thing/pull/123
 <p>The recommended way to configure spr is to run <code>spr init</code>, rather than setting config values manually. You can rerun <code>spr init</code> to update config at any time.</p>
 <p>spr uses the following Git configuration values:</p>
 <div class="table-wrapper"><table><thead><tr><th>config key</th><th>CLI flag</th><th>description</th><th>default<sup class="footnote-reference" id="fr-default-1"><a href="#footnote-default">1</a></sup></th><th>default in <code>spr init</code><sup class="footnote-reference" id="fr-initdefault-1"><a href="#footnote-initdefault">2</a></sup></th></tr></thead><tbody>
-<tr><td><code>githubAuthToken</code></td><td><code>--github-auth-token</code><sup class="footnote-reference" id="fr-cli-token-1"><a href="#footnote-cli-token">3</a></sup></td><td>The GitHub PAT (personal authentication token) to use for accessing the GitHub API.</td><td></td><td></td></tr>
+<tr><td><code>githubAuthToken</code></td><td><code>--github-auth-token</code><sup class="footnote-reference" id="fr-cli-token-1"><a href="#footnote-cli-token">3</a></sup></td><td>The GitHub authentication token to use for accessing the GitHub API.</td><td></td><td></td></tr>
 <tr><td><code>githubRemoteName</code></td><td></td><td>Name of the git remote in this local repository that corresponds to GitHub</td><td><code>origin</code></td><td><code>origin</code></td></tr>
 <tr><td><code>githubRepository</code></td><td><code>--github-repository</code></td><td>Name of repository on github.com in <code>owner/repo</code> format</td><td></td><td>extracted from the URL of the GitHub remote</td></tr>
 <tr><td><code>githubMasterBranch</code></td><td></td><td>The name of the centrally shared branch into which the pull requests are merged</td><td><code>master</code></td><td>taken from repository configuration on GitHub</td></tr>
