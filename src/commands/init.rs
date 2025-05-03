@@ -74,7 +74,13 @@ pub async fn init() -> Result<()> {
         &formatdoc!("
             Okay, let's get started.
 
-            To authenticate spr with GitHub, please go to {} and enter code {}.
+            To authenticate spr with GitHub, please go to
+
+            -----> {} <-----
+
+            and enter code
+
+            > > > > > {} < < < < <
 
             For your convenience, the link should open in your web browser now.",
             &device_codes.verification_uri,
