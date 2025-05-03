@@ -2,6 +2,25 @@
 
 ## Unreleased
 
+## [1.3.6] - 2025-04-27
+
+### Fixes
+
+- fix regex to recognise GitHub owner and repo names that contain a period character (`.`) (@sqwxl)
+- move ownership of the spr repository in GitHub from getcord (the no longer existing command) to spacedentist (the primary author's personal account)
+- fix references to getcord (@AlbertQM)
+- fix build problems with Rust 1.80 (@chenrui333)
+- command line option `--branch-prefix` was ignored (@davinkevin)
+- add `--github-master-branch` command line option (@davinkevin)
+- update dependencies, fix warnings
+
+### Improvements
+
+- use opentls instead of rustls in order to use system CAs, update octocrab to 0.38 for that (@mayanez)
+- add more documentation: how it works for simple PRs (@joneshf)
+- make GraphQL queries through octocrab instead of reqwest (@jtietema)
+- add `--refs` option to spr diff (@DylanZA)
+
 ## [1.3.5] - 2023-11-02
 
 ### Fixes
@@ -144,3 +163,4 @@
 [1.3.3]: https://github.com/spacedentist/spr/releases/tag/v1.3.3
 [1.3.4]: https://github.com/spacedentist/spr/releases/tag/v1.3.4
 [1.3.5]: https://github.com/spacedentist/spr/releases/tag/v1.3.5
+[1.3.6]: https://github.com/spacedentist/spr/releases/tag/v1.3.6

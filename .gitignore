@@ -2,3 +2,5 @@
 /target/
 /mermaid.min.js
 /mermaid-init.js
+/.envrc
+/.direnv
