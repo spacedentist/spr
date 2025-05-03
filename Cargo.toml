@@ -22,7 +22,7 @@ indoc = "^2.0.6"
 lazy-regex = "^3.4.1"
 octocrab = { version = "^0.44.0", default-features = false, features = ["opentls", "default-client"] }
 serde = "^1.0.219"
-textwrap = "0.16.2"
+textwrap = "^0.16.2"
 thiserror = "^2.0.12"
 tokio = { version = "^1.44.2", features = ["macros", "process", "rt-multi-thread", "time"] }
 unicode-normalization = "^0.1.24"
