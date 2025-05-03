@@ -6,7 +6,7 @@ spr uses the following Git configuration values:
 
 | config key           | CLI flag                          | description                                                                         | default[^default] | default in `spr init`[^initdefault]           |
 | -------------------- | --------------------------------- | ----------------------------------------------------------------------------------- | ----------------- | --------------------------------------------- |
-| `githubAuthToken`    | `--github-auth-token`[^cli-token] | The GitHub PAT (personal authentication token) to use for accessing the GitHub API. |
+| `githubAuthToken`    | `--github-auth-token`[^cli-token] | The GitHub authentication token to use for accessing the GitHub API. |
 | `githubRemoteName`   |                                   | Name of the git remote in this local repository that corresponds to GitHub          | `origin`          | `origin`                                      |
 | `githubRepository`   | `--github-repository`             | Name of repository on github.com in `owner/repo` format                             |                   | extracted from the URL of the GitHub remote   |
 | `githubMasterBranch` |                                   | The name of the centrally shared branch into which the pull requests are merged     | `master`          | taken from repository configuration on GitHub |

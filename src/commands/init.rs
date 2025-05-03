@@ -91,11 +91,11 @@ pub async fn init() -> Result<()> {
         let auth = device_codes
             .poll_until_available(&client, &client_id.into())
             .await?;
-        let pat: String = auth.access_token.expose_secret().into();
+        let token: String = auth.access_token.expose_secret().into();
 
-        config.set_str("spr.githubAuthToken", &pat)?;
+        config.set_str("spr.githubAuthToken", &token)?;
 
-        pat
+        token
     };
 
     let octocrab = octocrab::OctocrabBuilder::new()
