@@ -136,7 +136,7 @@ impl GitHub {
 
     pub async fn get_github_user(login: String) -> Result<UserWithName> {
         octocrab::instance()
-            .get::<UserWithName, _, _>(format!("users/{}", login), None::<&()>)
+            .get::<UserWithName, _, _>(format!("/users/{}", login), None::<&()>)
             .await
             .map_err(Error::from)
     }
@@ -339,7 +339,7 @@ impl GitHub {
         octocrab::instance()
             .patch::<octocrab::models::pulls::PullRequest, _, _>(
                 format!(
-                    "repos/{}/{}/pulls/{}",
+                    "/repos/{}/{}/pulls/{}",
                     self.config.owner, self.config.repo, number
                 ),
                 Some(&updates),
@@ -359,7 +359,7 @@ impl GitHub {
         let _: Ignore = octocrab::instance()
             .post(
                 format!(
-                    "repos/{}/{}/pulls/{}/requested_reviewers",
+                    "/repos/{}/{}/pulls/{}/requested_reviewers",
                     self.config.owner, self.config.repo, number
                 ),
                 Some(&reviewers),
