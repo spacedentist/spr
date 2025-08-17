@@ -43,11 +43,11 @@ impl Git {
         }
     }
 
-    pub fn repo(&self) -> std::sync::MutexGuard<git2::Repository> {
+    pub fn repo(&self) -> std::sync::MutexGuard<'_, git2::Repository> {
         self.repo.lock().expect("poisoned mutex")
     }
 
-    fn hooks(&self) -> std::sync::MutexGuard<git2_ext::hooks::Hooks> {
+    fn hooks(&self) -> std::sync::MutexGuard<'_, git2_ext::hooks::Hooks> {
         self.hooks.lock().expect("poisoned mutex")
     }
 
