@@ -10,7 +10,6 @@ edition = "2021"
 exclude = [".github", ".gitignore"]
 
 [dependencies]
-async-trait = "0.1.89"
 bytes = "1.10.1"
 clap = { version = "^4.5.45", features = ["derive", "wrap_help"] }
 console = "^0.16.0"

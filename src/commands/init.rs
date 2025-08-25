@@ -262,33 +262,42 @@ struct AuthScopes {
     scopes: Vec<String>,
 }
 
-#[async_trait::async_trait]
 impl FromResponse for AuthScopes {
-    async fn from_response<B>(
+    fn from_response<'async_trait, B>(
         response: http::Response<B>,
-    ) -> octocrab::Result<Self>
+    ) -> std::pin::Pin<
+        Box<
+            dyn std::future::Future<Output = octocrab::Result<Self>>
+                + std::marker::Send
+                + 'async_trait,
+        >,
+    >
     where
         B: http_body::Body<Data = bytes::Bytes, Error = octocrab::Error> + Send,
+        B: 'async_trait,
+        Self: 'async_trait,
     {
-        let scopes = response
-            .headers()
-            .get("x-oauth-scopes")
-            .map(|v| v.to_str())
-            .transpose()
-            .map_err(|err| octocrab::Error::Other {
-                source: Box::new(err),
-                backtrace: std::backtrace::Backtrace::capture(),
-            })?
-            .map(|value| {
-                value
-                    .split(',')
-                    .map(str::trim)
-                    .filter(|x| !x.is_empty())
-                    .map(String::from)
-                    .collect::<Vec<_>>()
-            })
-            .unwrap_or_default();
-        Ok(AuthScopes { scopes })
+        Box::pin(async move {
+            let scopes = response
+                .headers()
+                .get("x-oauth-scopes")
+                .map(|v| v.to_str())
+                .transpose()
+                .map_err(|err| octocrab::Error::Other {
+                    source: Box::new(err),
+                    backtrace: std::backtrace::Backtrace::capture(),
+                })?
+                .map(|value| {
+                    value
+                        .split(',')
+                        .map(str::trim)
+                        .filter(|x| !x.is_empty())
+                        .map(String::from)
+                        .collect::<Vec<_>>()
+                })
+                .unwrap_or_default();
+            Ok(AuthScopes { scopes })
+        })
     }
 }
 
