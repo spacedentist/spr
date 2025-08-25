@@ -239,40 +239,6 @@ impl Git {
         Ok(result)
     }
 
-    pub async fn fetch_commits_from_remote(
-        &self,
-        commit_oids: &[git2::Oid],
-        remote: &str,
-    ) -> Result<()> {
-        let missing_commit_oids: Vec<_> = {
-            let repo = self.repo();
-
-            commit_oids
-                .iter()
-                .filter(|oid| repo.find_commit(**oid).is_err())
-                .collect()
-        };
-
-        if !missing_commit_oids.is_empty() {
-            let mut command = tokio::process::Command::new("git");
-            command
-                .arg("fetch")
-                .arg("--no-write-fetch-head")
-                .arg("--")
-                .arg(remote);
-
-            for oid in missing_commit_oids {
-                command.arg(format!("{}", oid));
-            }
-
-            run_command(&mut command)
-                .await
-                .reword("git fetch failed".to_string())?;
-        }
-
-        Ok(())
-    }
-
     pub async fn fetch_from_remote(
         &self,
         remote_url: &str,
