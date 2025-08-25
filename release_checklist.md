@@ -4,7 +4,7 @@ This is internal documentation, listing the step to make a new release.
 
 ## Release commit
 
-* Update version number in `spr/Cargo.toml`
+* Update version number in `Cargo.toml`
 * Run `cargo check` to propagate change to `Cargo.lock`
 * Update `CHANGELOG.md`:
   * Rename the top section from "Unreleased" to "version - date" (see previous releases for how it's supposed to look)
@@ -44,7 +44,7 @@ This is internal documentation, listing the step to make a new release.
 
 ## Start next release cycle
 
-* Bump the version number in `spr/Cargo.toml` and add `-beta.1` suffix
+* Bump the version number in `Cargo.toml` and add `-beta.1` suffix
 * Run `cargo check` to propagate change to `Cargo.lock`
 * Add a new "Unreleased" section at the top of `CHANGELOG.md`
 * Make a commit with the above changes named "Start next development cycle"

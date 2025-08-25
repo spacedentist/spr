@@ -1,6 +1,16 @@
 # Changelog
 
-## Unreleased
+## [1.3.7] - 2025-08-25
+
+### Improvements
+
+- use GitHub device auth flow for obtaining token
+- include all source errors in generic error handling (@quodlibetor)
+
+### Fixes
+
+- fix octocrab routes (include leading slash) (@yamadapc)
+- fix clippy warnings
 
 ## [1.3.6] - 2025-04-27
 
@@ -164,3 +174,4 @@
 [1.3.4]: https://github.com/spacedentist/spr/releases/tag/v1.3.4
 [1.3.5]: https://github.com/spacedentist/spr/releases/tag/v1.3.5
 [1.3.6]: https://github.com/spacedentist/spr/releases/tag/v1.3.6
+[1.3.7]: https://github.com/spacedentist/spr/releases/tag/v1.3.7
