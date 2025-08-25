@@ -5,9 +5,9 @@
  * LICENSE file in the root directory of this source tree.
  */
 
-use crate::error::Error;
-use crate::error::Result;
 use graphql_client::{GraphQLQuery, Response};
+
+use crate::error::{Error, Result, ResultExt};
 
 #[allow(clippy::upper_case_acronyms)]
 type URI = String;
@@ -30,7 +30,8 @@ pub async fn list(config: &crate::config::Config) -> Result<()> {
     let response_body: Response<search_query::ResponseData> =
         octocrab::instance()
             .post("/graphql", Some(&request_body))
-            .await?;
+            .await
+            .context("Searching for open PRs".to_string())?;
 
     print_pr_info(response_body).ok_or_else(|| Error::new("unexpected error"))
 }
