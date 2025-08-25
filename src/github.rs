@@ -136,7 +136,7 @@ impl GitHub {
 
     pub async fn get_github_user(login: String) -> Result<UserWithName> {
         octocrab::instance()
-            .get::<UserWithName, _, _>(format!("users/{}", login), None::<&()>)
+            .get::<UserWithName, _, _>(format!("/users/{}", login), None::<&()>)
             .await
             .map_err(Error::from)
     }
