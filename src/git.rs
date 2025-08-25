@@ -5,7 +5,7 @@
  * LICENSE file in the root directory of this source tree.
  */
 
-use std::collections::{HashSet, VecDeque};
+use std::collections::{HashMap, HashSet, VecDeque};
 
 use crate::{
     config::Config,
@@ -274,27 +274,60 @@ impl Git {
     }
 
     pub async fn fetch_from_remote(
+        &self,
+        remote_url: &str,
+        token: &str,
         refs: &[&GitHubBranch],
-        remote: &str,
-    ) -> Result<()> {
-        if !refs.is_empty() {
-            let mut command = tokio::process::Command::new("git");
-            command
-                .arg("fetch")
-                .arg("--no-write-fetch-head")
-                .arg("--")
-                .arg(remote);
-
-            for ghref in refs {
-                command.arg(ghref.on_github());
-            }
-
-            run_command(&mut command)
-                .await
-                .reword("git fetch failed".to_string())?;
+        commit_oids: &[Oid],
+    ) -> Result<Vec<Option<Oid>>> {
+        if refs.is_empty() && commit_oids.is_empty() {
+            return Ok(Vec::new());
         }
 
-        Ok(())
+        let mut ref_oids = Vec::<Option<Oid>>::new();
+        let mut fetch_oids: HashSet<Oid> =
+            commit_oids.iter().cloned().collect();
+
+        let repo = self.repo.lock()?;
+        let mut remote = repo.remote_anonymous(remote_url)?;
+
+        let mut cb = git2::RemoteCallbacks::new();
+        cb.credentials(|_url, _username, _allowed_types| {
+            git2::Cred::userpass_plaintext("spr", token)
+        });
+        let mut connection =
+            remote.connect_auth(git2::Direction::Fetch, Some(cb), None)?;
+
+        if !refs.is_empty() {
+            let remote_refs: HashMap<String, Oid> = connection
+                .remote()
+                .list()?
+                .iter()
+                .map(|rh| (rh.name().to_string(), rh.oid()))
+                .collect();
+
+            for &ghref in refs {
+                let oid = remote_refs.get(ghref.on_github()).cloned();
+                ref_oids.push(oid);
+                if let Some(oid) = oid {
+                    fetch_oids.insert(oid);
+                }
+            }
+        }
+
+        if !fetch_oids.is_empty() {
+            let fetch_oids =
+                fetch_oids.iter().map(Oid::to_string).collect::<Vec<_>>();
+
+            let mut fetch_options = git2::FetchOptions::new();
+            fetch_options.update_fetchhead(false);
+            fetch_options.download_tags(git2::AutotagOption::None);
+            connection
+                .remote()
+                .download(fetch_oids.as_slice(), Some(&mut fetch_options))?;
+        }
+
+        Ok(ref_oids)
     }
 
     pub fn prepare_commit(

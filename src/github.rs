@@ -10,7 +10,6 @@ use serde::Deserialize;
 
 use crate::{
     error::{Error, Result, ResultExt},
-    git::Git,
     message::{
         build_github_body, parse_message, MessageSection, MessageSectionsMap,
     },
@@ -185,7 +184,16 @@ impl GitHub {
         let base = config.new_github_branch_from_ref(&pr.base_ref_name)?;
         let head = config.new_github_branch_from_ref(&pr.head_ref_name)?;
 
-        Git::fetch_from_remote(&[&head, &base], &config.remote_name).await?;
+        git.fetch_from_remote(
+            &format!(
+                "https://github.com/{}/{}.git",
+                &config.owner, &config.repo
+            ),
+            &config.auth_token,
+            &[&head, &base],
+            &[],
+        )
+        .await?;
 
         let base_oid = git.resolve_reference(base.local())?;
         let head_oid = git.resolve_reference(head.local())?;
