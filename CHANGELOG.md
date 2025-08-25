@@ -1,5 +1,7 @@
 # Changelog
 
+## Unreleased
+
 ## [1.3.7] - 2025-08-25
 
 ### Improvements

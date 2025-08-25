@@ -20,12 +20,12 @@ This is internal documentation, listing the step to make a new release.
 
 ## crates.io
 
-* Run `cargo publish -p spr` (you might need to do `cargo login` first)
+* Run `cargo publish` (you might need to do `cargo login` first)
 
 ## nixpkgs
 
 * Clone/check out current master of https://github.com/NixOS/nixpkgs
-* Edit `pkgs/development/tools/spr/default.nix`, and update the "version" field. Also, make a random change to the `hash` and `cargoHash` fields, to make sure the following nix build will not used an existing build.
+* Edit `pkgs/by-name/sp/spr/package.nix`, and update the "version" field. Also, make a random change to the `hash` and `cargoHash` fields, to make sure the following nix build will not used an existing build.
 * Run `nix-build -A spr`
 * There will be a hash mismatch error. Edit the nix file again and paste in the correct hash from the build error.
 * Run `nix-build -A spr` again
