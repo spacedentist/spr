@@ -166,7 +166,7 @@ pub async fn init() -> Result<()> {
 
     let github_repo_info = octocrab
         .get::<octocrab::models::Repository, _, _>(
-            format!("repos/{}", &github_repo),
+            format!("/repos/{}", &github_repo),
             None::<&()>,
         )
         .await?;
