@@ -106,7 +106,7 @@ pub async fn diff(
     // the rewrite_commit_messages step. This is not a problem for opts.all as
     // it only ever has a single commit to update, and so nothing after it.
     let revs_to_pr = match (opts.refs.as_deref(), opts.all) {
-        (Some(refs), false) => Some(get_oids(refs, &git.repo())?),
+        (Some(refs), false) => Some(get_oids(refs, git.repo())?),
         (Some(_), true) => {
             return Err(Error::new("Do not use --refs with --all"))
         }
@@ -132,7 +132,9 @@ pub async fn diff(
             {
                 // We are going to want to look at this pull request below.
                 pc.pull_request_number.map(|number| {
-                    tokio::spawn(gh.clone().get_pull_request(number))
+                    tokio::task::spawn_local(
+                        gh.clone().get_pull_request(number),
+                    )
                 })
             } else {
                 // We will be skipping this commit below, because we have as set
