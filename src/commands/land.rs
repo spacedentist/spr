@@ -87,7 +87,7 @@ pub async fn land(
     // Fetch current master from GitHub.
     let current_master = gh
         .remote()
-        .fetch_from_remote(&[config.master_ref.on_github()], &[])
+        .fetch_from_remote(&[config.master_ref.branch_name()], &[])
         .reword("git fetch failed".to_string())?
         .first()
         .and_then(|&x| x)

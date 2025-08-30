@@ -381,7 +381,7 @@ async fn diff_impl(
 
             let current_master_oid = gh
                 .remote()
-                .fetch_from_remote(&[config.master_ref.on_github()], &[])?
+                .fetch_from_remote(&[config.master_ref.branch_name()], &[])?
                 .first()
                 .and_then(|&x| x)
                 .ok_or_else(|| {

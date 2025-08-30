@@ -208,11 +208,11 @@ impl GitHub {
         let base = config.new_github_branch_from_ref(&pr.base_ref_name)?;
         let head = config.new_github_branch_from_ref(&pr.head_ref_name)?;
 
-        let refs: Vec<_> =
-            [&base, &head].iter().map(|&b| b.on_github()).collect();
+        let branch_names: Vec<_> =
+            [&base, &head].iter().map(|&b| b.branch_name()).collect();
 
         let [base_oid, head_oid] =
-            git_remote.fetch_from_remote(&refs, &[])?[0..2]
+            git_remote.fetch_from_remote(&branch_names, &[])?[0..2]
         else {
             unreachable!();
         };

@@ -27,21 +27,42 @@ impl GitRemote {
         }
     }
 
-    fn cb(&self) -> git2::RemoteCallbacks<'_> {
+    fn with_connection<F, T>(&self, dir: git2::Direction, func: F) -> Result<T>
+    where
+        F: FnOnce(&mut git2::RemoteConnection) -> Result<T>,
+    {
+        let mut remote = self.repo.remote_anonymous(&self.url)?;
         let mut cb = git2::RemoteCallbacks::new();
         cb.credentials(move |_url, _username, _allowed_types| {
             git2::Cred::userpass_plaintext("spr", &self.auth_token)
         });
+        let mut connection = remote.connect_auth(dir, Some(cb), None)?;
 
-        cb
+        func(&mut connection)
+    }
+
+    fn get_branches(
+        connection: &mut git2::RemoteConnection,
+    ) -> Result<HashMap<String, Oid>> {
+        Ok(connection
+            .remote()
+            .list()?
+            .iter()
+            .filter(|&rh| !rh.oid().is_zero())
+            .filter_map(|rh| {
+                rh.name()
+                    .strip_prefix("refs/heads/")
+                    .map(|branch| (branch.to_string(), rh.oid()))
+            })
+            .collect())
     }
 
     pub fn fetch_from_remote(
         &self,
-        refs: &[&str],
+        branche_names: &[&str],
         commit_oids: &[Oid],
     ) -> Result<Vec<Option<Oid>>> {
-        if refs.is_empty() && commit_oids.is_empty() {
+        if branche_names.is_empty() && commit_oids.is_empty() {
             return Ok(Vec::new());
         }
 
@@ -49,61 +70,45 @@ impl GitRemote {
         let mut fetch_oids: HashSet<Oid> =
             commit_oids.iter().cloned().collect();
 
-        let mut remote = self.repo.remote_anonymous(&self.url)?;
-        let mut connection = remote.connect_auth(
-            git2::Direction::Fetch,
-            Some(self.cb()),
-            None,
-        )?;
+        self.with_connection(git2::Direction::Fetch, move |connection| {
+            if !branche_names.is_empty() {
+                let remote_branches = Self::get_branches(connection)?;
 
-        if !refs.is_empty() {
-            let remote_refs: HashMap<String, Oid> = connection
-                .remote()
-                .list()?
-                .iter()
-                .map(|rh| (rh.name().to_string(), rh.oid()))
-                .collect();
-
-            for &ghref in refs.iter() {
-                let oid = remote_refs.get(ghref).cloned();
-                ref_oids.push(oid);
-                if let Some(oid) = oid {
-                    fetch_oids.insert(oid);
+                for &branch_name in branche_names.iter() {
+                    let oid = remote_branches.get(branch_name).cloned();
+                    ref_oids.push(oid);
+                    fetch_oids.extend(oid.iter());
                 }
             }
-        }
 
-        if !fetch_oids.is_empty() {
-            let fetch_oids =
-                fetch_oids.iter().map(Oid::to_string).collect::<Vec<_>>();
+            if !fetch_oids.is_empty() {
+                let fetch_oids =
+                    fetch_oids.iter().map(Oid::to_string).collect::<Vec<_>>();
 
-            let mut fetch_options = git2::FetchOptions::new();
-            fetch_options.update_fetchhead(false);
-            fetch_options.download_tags(git2::AutotagOption::None);
-            connection
-                .remote()
-                .download(fetch_oids.as_slice(), Some(&mut fetch_options))?;
-        }
+                let mut fetch_options = git2::FetchOptions::new();
+                fetch_options.update_fetchhead(false);
+                fetch_options.download_tags(git2::AutotagOption::None);
+                connection.remote().download(
+                    fetch_oids.as_slice(),
+                    Some(&mut fetch_options),
+                )?;
+            }
 
-        Ok(ref_oids)
+            Ok(ref_oids)
+        })
     }
 
     pub fn push_to_remote(&self, refs: &[PushSpec]) -> Result<()> {
-        let mut remote = self.repo.remote_anonymous(&self.url)?;
-        let mut connection = remote.connect_auth(
-            git2::Direction::Push,
-            Some(self.cb()),
-            None,
-        )?;
+        self.with_connection(git2::Direction::Push, move |connection| {
+            let push_specs: Vec<String> =
+                refs.iter().map(ToString::to_string).collect();
+            let push_specs: Vec<&str> =
+                push_specs.iter().map(String::as_str).collect();
 
-        let push_specs: Vec<String> =
-            refs.iter().map(ToString::to_string).collect();
-        let push_specs: Vec<&str> =
-            push_specs.iter().map(String::as_str).collect();
+            connection.remote().push(push_specs.as_slice(), None)?;
 
-        connection.remote().push(push_specs.as_slice(), None)?;
-
-        Ok(())
+            Ok(())
+        })
     }
 
     pub fn find_unused_branch_name(
@@ -111,27 +116,14 @@ impl GitRemote {
         branch_prefix: &str,
         slug: &str,
     ) -> Result<String> {
-        let mut remote = self.repo.remote_anonymous(&self.url)?;
-        let mut connection = remote.connect_auth(
-            git2::Direction::Fetch,
-            Some(self.cb()),
-            None,
-        )?;
-
-        let existing_ref_names: HashSet<String> = connection
-            .remote()
-            .list()?
-            .iter()
-            .map(|rh| rh.name().to_string())
-            .collect();
+        let existing_branch_names =
+            self.with_connection(git2::Direction::Fetch, Self::get_branches)?;
 
         let mut branch_name = format!("{branch_prefix}{slug}");
         let mut suffix = 0;
 
         loop {
-            let remote_ref = format!("refs/heads/{branch_name}");
-
-            if !existing_ref_names.contains(&remote_ref) {
+            if !existing_branch_names.contains_key(&branch_name) {
                 return Ok(branch_name);
             }
 
