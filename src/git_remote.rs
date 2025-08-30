@@ -100,6 +100,42 @@ impl GitRemote {
 
         Ok(())
     }
+
+    pub fn find_unused_branch_name(
+        &self,
+        branch_prefix: &str,
+        slug: &str,
+    ) -> Result<String> {
+        let mut remote = self.repo.remote_anonymous(&self.url)?;
+
+        let mut cb = git2::RemoteCallbacks::new();
+        cb.credentials(|_url, _username, _allowed_types| {
+            git2::Cred::userpass_plaintext("spr", &self.auth_token)
+        });
+        let mut connection =
+            remote.connect_auth(git2::Direction::Fetch, Some(cb), None)?;
+
+        let existing_ref_names: HashSet<String> = connection
+            .remote()
+            .list()?
+            .iter()
+            .map(|rh| rh.name().to_string())
+            .collect();
+
+        let mut branch_name = format!("{branch_prefix}{slug}");
+        let mut suffix = 0;
+
+        loop {
+            let remote_ref = format!("refs/heads/{branch_name}");
+
+            if !existing_ref_names.contains(&remote_ref) {
+                return Ok(branch_name);
+            }
+
+            suffix += 1;
+            branch_name = format!("{branch_prefix}{slug}-{suffix}");
+        }
+    }
 }
 
 pub struct PushSpec<'a> {

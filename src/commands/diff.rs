@@ -18,7 +18,7 @@ use crate::{
     },
     message::{validate_commit_message, MessageSection},
     output::{output, write_commit_title},
-    utils::{parse_name_list, remove_all_parens},
+    utils::{parse_name_list, remove_all_parens, slugify},
 };
 use git2::Oid;
 use indoc::{formatdoc, indoc};
@@ -365,7 +365,8 @@ async fn diff_impl(
     let pull_request_branch = match &pull_request {
         Some(pr) => pr.head.clone(),
         None => config.new_github_branch(
-            &config.get_new_branch_name(&git.get_all_ref_names()?, title),
+            &gh.remote()
+                .find_unused_branch_name(&config.branch_prefix, title)?,
         ),
     };
 
@@ -503,62 +504,66 @@ async fn diff_impl(
     // commit is not directly based on master, we have to create this new PR
     // with a base branch, so that is case 3.
 
-    let (pr_base_parent, base_branch) = if pr_base_tree == new_base_tree
-        && !needs_merging_master
-    {
-        // Case 1
-        (None, base_branch)
-    } else if base_branch.is_none()
-        && (directly_based_on_master || opts.cherry_pick)
-    {
-        // Case 2
-        (Some(master_base_oid), None)
-    } else {
-        // Case 3
-
-        // We are constructing a base branch commit.
-        // One parent of the new base branch commit will be the current base
-        // commit, that could be either the top commit of an existing base
-        // branch, or a commit on master.
-        let mut parents = vec![pr_base_oid];
-
-        // If we need to rebase on master, make the master commit also a
-        // parent (except if the first parent is that same commit, we don't
-        // want duplicates in `parents`).
-        if needs_merging_master && pr_base_oid != master_base_oid {
-            parents.push(master_base_oid);
-        }
-
-        let new_base_branch_commit = git.create_derived_commit(
-            local_commit.parent_oid,
-            &format!(
-                "[𝘀𝗽𝗿] {}\n\nCreated using spr {}\n\n[skip ci]",
-                if pull_request.is_some() {
-                    "changes introduced through rebase".to_string()
-                } else {
-                    format!(
-                        "changes to {} this commit is based on",
-                        config.master_ref.branch_name()
-                    )
-                },
-                env!("CARGO_PKG_VERSION"),
-            ),
-            new_base_tree,
-            &parents[..],
-        )?;
-
-        // If `base_branch` is `None` (which means a base branch does not exist
-        // yet), then make a `GitHubBranch` with a new name for a base branch
-        let base_branch = if let Some(base_branch) = base_branch {
-            base_branch
+    let (pr_base_parent, base_branch) =
+        if pr_base_tree == new_base_tree && !needs_merging_master {
+            // Case 1
+            (None, base_branch)
+        } else if base_branch.is_none()
+            && (directly_based_on_master || opts.cherry_pick)
+        {
+            // Case 2
+            (Some(master_base_oid), None)
         } else {
-            config.new_github_branch(
-                &config.get_base_branch_name(&git.get_all_ref_names()?, title),
-            )
-        };
+            // Case 3
 
-        (Some(new_base_branch_commit), Some(base_branch))
-    };
+            // We are constructing a base branch commit.
+            // One parent of the new base branch commit will be the current base
+            // commit, that could be either the top commit of an existing base
+            // branch, or a commit on master.
+            let mut parents = vec![pr_base_oid];
+
+            // If we need to rebase on master, make the master commit also a
+            // parent (except if the first parent is that same commit, we don't
+            // want duplicates in `parents`).
+            if needs_merging_master && pr_base_oid != master_base_oid {
+                parents.push(master_base_oid);
+            }
+
+            let new_base_branch_commit = git.create_derived_commit(
+                local_commit.parent_oid,
+                &format!(
+                    "[𝘀𝗽𝗿] {}\n\nCreated using spr {}\n\n[skip ci]",
+                    if pull_request.is_some() {
+                        "changes introduced through rebase".to_string()
+                    } else {
+                        format!(
+                            "changes to {} this commit is based on",
+                            config.master_ref.branch_name()
+                        )
+                    },
+                    env!("CARGO_PKG_VERSION"),
+                ),
+                new_base_tree,
+                &parents[..],
+            )?;
+
+            // If `base_branch` is `None` (which means a base branch does not exist
+            // yet), then make a `GitHubBranch` with a new name for a base branch
+            let base_branch = if let Some(base_branch) = base_branch {
+                base_branch
+            } else {
+                config.new_github_branch(&gh.remote().find_unused_branch_name(
+                    &config.branch_prefix,
+                    &format!(
+                        "{}.{}",
+                        config.master_ref.branch_name(),
+                        &slugify(title),
+                    ),
+                )?)
+            };
+
+            (Some(new_base_branch_commit), Some(base_branch))
+        };
 
     let mut github_commit_message = opts.message.clone();
     if pull_request.is_some() && github_commit_message.is_none() {
