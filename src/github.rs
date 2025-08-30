@@ -10,6 +10,7 @@ use serde::Deserialize;
 
 use crate::{
     error::{Error, Result, ResultExt},
+    git_remote::GitRemote,
     message::{
         build_github_body, parse_message, MessageSection, MessageSectionsMap,
     },
@@ -20,6 +21,7 @@ use std::collections::{HashMap, HashSet};
 pub struct GitHub {
     config: crate::config::Config,
     git: crate::git::Git,
+    git_remote: crate::git_remote::GitRemote,
 }
 
 #[derive(Debug, Clone)]
@@ -129,8 +131,28 @@ type GitObjectID = String;
 pub struct PullRequestMergeabilityQuery;
 
 impl GitHub {
-    pub fn new(config: crate::config::Config, git: crate::git::Git) -> Self {
-        Self { config, git }
+    pub fn new(
+        config: crate::config::Config,
+        git: crate::git::Git,
+        auth_token: String,
+    ) -> Self {
+        let git_remote = GitRemote::new(
+            git.repo().clone(),
+            format!(
+                "https://github.com/{}/{}.git",
+                &config.owner, &config.repo,
+            ),
+            auth_token,
+        );
+        Self {
+            config,
+            git,
+            git_remote,
+        }
+    }
+
+    pub fn remote(&self) -> &GitRemote {
+        &self.git_remote
     }
 
     pub async fn get_github_user(login: String) -> Result<UserWithName> {
@@ -152,7 +174,9 @@ impl GitHub {
     }
 
     pub async fn get_pull_request(self, number: u64) -> Result<PullRequest> {
-        let GitHub { config, git } = self;
+        let GitHub {
+            config, git_remote, ..
+        } = self;
 
         let variables = pull_request_query::Variables {
             name: config.repo.clone(),
@@ -184,17 +208,11 @@ impl GitHub {
         let base = config.new_github_branch_from_ref(&pr.base_ref_name)?;
         let head = config.new_github_branch_from_ref(&pr.head_ref_name)?;
 
-        let [base_oid, head_oid] = git
-            .fetch_from_remote(
-                &format!(
-                    "https://github.com/{}/{}.git",
-                    &config.owner, &config.repo
-                ),
-                &config.auth_token,
-                &[&base, &head],
-                &[],
-            )
-            .await?[0..2]
+        let refs: Vec<_> =
+            [&base, &head].iter().map(|&b| b.on_github()).collect();
+
+        let [base_oid, head_oid] =
+            git_remote.fetch_from_remote(&refs, &[]).await?[0..2]
         else {
             unreachable!();
         };

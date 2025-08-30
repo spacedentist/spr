@@ -267,16 +267,9 @@ pub async fn land(
             }
 
             if let Some(merge_commit) = mergeability.merge_commit {
-                git.fetch_from_remote(
-                    &format!(
-                        "https://github.com/{}/{}.git",
-                        &config.owner, &config.repo,
-                    ),
-                    &config.auth_token,
-                    &[],
-                    &[merge_commit],
-                )
-                .await?;
+                gh.remote()
+                    .fetch_from_remote(&[] as &[&str], &[merge_commit])
+                    .await?;
 
                 if git.get_tree_oid_for_commit(merge_commit)? != our_tree_oid {
                     return Err(Error::new(formatdoc!(

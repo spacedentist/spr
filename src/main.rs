@@ -172,11 +172,15 @@ pub async fn spr() -> Result<()> {
 
     octocrab::initialise(
         octocrab::Octocrab::builder()
-            .personal_token(github_auth_token)
+            .personal_token(github_auth_token.clone())
             .build()?,
     );
 
-    let mut gh = spr::github::GitHub::new(config.clone(), git.clone());
+    let mut gh = spr::github::GitHub::new(
+        config.clone(),
+        git.clone(),
+        github_auth_token,
+    );
 
     match cli.command {
         Commands::Diff(opts) => {

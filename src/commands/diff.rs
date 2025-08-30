@@ -10,7 +10,8 @@ use std::iter::zip;
 
 use crate::{
     error::{add_error, Error, Result, ResultExt},
-    git::{PreparedCommit, PushSpec},
+    git::PreparedCommit,
+    git_remote::PushSpec,
     github::{
         GitHub, PullRequest, PullRequestRequestReviewers, PullRequestState,
         PullRequestUpdate,
@@ -650,15 +651,9 @@ async fn diff_impl(
 
             // Push the new commit onto the Pull Request branch (and also the
             // new base commit, if we added that to push_specs above).
-            git.push_to_remote(
-                &format!(
-                    "https://github.com/{}/{}.git",
-                    &config.owner, &config.repo
-                ),
-                &config.auth_token,
-                push_specs.as_slice(),
-            )
-            .reword("git push failed".to_string())?;
+            gh.remote()
+                .push_to_remote(push_specs.as_slice())
+                .reword("git push failed".to_string())?;
 
             // If the Pull Request's base is not set to the base branch yet,
             // change that now.
@@ -669,15 +664,9 @@ async fn diff_impl(
         } else {
             // The Pull Request is against the master branch. In that case we
             // only need to push the update to the Pull Request branch.
-            git.push_to_remote(
-                &format!(
-                    "https://github.com/{}/{}.git",
-                    &config.owner, &config.repo
-                ),
-                &config.auth_token,
-                push_specs.as_slice(),
-            )
-            .reword("git push failed".to_string())?;
+            gh.remote()
+                .push_to_remote(push_specs.as_slice())
+                .reword("git push failed".to_string())?;
         }
 
         if !pull_request_updates.is_empty() {
@@ -697,15 +686,9 @@ async fn diff_impl(
             });
         }
         // Push the pull request branch and the base branch if present
-        git.push_to_remote(
-            &format!(
-                "https://github.com/{}/{}.git",
-                &config.owner, &config.repo
-            ),
-            &config.auth_token,
-            push_specs.as_slice(),
-        )
-        .reword("git push failed".to_string())?;
+        gh.remote()
+            .push_to_remote(push_specs.as_slice())
+            .reword("git push failed".to_string())?;
 
         // Then call GitHub to create the Pull Request.
         let pull_request_number = gh
