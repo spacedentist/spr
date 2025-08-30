@@ -5,13 +5,12 @@
  * LICENSE file in the root directory of this source tree.
  */
 
-use std::process::Stdio;
-
 use indoc::formatdoc;
 
 use crate::{
     error::{add_error, Error, Result},
     git::PreparedCommit,
+    git_remote::PushSpec,
     github::{PullRequestState, PullRequestUpdate},
     message::MessageSection,
     output::{output, write_commit_title},
@@ -56,7 +55,7 @@ pub async fn close(
         // This makes it easier to run the code to update the local commit message
         // with all the changes that the implementation makes at the end, even if
         // the implementation encounters an error or exits early.
-        result = close_impl(gh, config, prepared_commit).await;
+        result = close_impl(gh, prepared_commit).await;
     }
 
     // This updates the commit message in the local Git repository (if it was
@@ -71,7 +70,6 @@ pub async fn close(
 
 async fn close_impl(
     gh: &mut crate::github::GitHub,
-    config: &crate::config::Config,
     prepared_commit: &mut PreparedCommit,
 ) -> Result<()> {
     let pull_request_number =
@@ -122,43 +120,19 @@ async fn close_impl(
     prepared_commit.message.remove(&MessageSection::PullRequest);
     prepared_commit.message.remove(&MessageSection::ReviewedBy);
 
-    let mut remove_old_branch_child_process =
-        tokio::process::Command::new("git")
-            .arg("push")
-            .arg("--no-verify")
-            .arg("--delete")
-            .arg("--")
-            .arg(&config.remote_name)
-            .arg(pull_request.head.on_github())
-            .stdout(Stdio::null())
-            .stderr(Stdio::null())
-            .spawn()?;
+    let mut push_specs = vec![PushSpec {
+        oid: None,
+        remote_ref: pull_request.head.on_github(),
+    }];
 
-    let remove_old_base_branch_child_process = if base_is_master {
-        None
-    } else {
-        Some(
-            tokio::process::Command::new("git")
-                .arg("push")
-                .arg("--no-verify")
-                .arg("--delete")
-                .arg("--")
-                .arg(&config.remote_name)
-                .arg(pull_request.base.on_github())
-                .stdout(Stdio::null())
-                .stderr(Stdio::null())
-                .spawn()?,
-        )
-    };
-
-    // Wait for the "git push" to delete the old Pull Request branch to finish,
-    // but ignore the result.
-    // GitHub may be configured to delete the branch automatically,
-    // in which case it's gone already and this command fails.
-    remove_old_branch_child_process.wait().await?;
-    if let Some(mut proc) = remove_old_base_branch_child_process {
-        proc.wait().await?;
+    if !base_is_master {
+        push_specs.push(PushSpec {
+            oid: None,
+            remote_ref: pull_request.base.on_github(),
+        });
     }
+
+    gh.remote().push_to_remote(&push_specs)?;
 
     Ok(())
 }

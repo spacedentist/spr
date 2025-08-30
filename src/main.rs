@@ -148,12 +148,18 @@ pub async fn spr() -> Result<()> {
         .ok()
         .unwrap_or(true);
 
+    let github_auth_token = match cli.github_auth_token {
+        Some(v) => Ok(v),
+        None => git_config.get_string("spr.githubAuthToken"),
+    }?;
+
     let config = spr::config::Config::new(
         github_owner,
         github_repo,
         github_remote_name,
         github_master_branch,
         branch_prefix,
+        github_auth_token.clone(),
         require_approval,
         require_test_plan,
     );
@@ -164,18 +170,17 @@ pub async fn spr() -> Result<()> {
         return commands::format::format(opts, &git, &config).await;
     }
 
-    let github_auth_token = match cli.github_auth_token {
-        Some(v) => Ok(v),
-        None => git_config.get_string("spr.githubAuthToken"),
-    }?;
-
     octocrab::initialise(
         octocrab::Octocrab::builder()
             .personal_token(github_auth_token.clone())
             .build()?,
     );
 
-    let mut gh = spr::github::GitHub::new(config.clone(), git.clone());
+    let mut gh = spr::github::GitHub::new(
+        config.clone(),
+        git.clone(),
+        github_auth_token,
+    );
 
     match cli.command {
         Commands::Diff(opts) => {

@@ -10,7 +10,7 @@ use serde::Deserialize;
 
 use crate::{
     error::{Error, Result, ResultExt},
-    git::Git,
+    git_remote::GitRemote,
     message::{
         build_github_body, parse_message, MessageSection, MessageSectionsMap,
     },
@@ -21,6 +21,7 @@ use std::collections::{HashMap, HashSet};
 pub struct GitHub {
     config: crate::config::Config,
     git: crate::git::Git,
+    git_remote: crate::git_remote::GitRemote,
 }
 
 #[derive(Debug, Clone)]
@@ -130,8 +131,28 @@ type GitObjectID = String;
 pub struct PullRequestMergeabilityQuery;
 
 impl GitHub {
-    pub fn new(config: crate::config::Config, git: crate::git::Git) -> Self {
-        Self { config, git }
+    pub fn new(
+        config: crate::config::Config,
+        git: crate::git::Git,
+        auth_token: String,
+    ) -> Self {
+        let git_remote = GitRemote::new(
+            git.repo().clone(),
+            format!(
+                "https://github.com/{}/{}.git",
+                &config.owner, &config.repo,
+            ),
+            auth_token,
+        );
+        Self {
+            config,
+            git,
+            git_remote,
+        }
+    }
+
+    pub fn remote(&self) -> &GitRemote {
+        &self.git_remote
     }
 
     pub async fn get_github_user(login: String) -> Result<UserWithName> {
@@ -153,7 +174,9 @@ impl GitHub {
     }
 
     pub async fn get_pull_request(self, number: u64) -> Result<PullRequest> {
-        let GitHub { config, git } = self;
+        let GitHub {
+            config, git_remote, ..
+        } = self;
 
         let variables = pull_request_query::Variables {
             name: config.repo.clone(),
@@ -185,10 +208,21 @@ impl GitHub {
         let base = config.new_github_branch_from_ref(&pr.base_ref_name)?;
         let head = config.new_github_branch_from_ref(&pr.head_ref_name)?;
 
-        Git::fetch_from_remote(&[&head, &base], &config.remote_name).await?;
+        let branch_names: Vec<_> =
+            [&base, &head].iter().map(|&b| b.branch_name()).collect();
 
-        let base_oid = git.resolve_reference(base.local())?;
-        let head_oid = git.resolve_reference(head.local())?;
+        let [base_oid, head_oid] =
+            git_remote.fetch_from_remote(&branch_names, &[])?[0..2]
+        else {
+            unreachable!();
+        };
+
+        let base_oid = base_oid.ok_or_else(|| {
+            Error::new(format!("{} not found on GitHub", &base.ref_on_github))
+        })?;
+        let head_oid = head_oid.ok_or_else(|| {
+            Error::new(format!("{} not found on GitHub", &head.ref_on_github))
+        })?;
 
         let mut sections = parse_message(&pr.body, MessageSection::Summary);
 
