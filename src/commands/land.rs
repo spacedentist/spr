@@ -6,14 +6,14 @@
  */
 
 use indoc::formatdoc;
-use std::{io::Write, process::Stdio, time::Duration};
+use std::time::Duration;
 
 use crate::{
     error::{Error, Result, ResultExt},
+    git_remote::PushSpec,
     github::{PullRequestState, PullRequestUpdate, ReviewStatus},
     message::build_github_body_for_merging,
     output::{output, write_commit_title},
-    utils::run_command,
 };
 
 #[derive(Debug, clap::Parser)]
@@ -85,18 +85,19 @@ pub async fn land(
     output("🛫", "Getting started...")?;
 
     // Fetch current master from GitHub.
-    run_command(
-        tokio::process::Command::new("git")
-            .arg("fetch")
-            .arg("--no-write-fetch-head")
-            .arg("--")
-            .arg(&config.remote_name)
-            .arg(config.master_ref.on_github()),
-    )
-    .await
-    .reword("git fetch failed".to_string())?;
+    let current_master = gh
+        .remote()
+        .fetch_from_remote(&[config.master_ref.on_github()], &[])
+        .reword("git fetch failed".to_string())?
+        .first()
+        .and_then(|&x| x)
+        .ok_or_else(|| {
+            Error::new(format!(
+                "Could not fetch {} from GitHub",
+                config.master_ref.on_github()
+            ))
+        })?;
 
-    let current_master = git.resolve_reference(config.master_ref.local())?;
     let base_is_master = pull_request.base.is_master_branch();
     let index = git.cherrypick(prepared_commit.oid, current_master)?;
 
@@ -212,19 +213,11 @@ pub async fn land(
                 &[pr_head_oid, current_master],
             )?;
 
-            let mut cmd = tokio::process::Command::new("git");
-            cmd.arg("push")
-                .arg("--atomic")
-                .arg("--no-verify")
-                .arg("--")
-                .arg(&config.remote_name)
-                .arg(format!(
-                    "{}:{}",
-                    pr_head_oid,
-                    pull_request.head.on_github()
-                ));
-            run_command(&mut cmd)
-                .await
+            gh.remote()
+                .push_to_remote(&[PushSpec {
+                    oid: Some(pr_head_oid),
+                    remote_ref: pull_request.head.on_github(),
+                }])
                 .reword("git push failed".to_string())?;
         }
 
@@ -267,9 +260,7 @@ pub async fn land(
             }
 
             if let Some(merge_commit) = mergeability.merge_commit {
-                gh.remote()
-                    .fetch_from_remote(&[] as &[&str], &[merge_commit])
-                    .await?;
+                gh.remote().fetch_from_remote(&[], &[merge_commit])?;
 
                 if git.get_tree_oid_for_commit(merge_commit)? != our_tree_oid {
                     return Err(Error::new(formatdoc!(
@@ -355,75 +346,43 @@ pub async fn land(
 
     output("🛬", "Landed!")?;
 
-    let mut remove_old_branch_child_process =
-        tokio::process::Command::new("git")
-            .arg("push")
-            .arg("--no-verify")
-            .arg("--delete")
-            .arg("--")
-            .arg(&config.remote_name)
-            .arg(pull_request.head.on_github())
-            .stdout(Stdio::null())
-            .stderr(Stdio::null())
-            .spawn()?;
-
-    let remove_old_base_branch_child_process = if base_is_master {
-        None
-    } else {
-        Some(
-            tokio::process::Command::new("git")
-                .arg("push")
-                .arg("--no-verify")
-                .arg("--delete")
-                .arg("--")
-                .arg(&config.remote_name)
-                .arg(pull_request.base.on_github())
-                .stdout(Stdio::null())
-                .stderr(Stdio::null())
-                .spawn()?,
-        )
-    };
-
     // Rebase us on top of the now-landed commit
     if let Some(sha) = merge.sha {
+        let new_parent_oid = git2::Oid::from_str(&sha)?;
         // Try this up to three times, because fetching the very moment after
         // the merge might still not find the new commit.
         for i in 0..3 {
             // Fetch current master and the merge commit from GitHub.
-            let git_fetch = tokio::process::Command::new("git")
-                .arg("fetch")
-                .arg("--no-write-fetch-head")
-                .arg("--")
-                .arg(&config.remote_name)
-                .arg(config.master_ref.on_github())
-                .arg(&sha)
-                .stdout(Stdio::null())
-                .stderr(Stdio::piped())
-                .output()
-                .await?;
-            if git_fetch.status.success() {
+            let result = gh.remote().fetch_from_remote(&[], &[new_parent_oid]);
+
+            if result.is_ok() {
                 break;
             } else if i == 2 {
-                console::Term::stderr().write_all(&git_fetch.stderr)?;
-                return Err(Error::new("git fetch failed"));
+                return result
+                    .map(|_| ())
+                    .context("git fetch failed".to_string());
             }
         }
-        git.rebase_commits(
-            &mut prepared_commits[..],
-            git2::Oid::from_str(&sha)?,
-        )
-        .context(
-            "The automatic rebase failed - please rebase manually!".to_string(),
-        )?;
+        git.rebase_commits(&mut prepared_commits[..], new_parent_oid)
+            .context(
+                "The automatic rebase failed - please rebase manually!"
+                    .to_string(),
+            )?;
     }
 
-    // Wait for the "git push" to delete the old Pull Request branch to finish,
-    // but ignore the result. GitHub may be configured to delete the branch
-    // automatically, in which case it's gone already and this command fails.
-    remove_old_branch_child_process.wait().await?;
-    if let Some(mut proc) = remove_old_base_branch_child_process {
-        proc.wait().await?;
+    let mut push_specs = vec![PushSpec {
+        oid: None,
+        remote_ref: pull_request.head.on_github(),
+    }];
+
+    if !base_is_master {
+        push_specs.push(PushSpec {
+            oid: None,
+            remote_ref: pull_request.base.on_github(),
+        });
     }
+
+    gh.remote().push_to_remote(&push_specs)?;
 
     Ok(())
 }

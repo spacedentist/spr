@@ -212,7 +212,7 @@ impl GitHub {
             [&base, &head].iter().map(|&b| b.on_github()).collect();
 
         let [base_oid, head_oid] =
-            git_remote.fetch_from_remote(&refs, &[]).await?[0..2]
+            git_remote.fetch_from_remote(&refs, &[])?[0..2]
         else {
             unreachable!();
         };

@@ -5,9 +5,7 @@
  * LICENSE file in the root directory of this source tree.
  */
 
-use crate::error::{Error, Result};
 
-use std::{io::Write, process::Stdio};
 use unicode_normalization::UnicodeNormalization;
 
 pub fn slugify(s: &str) -> String {
@@ -40,22 +38,6 @@ pub fn parse_name_list(text: &str) -> Vec<String> {
 
 pub fn remove_all_parens(text: &str) -> String {
     lazy_regex::regex!(r#"[()]"#).replace_all(text, "").into()
-}
-
-pub async fn run_command(cmd: &mut tokio::process::Command) -> Result<()> {
-    let cmd_output = cmd
-        .stdout(Stdio::null())
-        .stderr(Stdio::piped())
-        .spawn()?
-        .wait_with_output()
-        .await?;
-
-    if !cmd_output.status.success() {
-        console::Term::stderr().write_all(&cmd_output.stderr)?;
-        return Err(Error::new("command failed"));
-    }
-
-    Ok(())
 }
 
 #[cfg(test)]

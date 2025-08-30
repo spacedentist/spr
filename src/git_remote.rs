@@ -27,9 +27,9 @@ impl GitRemote {
         }
     }
 
-    pub async fn fetch_from_remote(
+    pub fn fetch_from_remote(
         &self,
-        refs: &[impl AsRef<str>],
+        refs: &[&str],
         commit_oids: &[Oid],
     ) -> Result<Vec<Option<Oid>>> {
         if refs.is_empty() && commit_oids.is_empty() {
@@ -57,8 +57,8 @@ impl GitRemote {
                 .map(|rh| (rh.name().to_string(), rh.oid()))
                 .collect();
 
-            for ghref in refs.iter() {
-                let oid = remote_refs.get(ghref.as_ref()).cloned();
+            for &ghref in refs.iter() {
+                let oid = remote_refs.get(ghref).cloned();
                 ref_oids.push(oid);
                 if let Some(oid) = oid {
                     fetch_oids.insert(oid);
