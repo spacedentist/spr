@@ -5,7 +5,10 @@
  * LICENSE file in the root directory of this source tree.
  */
 
-use std::collections::{HashMap, HashSet, VecDeque};
+use std::{
+    collections::{HashMap, HashSet, VecDeque},
+    fmt::Write,
+};
 
 use crate::{
     config::Config,
@@ -14,7 +17,6 @@ use crate::{
     message::{
         build_commit_message, parse_message, MessageSection, MessageSectionsMap,
     },
-    utils::run_command,
 };
 use git2::Oid;
 
@@ -296,6 +298,32 @@ impl Git {
         Ok(ref_oids)
     }
 
+    pub fn push_to_remote(
+        &self,
+        remote_url: &str,
+        token: &str,
+        refs: &[PushSpec],
+    ) -> Result<()> {
+        let repo = self.repo.lock()?;
+        let mut remote = repo.remote_anonymous(remote_url)?;
+
+        let mut cb = git2::RemoteCallbacks::new();
+        cb.credentials(|_url, _username, _allowed_types| {
+            git2::Cred::userpass_plaintext("spr", token)
+        });
+        let mut connection =
+            remote.connect_auth(git2::Direction::Push, Some(cb), None)?;
+
+        let push_specs: Vec<String> =
+            refs.iter().map(ToString::to_string).collect();
+        let push_specs: Vec<&str> =
+            push_specs.iter().map(String::as_str).collect();
+
+        connection.remote().push(push_specs.as_slice(), None)?;
+
+        Ok(())
+    }
+
     pub fn prepare_commit(
         &self,
         config: &Config,
@@ -499,5 +527,20 @@ impl Git {
                 "There are uncommitted changes. Stash or amend them first",
             ))
         }
+    }
+}
+
+pub struct PushSpec<'a> {
+    pub oid: Option<Oid>,
+    pub remote_ref: &'a str,
+}
+
+impl<'a> std::fmt::Display for PushSpec<'a> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        if let Some(oid) = self.oid {
+            oid.fmt(f)?;
+        }
+        f.write_char(':')?;
+        f.write_str(self.remote_ref)
     }
 }
