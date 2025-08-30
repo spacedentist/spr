@@ -203,9 +203,9 @@ pub async fn spr() -> Result<()> {
     Ok::<_, Error>(())
 }
 
-#[tokio::main]
+#[tokio::main(flavor = "current_thread")]
 async fn main() -> Result<()> {
-    if let Err(error) = spr().await {
+    if let Err(error) = tokio::task::LocalSet::new().run_until(spr()).await {
         for message in error.messages() {
             output("🛑", message)?;
         }
