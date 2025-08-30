@@ -10,7 +10,6 @@ use serde::Deserialize;
 
 use crate::{
     error::{Error, Result, ResultExt},
-    git::Git,
     message::{
         build_github_body, parse_message, MessageSection, MessageSectionsMap,
     },
@@ -185,10 +184,27 @@ impl GitHub {
         let base = config.new_github_branch_from_ref(&pr.base_ref_name)?;
         let head = config.new_github_branch_from_ref(&pr.head_ref_name)?;
 
-        Git::fetch_from_remote(&[&head, &base], &config.remote_name).await?;
+        let [base_oid, head_oid] = git
+            .fetch_from_remote(
+                &format!(
+                    "https://github.com/{}/{}.git",
+                    &config.owner, &config.repo
+                ),
+                &config.auth_token,
+                &[&base, &head],
+                &[],
+            )
+            .await?[0..2]
+        else {
+            unreachable!();
+        };
 
-        let base_oid = git.resolve_reference(base.local())?;
-        let head_oid = git.resolve_reference(head.local())?;
+        let base_oid = base_oid.ok_or_else(|| {
+            Error::new(format!("{} not found on GitHub", &base.ref_on_github))
+        })?;
+        let head_oid = head_oid.ok_or_else(|| {
+            Error::new(format!("{} not found on GitHub", &head.ref_on_github))
+        })?;
 
         let mut sections = parse_message(&pr.body, MessageSection::Summary);
 
