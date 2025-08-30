@@ -16,20 +16,17 @@ pub struct Config {
     pub remote_name: String,
     pub master_ref: GitHubBranch,
     pub branch_prefix: String,
-    pub auth_token: String,
     pub require_approval: bool,
     pub require_test_plan: bool,
 }
 
 impl Config {
-    #[allow(clippy::too_many_arguments)]
     pub fn new(
         owner: String,
         repo: String,
         remote_name: String,
         master_branch: String,
         branch_prefix: String,
-        auth_token: String,
         require_approval: bool,
         require_test_plan: bool,
     ) -> Self {
@@ -44,7 +41,6 @@ impl Config {
             remote_name,
             master_ref,
             branch_prefix,
-            auth_token,
             require_approval,
             require_test_plan,
         }
@@ -158,7 +154,6 @@ mod tests {
             "origin".into(),
             "master".into(),
             "spr/foo/".into(),
-            "xyz".into(),
             false,
             true,
         )

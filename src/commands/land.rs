@@ -267,14 +267,9 @@ pub async fn land(
             }
 
             if let Some(merge_commit) = mergeability.merge_commit {
-                git.fetch_from_remote(
-                    &format!(
-                        "https://github.com/{}/{}.git",
-                        &config.owner, &config.repo,
-                    ),
-                    &config.auth_token,
-                    &[],
+                git.fetch_commits_from_remote(
                     &[merge_commit],
+                    &config.remote_name,
                 )
                 .await?;
 
