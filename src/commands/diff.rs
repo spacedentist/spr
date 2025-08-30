@@ -10,14 +10,14 @@ use std::iter::zip;
 
 use crate::{
     error::{add_error, Error, Result, ResultExt},
-    git::{PreparedCommit, PushSpec},
+    git::PreparedCommit,
     github::{
         GitHub, PullRequest, PullRequestRequestReviewers, PullRequestState,
         PullRequestUpdate,
     },
     message::{validate_commit_message, MessageSection},
     output::{output, write_commit_title},
-    utils::{parse_name_list, remove_all_parens},
+    utils::{parse_name_list, remove_all_parens, run_command},
 };
 use git2::Oid;
 use indoc::{formatdoc, indoc};
@@ -603,10 +603,13 @@ async fn diff_impl(
         &pr_commit_parents[..],
     )?;
 
-    let mut push_specs = vec![PushSpec {
-        oid: Some(pr_commit),
-        remote_ref: pull_request_branch.on_github(),
-    }];
+    let mut cmd = tokio::process::Command::new("git");
+    cmd.arg("push")
+        .arg("--atomic")
+        .arg("--no-verify")
+        .arg("--")
+        .arg(&config.remote_name)
+        .arg(format!("{}:{}", pr_commit, pull_request_branch.on_github()));
 
     if let Some(pull_request) = pull_request {
         // We are updating an existing Pull Request
@@ -642,23 +645,18 @@ async fn diff_impl(
             if let Some(base_branch_commit) = pr_base_parent {
                 // ...and we prepared a new commit for it, so we need to push an
                 // update of the base branch.
-                push_specs.push(PushSpec {
-                    oid: Some(base_branch_commit),
-                    remote_ref: base_branch.on_github(),
-                });
+                cmd.arg(format!(
+                    "{}:{}",
+                    base_branch_commit,
+                    base_branch.on_github()
+                ));
             }
 
             // Push the new commit onto the Pull Request branch (and also the
-            // new base commit, if we added that to push_specs above).
-            git.push_to_remote(
-                &format!(
-                    "https://github.com/{}/{}.git",
-                    &config.owner, &config.repo
-                ),
-                &config.auth_token,
-                push_specs.as_slice(),
-            )
-            .reword("git push failed".to_string())?;
+            // new base commit, if we added that to cmd above).
+            run_command(&mut cmd)
+                .await
+                .reword("git push failed".to_string())?;
 
             // If the Pull Request's base is not set to the base branch yet,
             // change that now.
@@ -669,15 +667,9 @@ async fn diff_impl(
         } else {
             // The Pull Request is against the master branch. In that case we
             // only need to push the update to the Pull Request branch.
-            git.push_to_remote(
-                &format!(
-                    "https://github.com/{}/{}.git",
-                    &config.owner, &config.repo
-                ),
-                &config.auth_token,
-                push_specs.as_slice(),
-            )
-            .reword("git push failed".to_string())?;
+            run_command(&mut cmd)
+                .await
+                .reword("git push failed".to_string())?;
         }
 
         if !pull_request_updates.is_empty() {
@@ -691,21 +683,16 @@ async fn diff_impl(
         if let (Some(base_branch), Some(base_branch_commit)) =
             (&base_branch, pr_base_parent)
         {
-            push_specs.push(PushSpec {
-                oid: Some(base_branch_commit),
-                remote_ref: base_branch.on_github(),
-            });
+            cmd.arg(format!(
+                "{}:{}",
+                base_branch_commit,
+                base_branch.on_github()
+            ));
         }
         // Push the pull request branch and the base branch if present
-        git.push_to_remote(
-            &format!(
-                "https://github.com/{}/{}.git",
-                &config.owner, &config.repo
-            ),
-            &config.auth_token,
-            push_specs.as_slice(),
-        )
-        .reword("git push failed".to_string())?;
+        run_command(&mut cmd)
+            .await
+            .reword("git push failed".to_string())?;
 
         // Then call GitHub to create the Pull Request.
         let pull_request_number = gh

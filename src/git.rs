@@ -5,10 +5,7 @@
  * LICENSE file in the root directory of this source tree.
  */
 
-use std::{
-    collections::{HashMap, HashSet, VecDeque},
-    fmt::Write,
-};
+use std::collections::{HashSet, VecDeque};
 
 use crate::{
     config::Config,
@@ -17,6 +14,7 @@ use crate::{
     message::{
         build_commit_message, parse_message, MessageSection, MessageSectionsMap,
     },
+    utils::run_command,
 };
 use git2::Oid;
 
@@ -244,83 +242,60 @@ impl Git {
         Ok(result)
     }
 
-    pub async fn fetch_from_remote(
+    pub async fn fetch_commits_from_remote(
         &self,
-        remote_url: &str,
-        token: &str,
-        refs: &[&GitHubBranch],
-        commit_oids: &[Oid],
-    ) -> Result<Vec<Option<Oid>>> {
-        if refs.is_empty() && commit_oids.is_empty() {
-            return Ok(Vec::new());
-        }
+        commit_oids: &[git2::Oid],
+        remote: &str,
+    ) -> Result<()> {
+        let missing_commit_oids: Vec<_> = {
+            let repo = self.repo();
 
-        let mut ref_oids = Vec::<Option<Oid>>::new();
-        let mut fetch_oids: HashSet<Oid> =
-            commit_oids.iter().cloned().collect();
-
-        let mut remote = self.repo.remote_anonymous(remote_url)?;
-
-        let mut cb = git2::RemoteCallbacks::new();
-        cb.credentials(|_url, _username, _allowed_types| {
-            git2::Cred::userpass_plaintext("spr", token)
-        });
-        let mut connection =
-            remote.connect_auth(git2::Direction::Fetch, Some(cb), None)?;
-
-        if !refs.is_empty() {
-            let remote_refs: HashMap<String, Oid> = connection
-                .remote()
-                .list()?
+            commit_oids
                 .iter()
-                .map(|rh| (rh.name().to_string(), rh.oid()))
-                .collect();
+                .filter(|oid| repo.find_commit(**oid).is_err())
+                .collect()
+        };
 
-            for &ghref in refs {
-                let oid = remote_refs.get(ghref.on_github()).cloned();
-                ref_oids.push(oid);
-                if let Some(oid) = oid {
-                    fetch_oids.insert(oid);
-                }
+        if !missing_commit_oids.is_empty() {
+            let mut command = tokio::process::Command::new("git");
+            command
+                .arg("fetch")
+                .arg("--no-write-fetch-head")
+                .arg("--")
+                .arg(remote);
+
+            for oid in missing_commit_oids {
+                command.arg(format!("{}", oid));
             }
+
+            run_command(&mut command)
+                .await
+                .reword("git fetch failed".to_string())?;
         }
 
-        if !fetch_oids.is_empty() {
-            let fetch_oids =
-                fetch_oids.iter().map(Oid::to_string).collect::<Vec<_>>();
-
-            let mut fetch_options = git2::FetchOptions::new();
-            fetch_options.update_fetchhead(false);
-            fetch_options.download_tags(git2::AutotagOption::None);
-            connection
-                .remote()
-                .download(fetch_oids.as_slice(), Some(&mut fetch_options))?;
-        }
-
-        Ok(ref_oids)
+        Ok(())
     }
 
-    pub fn push_to_remote(
-        &self,
-        remote_url: &str,
-        token: &str,
-        refs: &[PushSpec],
+    pub async fn fetch_from_remote(
+        refs: &[&GitHubBranch],
+        remote: &str,
     ) -> Result<()> {
-        let mut remote = self.repo.remote_anonymous(remote_url)?;
+        if !refs.is_empty() {
+            let mut command = tokio::process::Command::new("git");
+            command
+                .arg("fetch")
+                .arg("--no-write-fetch-head")
+                .arg("--")
+                .arg(remote);
 
-        let mut cb = git2::RemoteCallbacks::new();
-        cb.credentials(|_url, _username, _allowed_types| {
-            git2::Cred::userpass_plaintext("spr", token)
-        });
-        let mut connection =
-            remote.connect_auth(git2::Direction::Push, Some(cb), None)?;
+            for ghref in refs {
+                command.arg(ghref.on_github());
+            }
 
-        let push_specs: Vec<String> =
-            refs.iter().map(ToString::to_string).collect();
-        let push_specs: Vec<&str> =
-            push_specs.iter().map(String::as_str).collect();
-
-        connection.remote().push(push_specs.as_slice(), None)?;
+            run_command(&mut command)
+                .await
+                .reword("git fetch failed".to_string())?;
+        }
 
         Ok(())
     }
@@ -525,20 +500,5 @@ impl Git {
                 "There are uncommitted changes. Stash or amend them first",
             ))
         }
-    }
-}
-
-pub struct PushSpec<'a> {
-    pub oid: Option<Oid>,
-    pub remote_ref: &'a str,
-}
-
-impl<'a> std::fmt::Display for PushSpec<'a> {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        if let Some(oid) = self.oid {
-            oid.fmt(f)?;
-        }
-        f.write_char(':')?;
-        f.write_str(self.remote_ref)
     }
 }
