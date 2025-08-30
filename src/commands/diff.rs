@@ -10,14 +10,14 @@ use std::iter::zip;
 
 use crate::{
     error::{add_error, Error, Result, ResultExt},
-    git::PreparedCommit,
+    git::{PreparedCommit, PushSpec},
     github::{
         GitHub, PullRequest, PullRequestRequestReviewers, PullRequestState,
         PullRequestUpdate,
     },
     message::{validate_commit_message, MessageSection},
     output::{output, write_commit_title},
-    utils::{parse_name_list, remove_all_parens, run_command},
+    utils::{parse_name_list, remove_all_parens},
 };
 use git2::Oid;
 use indoc::{formatdoc, indoc};
@@ -106,7 +106,7 @@ pub async fn diff(
     // the rewrite_commit_messages step. This is not a problem for opts.all as
     // it only ever has a single commit to update, and so nothing after it.
     let revs_to_pr = match (opts.refs.as_deref(), opts.all) {
-        (Some(refs), false) => Some(get_oids(refs, &git.repo())?),
+        (Some(refs), false) => Some(get_oids(refs, git.repo())?),
         (Some(_), true) => {
             return Err(Error::new("Do not use --refs with --all"))
         }
@@ -132,7 +132,9 @@ pub async fn diff(
             {
                 // We are going to want to look at this pull request below.
                 pc.pull_request_number.map(|number| {
-                    tokio::spawn(gh.clone().get_pull_request(number))
+                    tokio::task::spawn_local(
+                        gh.clone().get_pull_request(number),
+                    )
                 })
             } else {
                 // We will be skipping this commit below, because we have as set
@@ -601,13 +603,10 @@ async fn diff_impl(
         &pr_commit_parents[..],
     )?;
 
-    let mut cmd = tokio::process::Command::new("git");
-    cmd.arg("push")
-        .arg("--atomic")
-        .arg("--no-verify")
-        .arg("--")
-        .arg(&config.remote_name)
-        .arg(format!("{}:{}", pr_commit, pull_request_branch.on_github()));
+    let mut push_specs = vec![PushSpec {
+        oid: Some(pr_commit),
+        remote_ref: pull_request_branch.on_github(),
+    }];
 
     if let Some(pull_request) = pull_request {
         // We are updating an existing Pull Request
@@ -643,18 +642,23 @@ async fn diff_impl(
             if let Some(base_branch_commit) = pr_base_parent {
                 // ...and we prepared a new commit for it, so we need to push an
                 // update of the base branch.
-                cmd.arg(format!(
-                    "{}:{}",
-                    base_branch_commit,
-                    base_branch.on_github()
-                ));
+                push_specs.push(PushSpec {
+                    oid: Some(base_branch_commit),
+                    remote_ref: base_branch.on_github(),
+                });
             }
 
             // Push the new commit onto the Pull Request branch (and also the
-            // new base commit, if we added that to cmd above).
-            run_command(&mut cmd)
-                .await
-                .reword("git push failed".to_string())?;
+            // new base commit, if we added that to push_specs above).
+            git.push_to_remote(
+                &format!(
+                    "https://github.com/{}/{}.git",
+                    &config.owner, &config.repo
+                ),
+                &config.auth_token,
+                push_specs.as_slice(),
+            )
+            .reword("git push failed".to_string())?;
 
             // If the Pull Request's base is not set to the base branch yet,
             // change that now.
@@ -665,9 +669,15 @@ async fn diff_impl(
         } else {
             // The Pull Request is against the master branch. In that case we
             // only need to push the update to the Pull Request branch.
-            run_command(&mut cmd)
-                .await
-                .reword("git push failed".to_string())?;
+            git.push_to_remote(
+                &format!(
+                    "https://github.com/{}/{}.git",
+                    &config.owner, &config.repo
+                ),
+                &config.auth_token,
+                push_specs.as_slice(),
+            )
+            .reword("git push failed".to_string())?;
         }
 
         if !pull_request_updates.is_empty() {
@@ -681,16 +691,21 @@ async fn diff_impl(
         if let (Some(base_branch), Some(base_branch_commit)) =
             (&base_branch, pr_base_parent)
         {
-            cmd.arg(format!(
-                "{}:{}",
-                base_branch_commit,
-                base_branch.on_github()
-            ));
+            push_specs.push(PushSpec {
+                oid: Some(base_branch_commit),
+                remote_ref: base_branch.on_github(),
+            });
         }
         // Push the pull request branch and the base branch if present
-        run_command(&mut cmd)
-            .await
-            .reword("git push failed".to_string())?;
+        git.push_to_remote(
+            &format!(
+                "https://github.com/{}/{}.git",
+                &config.owner, &config.repo
+            ),
+            &config.auth_token,
+            push_specs.as_slice(),
+        )
+        .reword("git push failed".to_string())?;
 
         // Then call GitHub to create the Pull Request.
         let pull_request_number = gh

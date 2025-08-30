@@ -148,12 +148,18 @@ pub async fn spr() -> Result<()> {
         .ok()
         .unwrap_or(true);
 
+    let github_auth_token = match cli.github_auth_token {
+        Some(v) => Ok(v),
+        None => git_config.get_string("spr.githubAuthToken"),
+    }?;
+
     let config = spr::config::Config::new(
         github_owner,
         github_repo,
         github_remote_name,
         github_master_branch,
         branch_prefix,
+        github_auth_token.clone(),
         require_approval,
         require_test_plan,
     );
@@ -164,14 +170,9 @@ pub async fn spr() -> Result<()> {
         return commands::format::format(opts, &git, &config).await;
     }
 
-    let github_auth_token = match cli.github_auth_token {
-        Some(v) => Ok(v),
-        None => git_config.get_string("spr.githubAuthToken"),
-    }?;
-
     octocrab::initialise(
         octocrab::Octocrab::builder()
-            .personal_token(github_auth_token.clone())
+            .personal_token(github_auth_token)
             .build()?,
     );
 
@@ -202,7 +203,7 @@ pub async fn spr() -> Result<()> {
     Ok::<_, Error>(())
 }
 
-#[tokio::main]
+#[tokio::main(flavor = "current_thread")]
 async fn main() -> Result<()> {
     if let Err(error) = spr().await {
         for message in error.messages() {
