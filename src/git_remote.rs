@@ -27,6 +27,15 @@ impl GitRemote {
         }
     }
 
+    fn cb(&self) -> git2::RemoteCallbacks<'_> {
+        let mut cb = git2::RemoteCallbacks::new();
+        cb.credentials(move |_url, _username, _allowed_types| {
+            git2::Cred::userpass_plaintext("spr", &self.auth_token)
+        });
+
+        cb
+    }
+
     pub fn fetch_from_remote(
         &self,
         refs: &[&str],
@@ -41,13 +50,11 @@ impl GitRemote {
             commit_oids.iter().cloned().collect();
 
         let mut remote = self.repo.remote_anonymous(&self.url)?;
-
-        let mut cb = git2::RemoteCallbacks::new();
-        cb.credentials(|_url, _username, _allowed_types| {
-            git2::Cred::userpass_plaintext("spr", &self.auth_token)
-        });
-        let mut connection =
-            remote.connect_auth(git2::Direction::Fetch, Some(cb), None)?;
+        let mut connection = remote.connect_auth(
+            git2::Direction::Fetch,
+            Some(self.cb()),
+            None,
+        )?;
 
         if !refs.is_empty() {
             let remote_refs: HashMap<String, Oid> = connection
@@ -83,13 +90,11 @@ impl GitRemote {
 
     pub fn push_to_remote(&self, refs: &[PushSpec]) -> Result<()> {
         let mut remote = self.repo.remote_anonymous(&self.url)?;
-
-        let mut cb = git2::RemoteCallbacks::new();
-        cb.credentials(|_url, _username, _allowed_types| {
-            git2::Cred::userpass_plaintext("spr", &self.auth_token)
-        });
-        let mut connection =
-            remote.connect_auth(git2::Direction::Push, Some(cb), None)?;
+        let mut connection = remote.connect_auth(
+            git2::Direction::Push,
+            Some(self.cb()),
+            None,
+        )?;
 
         let push_specs: Vec<String> =
             refs.iter().map(ToString::to_string).collect();
@@ -107,13 +112,11 @@ impl GitRemote {
         slug: &str,
     ) -> Result<String> {
         let mut remote = self.repo.remote_anonymous(&self.url)?;
-
-        let mut cb = git2::RemoteCallbacks::new();
-        cb.credentials(|_url, _username, _allowed_types| {
-            git2::Cred::userpass_plaintext("spr", &self.auth_token)
-        });
-        let mut connection =
-            remote.connect_auth(git2::Direction::Fetch, Some(cb), None)?;
+        let mut connection = remote.connect_auth(
+            git2::Direction::Fetch,
+            Some(self.cb()),
+            None,
+        )?;
 
         let existing_ref_names: HashSet<String> = connection
             .remote()
