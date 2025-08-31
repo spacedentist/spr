@@ -89,7 +89,7 @@ pub async fn diff(
     let mut result = Ok(());
 
     // Look up the commits on the local branch
-    let mut prepared_commits = git.get_prepared_commits(config)?;
+    let mut prepared_commits = gh.get_prepared_commits()?;
 
     // The parent of the first commit in the list is the commit on master that
     // the local branch is based on
@@ -379,17 +379,8 @@ async fn diff_impl(
         if let Some(pr) = &pull_request {
             let pr_head_tree = git.get_tree_oid_for_commit(pr.head_oid)?;
 
-            let current_master_oid = gh
-                .remote()
-                .fetch_from_remote(&[config.master_ref.branch_name()], &[])?
-                .first()
-                .and_then(|&x| x)
-                .ok_or_else(|| {
-                    Error::new(format!(
-                        "Could not fetch {} from GitHub",
-                        config.master_ref.on_github()
-                    ))
-                })?;
+            let current_master_oid =
+                gh.remote().fetch_branch(config.master_ref.branch_name())?;
             let pr_base_oid =
                 git.repo().merge_base(pr.head_oid, pr.base_oid)?;
             let pr_base_tree = git.get_tree_oid_for_commit(pr_base_oid)?;

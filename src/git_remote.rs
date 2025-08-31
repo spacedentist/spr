@@ -5,7 +5,7 @@ use std::{
 
 use git2::Oid;
 
-use crate::error::Result;
+use crate::error::{Error, Result};
 
 #[derive(Clone)]
 pub struct GitRemote {
@@ -41,7 +41,7 @@ impl GitRemote {
         func(&mut connection)
     }
 
-    fn get_branches(
+    fn get_branches_from_connection(
         connection: &mut git2::RemoteConnection,
     ) -> Result<HashMap<String, Oid>> {
         Ok(connection
@@ -57,12 +57,19 @@ impl GitRemote {
             .collect())
     }
 
+    pub fn get_branches(&self) -> Result<HashMap<String, Oid>> {
+        self.with_connection(
+            git2::Direction::Fetch,
+            Self::get_branches_from_connection,
+        )
+    }
+
     pub fn fetch_from_remote(
         &self,
-        branche_names: &[&str],
+        branch_names: &[&str],
         commit_oids: &[Oid],
     ) -> Result<Vec<Option<Oid>>> {
-        if branche_names.is_empty() && commit_oids.is_empty() {
+        if branch_names.is_empty() && commit_oids.is_empty() {
             return Ok(Vec::new());
         }
 
@@ -71,10 +78,11 @@ impl GitRemote {
             commit_oids.iter().cloned().collect();
 
         self.with_connection(git2::Direction::Fetch, move |connection| {
-            if !branche_names.is_empty() {
-                let remote_branches = Self::get_branches(connection)?;
+            if !branch_names.is_empty() {
+                let remote_branches =
+                    Self::get_branches_from_connection(connection)?;
 
-                for &branch_name in branche_names.iter() {
+                for &branch_name in branch_names.iter() {
                     let oid = remote_branches.get(branch_name).cloned();
                     ref_oids.push(oid);
                     fetch_oids.extend(oid.iter());
@@ -98,6 +106,15 @@ impl GitRemote {
         })
     }
 
+    pub fn fetch_branch(&self, branch_name: &str) -> Result<Oid> {
+        self.fetch_from_remote(&[branch_name], &[])?
+            .first()
+            .and_then(|&x| x)
+            .ok_or_else(|| {
+                Error::new(format!("Could not fetch branch '{}'", branch_name,))
+            })
+    }
+
     pub fn push_to_remote(&self, refs: &[PushSpec]) -> Result<()> {
         self.with_connection(git2::Direction::Push, move |connection| {
             let push_specs: Vec<String> =
@@ -116,8 +133,10 @@ impl GitRemote {
         branch_prefix: &str,
         slug: &str,
     ) -> Result<String> {
-        let existing_branch_names =
-            self.with_connection(git2::Direction::Fetch, Self::get_branches)?;
+        let existing_branch_names = self.with_connection(
+            git2::Direction::Fetch,
+            Self::get_branches_from_connection,
+        )?;
 
         let mut branch_name = format!("{branch_prefix}{slug}");
         let mut suffix = 0;

@@ -5,14 +5,12 @@
  * LICENSE file in the root directory of this source tree.
  */
 
-
 use crate::{error::Result, github::GitHubBranch};
 
 #[derive(Clone, Debug)]
 pub struct Config {
     pub owner: String,
     pub repo: String,
-    pub remote_name: String,
     pub master_ref: GitHubBranch,
     pub branch_prefix: String,
     pub auth_token: String,
@@ -25,22 +23,17 @@ impl Config {
     pub fn new(
         owner: String,
         repo: String,
-        remote_name: String,
         master_branch: String,
         branch_prefix: String,
         auth_token: String,
         require_approval: bool,
         require_test_plan: bool,
     ) -> Self {
-        let master_ref = GitHubBranch::new_from_branch_name(
-            &master_branch,
-            &remote_name,
-            &master_branch,
-        );
+        let master_ref =
+            GitHubBranch::new_from_branch_name(&master_branch, &master_branch);
         Self {
             owner,
             repo,
-            remote_name,
             master_ref,
             branch_prefix,
             auth_token,
@@ -87,17 +80,12 @@ impl Config {
         &self,
         ghref: &str,
     ) -> Result<GitHubBranch> {
-        GitHubBranch::new_from_ref(
-            ghref,
-            &self.remote_name,
-            self.master_ref.branch_name(),
-        )
+        GitHubBranch::new_from_ref(ghref, self.master_ref.branch_name())
     }
 
     pub fn new_github_branch(&self, branch_name: &str) -> GitHubBranch {
         GitHubBranch::new_from_branch_name(
             branch_name,
-            &self.remote_name,
             self.master_ref.branch_name(),
         )
     }
@@ -112,7 +100,6 @@ mod tests {
         crate::config::Config::new(
             "acme".into(),
             "codez".into(),
-            "origin".into(),
             "master".into(),
             "spr/foo/".into(),
             "xyz".into(),

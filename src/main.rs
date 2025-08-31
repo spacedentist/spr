@@ -136,9 +136,6 @@ pub async fn spr() -> Result<()> {
         )
     };
 
-    let github_remote_name = git_config
-        .get_string("spr.githubRemoteName")
-        .unwrap_or_else(|_| "origin".to_string());
     let require_approval = git_config
         .get_bool("spr.requireApproval")
         .ok()
@@ -156,7 +153,6 @@ pub async fn spr() -> Result<()> {
     let config = spr::config::Config::new(
         github_owner,
         github_repo,
-        github_remote_name,
         github_master_branch,
         branch_prefix,
         github_auth_token.clone(),
@@ -165,10 +161,6 @@ pub async fn spr() -> Result<()> {
     );
 
     let git = spr::git::Git::new(repo);
-
-    if let Commands::Format(opts) = cli.command {
-        return commands::format::format(opts, &git, &config).await;
-    }
 
     octocrab::initialise(
         octocrab::Octocrab::builder()
@@ -199,9 +191,13 @@ pub async fn spr() -> Result<()> {
         Commands::Close(opts) => {
             commands::close::close(opts, &git, &mut gh, &config).await?
         }
+        Commands::Format(opts) => {
+            commands::format::format(opts, &git, &mut gh, &config).await?
+        }
+
         // The following commands are executed above and return from this
         // function before it reaches this match.
-        Commands::Init | Commands::Format(_) => (),
+        Commands::Init => (),
     };
 
     Ok::<_, Error>(())

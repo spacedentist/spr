@@ -50,11 +50,11 @@ impl Git {
         self.hooks.as_ref()
     }
 
-    pub fn get_commit_oids(&self, master_ref: &str) -> Result<Vec<Oid>> {
+    pub fn get_commit_oids(&self, master_oid: Oid) -> Result<Vec<Oid>> {
         let mut walk = self.repo.revwalk()?;
         walk.set_sorting(git2::Sort::TOPOLOGICAL.union(git2::Sort::REVERSE))?;
         walk.push_head()?;
-        walk.hide_ref(master_ref)?;
+        walk.hide(master_oid)?;
 
         Ok(walk.collect::<std::result::Result<Vec<Oid>, _>>()?)
     }
@@ -62,8 +62,9 @@ impl Git {
     pub fn get_prepared_commits(
         &self,
         config: &Config,
+        master_oid: Oid,
     ) -> Result<Vec<PreparedCommit>> {
-        self.get_commit_oids(config.master_ref.local())?
+        self.get_commit_oids(master_oid)?
             .into_iter()
             .map(|oid| self.prepare_commit(config, oid))
             .collect()

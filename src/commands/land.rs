@@ -31,7 +31,7 @@ pub async fn land(
     config: &crate::config::Config,
 ) -> Result<()> {
     git.check_no_uncommitted_changes()?;
-    let mut prepared_commits = git.get_prepared_commits(config)?;
+    let mut prepared_commits = gh.get_prepared_commits()?;
 
     let based_on_unlanded_commits = prepared_commits.len() > 1;
 
@@ -85,18 +85,8 @@ pub async fn land(
     output("🛫", "Getting started...")?;
 
     // Fetch current master from GitHub.
-    let current_master = gh
-        .remote()
-        .fetch_from_remote(&[config.master_ref.branch_name()], &[])
-        .reword("git fetch failed".to_string())?
-        .first()
-        .and_then(|&x| x)
-        .ok_or_else(|| {
-            Error::new(format!(
-                "Could not fetch {} from GitHub",
-                config.master_ref.on_github()
-            ))
-        })?;
+    let current_master =
+        gh.remote().fetch_branch(config.master_ref.branch_name())?;
 
     let base_is_master = pull_request.base.is_master_branch();
     let index = git.cherrypick(prepared_commit.oid, current_master)?;
@@ -104,10 +94,8 @@ pub async fn land(
     if index.has_conflicts() {
         return Err(Error::new(formatdoc!(
             "This commit cannot be applied on top of the '{master}' branch.
-             Please rebase this commit on top of current \
-             '{remote}/{master}'.{unlanded}",
+             Please rebase this commit.{unlanded}",
             master = &config.master_ref.branch_name(),
-            remote = &config.remote_name,
             unlanded = if based_on_unlanded_commits {
                 " You may also have to land commits that this commit depends on first."
             } else {
