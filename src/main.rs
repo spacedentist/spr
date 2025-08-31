@@ -10,6 +10,7 @@
 //! stacked to allow for a series of code reviews of interdependent code.
 
 use clap::{Parser, Subcommand};
+use log::debug;
 use spr::{
     commands,
     error::{Error, Result},
@@ -91,6 +92,7 @@ pub enum OptionsError {
 
 pub async fn spr() -> Result<()> {
     let cli = Cli::parse();
+    debug!("Started with command line: {:?}", cli);
 
     if let Some(path) = &cli.cd {
         if let Err(err) = std::env::set_current_dir(path) {
@@ -159,6 +161,7 @@ pub async fn spr() -> Result<()> {
         require_approval,
         require_test_plan,
     );
+    debug!("config: {:?}", config);
 
     let git = spr::git::Git::new(repo);
 
@@ -205,6 +208,8 @@ pub async fn spr() -> Result<()> {
 
 #[tokio::main(flavor = "current_thread")]
 async fn main() -> Result<()> {
+    env_logger::init();
+
     if let Err(error) = tokio::task::LocalSet::new().run_until(spr()).await {
         for message in error.messages() {
             output("🛑", message)?;

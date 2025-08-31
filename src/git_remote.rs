@@ -4,6 +4,7 @@ use std::{
 };
 
 use git2::Oid;
+use log::debug;
 
 use crate::error::{Error, Result};
 
@@ -37,8 +38,14 @@ impl GitRemote {
             git2::Cred::userpass_plaintext("spr", &self.auth_token)
         });
         let mut connection = remote.connect_auth(dir, Some(cb), None)?;
+        log::trace!("Connected to remote {} ({:?})", &self.url, dir);
 
-        func(&mut connection)
+        let result = func(&mut connection)?;
+
+        connection.remote().disconnect()?;
+        log::trace!("Disconnected from remote {}", &self.url);
+
+        Ok(result)
     }
 
     fn get_branches_from_connection(
@@ -86,12 +93,14 @@ impl GitRemote {
                     let oid = remote_branches.get(branch_name).cloned();
                     ref_oids.push(oid);
                     fetch_oids.extend(oid.iter());
+                    debug!("fetching branch {}: {:?}", branch_name, oid);
                 }
             }
 
             if !fetch_oids.is_empty() {
                 let fetch_oids =
                     fetch_oids.iter().map(Oid::to_string).collect::<Vec<_>>();
+                debug!("fetching oids: {:?}", &fetch_oids);
 
                 let mut fetch_options = git2::FetchOptions::new();
                 fetch_options.update_fetchhead(false);
@@ -122,6 +131,7 @@ impl GitRemote {
             let push_specs: Vec<&str> =
                 push_specs.iter().map(String::as_str).collect();
 
+            debug!("Push specs: {:?}", &push_specs);
             connection.remote().push(push_specs.as_slice(), None)?;
 
             Ok(())
