@@ -364,10 +364,12 @@ async fn diff_impl(
 
     let pull_request_branch = match &pull_request {
         Some(pr) => pr.head.clone(),
-        None => config.new_github_branch(
-            &gh.remote()
-                .find_unused_branch_name(&config.branch_prefix, title)?,
-        ),
+        None => {
+            config.new_github_branch(&gh.remote().find_unused_branch_name(
+                &config.branch_prefix,
+                &slugify(title),
+            )?)
+        }
     };
 
     // Get the tree ids of the current head of the Pull Request, as well as the
