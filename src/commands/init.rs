@@ -105,29 +105,6 @@ pub async fn init() -> Result<()> {
 
     output("👋", &formatdoc!("Hello {}!", github_user.login))?;
 
-    // Name of remote
-
-    console::Term::stdout().write_line("")?;
-
-    output(
-        "❓",
-        &formatdoc!(
-            "What's the name of the Git remote pointing to GitHub? Usually it's
-             'origin'."
-        ),
-    )?;
-
-    let remote = dialoguer::Input::<String>::new()
-        .with_prompt("Name of remote for GitHub")
-        .with_initial_text(
-            config
-                .get_string("spr.githubRemoteName")
-                .ok()
-                .unwrap_or_else(|| "origin".to_string()),
-        )
-        .interact_text()?;
-    config.set_str("spr.githubRemoteName", &remote)?;
-
     // Name of the GitHub repo
 
     console::Term::stdout().write_line("")?;
@@ -141,7 +118,6 @@ pub async fn init() -> Result<()> {
         ),
     )?;
 
-    let url = repo.find_remote(&remote)?.url().map(String::from);
     let regex =
         lazy_regex::regex!(r#"github\.com[/:]([\w\-\.]+/[\w\-\.]+?)(.git)?$"#);
     let github_repo = config
@@ -149,10 +125,15 @@ pub async fn init() -> Result<()> {
         .ok()
         .and_then(|value| if value.is_empty() { None } else { Some(value) })
         .or_else(|| {
-            url.as_ref()
-                .and_then(|url| regex.captures(url))
-                .and_then(|caps| caps.get(1))
-                .map(|m| m.as_str().to_string())
+            // We can provide a default value in case the remote "origin" is pointing to github.com
+            repo.find_remote("origin")
+                .ok()
+                .and_then(|remote| remote.url().map(String::from))
+                .and_then(|url| {
+                    regex.captures(&url).and_then(|caps| {
+                        caps.get(1).map(|m| m.as_str().to_string())
+                    })
+                })
         })
         .unwrap_or_default();
 

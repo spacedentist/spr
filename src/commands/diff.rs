@@ -11,13 +11,14 @@ use std::iter::zip;
 use crate::{
     error::{add_error, Error, Result, ResultExt},
     git::PreparedCommit,
+    git_remote::PushSpec,
     github::{
         GitHub, PullRequest, PullRequestRequestReviewers, PullRequestState,
         PullRequestUpdate,
     },
     message::{validate_commit_message, MessageSection},
     output::{output, write_commit_title},
-    utils::{parse_name_list, remove_all_parens, run_command},
+    utils::{parse_name_list, remove_all_parens, slugify},
 };
 use git2::Oid;
 use indoc::{formatdoc, indoc};
@@ -88,7 +89,7 @@ pub async fn diff(
     let mut result = Ok(());
 
     // Look up the commits on the local branch
-    let mut prepared_commits = git.get_prepared_commits(config)?;
+    let mut prepared_commits = gh.get_prepared_commits()?;
 
     // The parent of the first commit in the list is the commit on master that
     // the local branch is based on
@@ -363,9 +364,12 @@ async fn diff_impl(
 
     let pull_request_branch = match &pull_request {
         Some(pr) => pr.head.clone(),
-        None => config.new_github_branch(
-            &config.get_new_branch_name(&git.get_all_ref_names()?, title),
-        ),
+        None => {
+            config.new_github_branch(&gh.remote().find_unused_branch_name(
+                &config.branch_prefix,
+                &slugify(title),
+            )?)
+        }
     };
 
     // Get the tree ids of the current head of the Pull Request, as well as the
@@ -378,7 +382,7 @@ async fn diff_impl(
             let pr_head_tree = git.get_tree_oid_for_commit(pr.head_oid)?;
 
             let current_master_oid =
-                git.resolve_reference(config.master_ref.local())?;
+                gh.remote().fetch_branch(config.master_ref.branch_name())?;
             let pr_base_oid =
                 git.repo().merge_base(pr.head_oid, pr.base_oid)?;
             let pr_base_tree = git.get_tree_oid_for_commit(pr_base_oid)?;
@@ -493,62 +497,66 @@ async fn diff_impl(
     // commit is not directly based on master, we have to create this new PR
     // with a base branch, so that is case 3.
 
-    let (pr_base_parent, base_branch) = if pr_base_tree == new_base_tree
-        && !needs_merging_master
-    {
-        // Case 1
-        (None, base_branch)
-    } else if base_branch.is_none()
-        && (directly_based_on_master || opts.cherry_pick)
-    {
-        // Case 2
-        (Some(master_base_oid), None)
-    } else {
-        // Case 3
-
-        // We are constructing a base branch commit.
-        // One parent of the new base branch commit will be the current base
-        // commit, that could be either the top commit of an existing base
-        // branch, or a commit on master.
-        let mut parents = vec![pr_base_oid];
-
-        // If we need to rebase on master, make the master commit also a
-        // parent (except if the first parent is that same commit, we don't
-        // want duplicates in `parents`).
-        if needs_merging_master && pr_base_oid != master_base_oid {
-            parents.push(master_base_oid);
-        }
-
-        let new_base_branch_commit = git.create_derived_commit(
-            local_commit.parent_oid,
-            &format!(
-                "[𝘀𝗽𝗿] {}\n\nCreated using spr {}\n\n[skip ci]",
-                if pull_request.is_some() {
-                    "changes introduced through rebase".to_string()
-                } else {
-                    format!(
-                        "changes to {} this commit is based on",
-                        config.master_ref.branch_name()
-                    )
-                },
-                env!("CARGO_PKG_VERSION"),
-            ),
-            new_base_tree,
-            &parents[..],
-        )?;
-
-        // If `base_branch` is `None` (which means a base branch does not exist
-        // yet), then make a `GitHubBranch` with a new name for a base branch
-        let base_branch = if let Some(base_branch) = base_branch {
-            base_branch
+    let (pr_base_parent, base_branch) =
+        if pr_base_tree == new_base_tree && !needs_merging_master {
+            // Case 1
+            (None, base_branch)
+        } else if base_branch.is_none()
+            && (directly_based_on_master || opts.cherry_pick)
+        {
+            // Case 2
+            (Some(master_base_oid), None)
         } else {
-            config.new_github_branch(
-                &config.get_base_branch_name(&git.get_all_ref_names()?, title),
-            )
-        };
+            // Case 3
 
-        (Some(new_base_branch_commit), Some(base_branch))
-    };
+            // We are constructing a base branch commit.
+            // One parent of the new base branch commit will be the current base
+            // commit, that could be either the top commit of an existing base
+            // branch, or a commit on master.
+            let mut parents = vec![pr_base_oid];
+
+            // If we need to rebase on master, make the master commit also a
+            // parent (except if the first parent is that same commit, we don't
+            // want duplicates in `parents`).
+            if needs_merging_master && pr_base_oid != master_base_oid {
+                parents.push(master_base_oid);
+            }
+
+            let new_base_branch_commit = git.create_derived_commit(
+                local_commit.parent_oid,
+                &format!(
+                    "[𝘀𝗽𝗿] {}\n\nCreated using spr {}\n\n[skip ci]",
+                    if pull_request.is_some() {
+                        "changes introduced through rebase".to_string()
+                    } else {
+                        format!(
+                            "changes to {} this commit is based on",
+                            config.master_ref.branch_name()
+                        )
+                    },
+                    env!("CARGO_PKG_VERSION"),
+                ),
+                new_base_tree,
+                &parents[..],
+            )?;
+
+            // If `base_branch` is `None` (which means a base branch does not exist
+            // yet), then make a `GitHubBranch` with a new name for a base branch
+            let base_branch = if let Some(base_branch) = base_branch {
+                base_branch
+            } else {
+                config.new_github_branch(&gh.remote().find_unused_branch_name(
+                    &config.branch_prefix,
+                    &format!(
+                        "{}.{}",
+                        config.master_ref.branch_name(),
+                        &slugify(title),
+                    ),
+                )?)
+            };
+
+            (Some(new_base_branch_commit), Some(base_branch))
+        };
 
     let mut github_commit_message = opts.message.clone();
     if pull_request.is_some() && github_commit_message.is_none() {
@@ -603,13 +611,10 @@ async fn diff_impl(
         &pr_commit_parents[..],
     )?;
 
-    let mut cmd = tokio::process::Command::new("git");
-    cmd.arg("push")
-        .arg("--atomic")
-        .arg("--no-verify")
-        .arg("--")
-        .arg(&config.remote_name)
-        .arg(format!("{}:{}", pr_commit, pull_request_branch.on_github()));
+    let mut push_specs = vec![PushSpec {
+        oid: Some(pr_commit),
+        remote_ref: pull_request_branch.on_github(),
+    }];
 
     if let Some(pull_request) = pull_request {
         // We are updating an existing Pull Request
@@ -645,17 +650,16 @@ async fn diff_impl(
             if let Some(base_branch_commit) = pr_base_parent {
                 // ...and we prepared a new commit for it, so we need to push an
                 // update of the base branch.
-                cmd.arg(format!(
-                    "{}:{}",
-                    base_branch_commit,
-                    base_branch.on_github()
-                ));
+                push_specs.push(PushSpec {
+                    oid: Some(base_branch_commit),
+                    remote_ref: base_branch.on_github(),
+                });
             }
 
             // Push the new commit onto the Pull Request branch (and also the
-            // new base commit, if we added that to cmd above).
-            run_command(&mut cmd)
-                .await
+            // new base commit, if we added that to push_specs above).
+            gh.remote()
+                .push_to_remote(push_specs.as_slice())
                 .reword("git push failed".to_string())?;
 
             // If the Pull Request's base is not set to the base branch yet,
@@ -667,8 +671,8 @@ async fn diff_impl(
         } else {
             // The Pull Request is against the master branch. In that case we
             // only need to push the update to the Pull Request branch.
-            run_command(&mut cmd)
-                .await
+            gh.remote()
+                .push_to_remote(push_specs.as_slice())
                 .reword("git push failed".to_string())?;
         }
 
@@ -683,15 +687,14 @@ async fn diff_impl(
         if let (Some(base_branch), Some(base_branch_commit)) =
             (&base_branch, pr_base_parent)
         {
-            cmd.arg(format!(
-                "{}:{}",
-                base_branch_commit,
-                base_branch.on_github()
-            ));
+            push_specs.push(PushSpec {
+                oid: Some(base_branch_commit),
+                remote_ref: base_branch.on_github(),
+            });
         }
         // Push the pull request branch and the base branch if present
-        run_command(&mut cmd)
-            .await
+        gh.remote()
+            .push_to_remote(push_specs.as_slice())
             .reword("git push failed".to_string())?;
 
         // Then call GitHub to create the Pull Request.
