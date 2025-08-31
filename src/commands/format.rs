@@ -21,9 +21,10 @@ pub struct FormatOptions {
 pub async fn format(
     opts: FormatOptions,
     git: &crate::git::Git,
+    gh: &mut crate::github::GitHub,
     config: &crate::config::Config,
 ) -> Result<()> {
-    let mut pc = git.get_prepared_commits(config)?;
+    let mut pc = gh.get_prepared_commits()?;
 
     let len = pc.len();
     if len == 0 {

@@ -10,11 +10,9 @@ use std::collections::{HashSet, VecDeque};
 use crate::{
     config::Config,
     error::{Error, Result, ResultExt},
-    github::GitHubBranch,
     message::{
         build_commit_message, parse_message, MessageSection, MessageSectionsMap,
     },
-    utils::run_command,
 };
 use git2::Oid;
 
@@ -44,19 +42,19 @@ impl Git {
         }
     }
 
-    pub fn repo(&self) -> &git2::Repository {
-        self.repo.as_ref()
+    pub fn repo(&self) -> &std::sync::Arc<git2::Repository> {
+        &self.repo
     }
 
     fn hooks(&self) -> &git2_ext::hooks::Hooks {
         self.hooks.as_ref()
     }
 
-    pub fn get_commit_oids(&self, master_ref: &str) -> Result<Vec<Oid>> {
+    pub fn get_commit_oids(&self, master_oid: Oid) -> Result<Vec<Oid>> {
         let mut walk = self.repo.revwalk()?;
         walk.set_sorting(git2::Sort::TOPOLOGICAL.union(git2::Sort::REVERSE))?;
         walk.push_head()?;
-        walk.hide_ref(master_ref)?;
+        walk.hide(master_oid)?;
 
         Ok(walk.collect::<std::result::Result<Vec<Oid>, _>>()?)
     }
@@ -64,8 +62,9 @@ impl Git {
     pub fn get_prepared_commits(
         &self,
         config: &Config,
+        master_oid: Oid,
     ) -> Result<Vec<PreparedCommit>> {
-        self.get_commit_oids(config.master_ref.local())?
+        self.get_commit_oids(master_oid)?
             .into_iter()
             .map(|oid| self.prepare_commit(config, oid))
             .collect()
@@ -240,64 +239,6 @@ impl Git {
             self.repo.find_reference(reference)?.peel_to_commit()?.id();
 
         Ok(result)
-    }
-
-    pub async fn fetch_commits_from_remote(
-        &self,
-        commit_oids: &[git2::Oid],
-        remote: &str,
-    ) -> Result<()> {
-        let missing_commit_oids: Vec<_> = {
-            let repo = self.repo();
-
-            commit_oids
-                .iter()
-                .filter(|oid| repo.find_commit(**oid).is_err())
-                .collect()
-        };
-
-        if !missing_commit_oids.is_empty() {
-            let mut command = tokio::process::Command::new("git");
-            command
-                .arg("fetch")
-                .arg("--no-write-fetch-head")
-                .arg("--")
-                .arg(remote);
-
-            for oid in missing_commit_oids {
-                command.arg(format!("{}", oid));
-            }
-
-            run_command(&mut command)
-                .await
-                .reword("git fetch failed".to_string())?;
-        }
-
-        Ok(())
-    }
-
-    pub async fn fetch_from_remote(
-        refs: &[&GitHubBranch],
-        remote: &str,
-    ) -> Result<()> {
-        if !refs.is_empty() {
-            let mut command = tokio::process::Command::new("git");
-            command
-                .arg("fetch")
-                .arg("--no-write-fetch-head")
-                .arg("--")
-                .arg(remote);
-
-            for ghref in refs {
-                command.arg(ghref.on_github());
-            }
-
-            run_command(&mut command)
-                .await
-                .reword("git fetch failed".to_string())?;
-        }
-
-        Ok(())
     }
 
     pub fn prepare_commit(

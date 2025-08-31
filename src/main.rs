@@ -138,9 +138,6 @@ pub async fn spr() -> Result<()> {
         )
     };
 
-    let github_remote_name = git_config
-        .get_string("spr.githubRemoteName")
-        .unwrap_or_else(|_| "origin".to_string());
     let require_approval = git_config
         .get_bool("spr.requireApproval")
         .ok()
@@ -150,12 +147,17 @@ pub async fn spr() -> Result<()> {
         .ok()
         .unwrap_or(true);
 
+    let github_auth_token = match cli.github_auth_token {
+        Some(v) => Ok(v),
+        None => git_config.get_string("spr.githubAuthToken"),
+    }?;
+
     let config = spr::config::Config::new(
         github_owner,
         github_repo,
-        github_remote_name,
         github_master_branch,
         branch_prefix,
+        github_auth_token.clone(),
         require_approval,
         require_test_plan,
     );
@@ -163,22 +165,17 @@ pub async fn spr() -> Result<()> {
 
     let git = spr::git::Git::new(repo);
 
-    if let Commands::Format(opts) = cli.command {
-        return commands::format::format(opts, &git, &config).await;
-    }
-
-    let github_auth_token = match cli.github_auth_token {
-        Some(v) => Ok(v),
-        None => git_config.get_string("spr.githubAuthToken"),
-    }?;
-
     octocrab::initialise(
         octocrab::Octocrab::builder()
             .personal_token(github_auth_token.clone())
             .build()?,
     );
 
-    let mut gh = spr::github::GitHub::new(config.clone(), git.clone());
+    let mut gh = spr::github::GitHub::new(
+        config.clone(),
+        git.clone(),
+        github_auth_token,
+    );
 
     match cli.command {
         Commands::Diff(opts) => {
@@ -197,9 +194,13 @@ pub async fn spr() -> Result<()> {
         Commands::Close(opts) => {
             commands::close::close(opts, &git, &mut gh, &config).await?
         }
+        Commands::Format(opts) => {
+            commands::format::format(opts, &git, &mut gh, &config).await?
+        }
+
         // The following commands are executed above and return from this
         // function before it reaches this match.
-        Commands::Init | Commands::Format(_) => (),
+        Commands::Init => (),
     };
 
     Ok::<_, Error>(())
