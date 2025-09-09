@@ -3,8 +3,8 @@ use std::{
     fmt::Write as _,
 };
 
-use git2::Oid;
-use log::debug;
+use git2::{Oid, PushOptions, RemoteCallbacks};
+use log::{debug, trace, warn};
 
 use crate::error::{Error, Result};
 
@@ -131,8 +131,24 @@ impl GitRemote {
             let push_specs: Vec<&str> =
                 push_specs.iter().map(String::as_str).collect();
 
+            let mut cbs = RemoteCallbacks::new();
+            cbs.push_update_reference(|ref_name, msg| {
+                if let Some(msg) = msg {
+                    let error = format!("Push {} rejected: {}", ref_name, msg);
+                    warn!("{}", &error);
+                    Err(git2::Error::from_str(&error))
+                } else {
+                    trace!("Pushed {}", ref_name);
+                    Ok(())
+                }
+            });
+            let mut po = PushOptions::new();
+            po.remote_callbacks(cbs);
+
             debug!("Push specs: {:?}", &push_specs);
-            connection.remote().push(push_specs.as_slice(), None)?;
+            connection
+                .remote()
+                .push(push_specs.as_slice(), Some(&mut po))?;
 
             Ok(())
         })

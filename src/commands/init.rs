@@ -47,7 +47,8 @@ pub async fn init() -> Result<()> {
 
     let valid_auth = scopes.iter().any(|s| s == "repo")
         && scopes.iter().any(|s| s == "user")
-        && scopes.iter().any(|s| s == "org" || s == "read:org");
+        && scopes.iter().any(|s| s == "org" || s == "read:org")
+        && scopes.iter().any(|s| s == "workflow");
 
     let github_auth_token = if valid_auth {
         github_auth_token.unwrap()
@@ -65,7 +66,10 @@ pub async fn init() -> Result<()> {
             .build()?;
 
         let device_codes = client
-            .authenticate_as_device(&client_id.into(), ["repo user read:org"])
+            .authenticate_as_device(
+                &client_id.into(),
+                ["repo user read:org workflow"],
+            )
             .await?;
 
         open::that_detached(&device_codes.verification_uri)?;

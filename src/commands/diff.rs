@@ -660,7 +660,7 @@ async fn diff_impl(
             // new base commit, if we added that to push_specs above).
             gh.remote()
                 .push_to_remote(push_specs.as_slice())
-                .reword("git push failed".to_string())?;
+                .context("git push failed".to_string())?;
 
             // If the Pull Request's base is not set to the base branch yet,
             // change that now.
@@ -673,7 +673,7 @@ async fn diff_impl(
             // only need to push the update to the Pull Request branch.
             gh.remote()
                 .push_to_remote(push_specs.as_slice())
-                .reword("git push failed".to_string())?;
+                .context("git push failed".to_string())?;
         }
 
         if !pull_request_updates.is_empty() {
@@ -695,7 +695,7 @@ async fn diff_impl(
         // Push the pull request branch and the base branch if present
         gh.remote()
             .push_to_remote(push_specs.as_slice())
-            .reword("git push failed".to_string())?;
+            .context("git push failed".to_string())?;
 
         // Then call GitHub to create the Pull Request.
         let pull_request_number = gh
