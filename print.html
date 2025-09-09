@@ -37,11 +37,23 @@
             const path_to_root = "";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
+            window.path_to_searchindex_js = "searchindex.js";
         </script>
         <!-- Start loading toc.js asap -->
         <script src="toc.js"></script>
     </head>
     <body>
+    <div id="mdbook-help-container">
+        <div id="mdbook-help-popup">
+            <h2 class="mdbook-help-title">Keyboard shortcuts</h2>
+            <div>
+                <p>Press <kbd>←</kbd> or <kbd>→</kbd> to navigate between chapters</p>
+                <p>Press <kbd>S</kbd> or <kbd>/</kbd> to search in the book</p>
+                <p>Press <kbd>?</kbd> to show this help</p>
+                <p>Press <kbd>Esc</kbd> to hide this help</p>
+            </div>
+        </div>
+    </div>
     <div id="body-container">
         <!-- Work around some values being stored in localStorage wrapped in quotes -->
         <script>
@@ -82,10 +94,13 @@
                 sidebar = sidebar || 'visible';
             } else {
                 sidebar = 'hidden';
+                sidebar_toggle.checked = false;
             }
-            sidebar_toggle.checked = sidebar === 'visible';
-            html.classList.remove('sidebar-visible');
-            html.classList.add("sidebar-" + sidebar);
+            if (sidebar === 'visible') {
+                sidebar_toggle.checked = true;
+            } else {
+                html.classList.remove('sidebar-visible');
+            }
         </script>
 
         <nav id="sidebar" class="sidebar" aria-label="Table of contents">
@@ -119,7 +134,7 @@
                             <li role="none"><button role="menuitem" class="theme" id="navy">Navy</button></li>
                             <li role="none"><button role="menuitem" class="theme" id="ayu">Ayu</button></li>
                         </ul>
-                        <button id="search-toggle" class="icon-button" type="button" title="Search. (Shortkey: s)" aria-label="Toggle Searchbar" aria-expanded="false" aria-keyshortcuts="S" aria-controls="searchbar">
+                        <button id="search-toggle" class="icon-button" type="button" title="Search (`/`)" aria-label="Toggle Searchbar" aria-expanded="false" aria-keyshortcuts="/ s" aria-controls="searchbar">
                             <i class="fa fa-search"></i>
                         </button>
                     </div>
@@ -139,7 +154,12 @@
 
                 <div id="search-wrapper" class="hidden">
                     <form id="searchbar-outer" class="searchbar-outer">
-                        <input type="search" id="searchbar" name="searchbar" placeholder="Search this book ..." aria-controls="searchresults-outer" aria-describedby="searchresults-header">
+                        <div class="search-wrapper">
+                            <input type="search" id="searchbar" name="searchbar" placeholder="Search this book ..." aria-controls="searchresults-outer" aria-describedby="searchresults-header">
+                            <div class="spinner-wrapper">
+                                <i class="fa fa-spinner fa-spin"></i>
+                            </div>
+                        </div>
                     </form>
                     <div id="searchresults-outer" class="searchresults-outer hidden">
                         <div id="searchresults-header" class="searchresults-header"></div>
@@ -521,8 +541,7 @@ Pull Request: https://github.com/example/my-thing/pull/123
 <p>spr uses the following Git configuration values:</p>
 <div class="table-wrapper"><table><thead><tr><th>config key</th><th>CLI flag</th><th>description</th><th>default<sup class="footnote-reference" id="fr-default-1"><a href="#footnote-default">1</a></sup></th><th>default in <code>spr init</code><sup class="footnote-reference" id="fr-initdefault-1"><a href="#footnote-initdefault">2</a></sup></th></tr></thead><tbody>
 <tr><td><code>githubAuthToken</code></td><td><code>--github-auth-token</code><sup class="footnote-reference" id="fr-cli-token-1"><a href="#footnote-cli-token">3</a></sup></td><td>The GitHub authentication token to use for accessing the GitHub API.</td><td></td><td></td></tr>
-<tr><td><code>githubRemoteName</code></td><td></td><td>Name of the git remote in this local repository that corresponds to GitHub</td><td><code>origin</code></td><td><code>origin</code></td></tr>
-<tr><td><code>githubRepository</code></td><td><code>--github-repository</code></td><td>Name of repository on github.com in <code>owner/repo</code> format</td><td></td><td>extracted from the URL of the GitHub remote</td></tr>
+<tr><td><code>githubRepository</code></td><td><code>--github-repository</code></td><td>Name of repository on github.com in <code>owner/repo</code> format</td><td></td><td></td></tr>
 <tr><td><code>githubMasterBranch</code></td><td></td><td>The name of the centrally shared branch into which the pull requests are merged</td><td><code>master</code></td><td>taken from repository configuration on GitHub</td></tr>
 <tr><td><code>branchPrefix</code></td><td><code>--branch-prefix</code></td><td>String used to prefix autogenerated names of pull request branches</td><td></td><td><code>spr/GITHUB_USERNAME/</code></td></tr>
 <tr><td><code>requireApproval</code></td><td></td><td>If true, <code>spr land</code> will refuse to land a pull request that is not accepted</td><td>false</td><td></td></tr>
@@ -684,6 +703,7 @@ it will update the local <code>main</code> branch and delete the transient branc
             window.setTimeout(window.print, 100);
         });
         </script>
+
 
     </div>
     </body>
