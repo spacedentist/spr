@@ -1,5 +1,5 @@
 on: push
-name: Clippy check
+name: Test and lint
 
 # Make sure CI fails on all warnings, including Clippy lints
 env:
@@ -7,12 +7,14 @@ env:
 
 jobs:
   clippy_check:
+    name: cargo clippy
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
       - run: cargo clippy --all-targets --all-features
 
   tests:
+    name: cargo test
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
