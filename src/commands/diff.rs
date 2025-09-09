@@ -301,8 +301,8 @@ async fn diff_impl(
     // Parse "Reviewers" section, if this is a new Pull Request
     let mut requested_reviewers = PullRequestRequestReviewers::default();
 
-    if local_commit.pull_request_number.is_none() {
-        if let Some(reviewers) = message.get(&MessageSection::Reviewers) {
+    if local_commit.pull_request_number.is_none()
+        && let Some(reviewers) = message.get(&MessageSection::Reviewers) {
             let reviewers = parse_name_list(reviewers);
             let mut checked_reviewers = Vec::new();
 
@@ -352,7 +352,6 @@ async fn diff_impl(
                 checked_reviewers.join(", "),
             );
         }
-    }
 
     // Get the name of the existing Pull Request branch, or constuct one if
     // there is none yet.

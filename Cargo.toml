@@ -6,7 +6,7 @@ description = "Submit pull requests for individual, amendable, rebaseable commit
 repository = "https://github.com/spacedentist/spr"
 homepage = "https://github.com/spacedentist/spr"
 license = "MIT"
-edition = "2021"
+edition = "2024"
 exclude = [".github", ".gitignore"]
 
 [dependencies]

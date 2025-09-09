@@ -123,14 +123,13 @@ impl Git {
             }
         }
 
-        if updating {
-            if let Some(oid) = parent_oid {
+        if updating
+            && let Some(oid) = parent_oid {
                 self.repo
                     .find_reference("HEAD")?
                     .resolve()?
                     .set_target(oid, "spr updated commit messages")?;
             }
-        }
 
         Ok(())
     }

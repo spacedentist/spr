@@ -65,13 +65,12 @@ impl Config {
             r#"^\s*https?://github.com/([\w\-\.]+)/([\w\-\.]+)/pull/(\d+)([/?#].*)?\s*$"#
         );
         let m = regex.captures(text);
-        if let Some(caps) = m {
-            if self.owner == caps.get(1).unwrap().as_str()
+        if let Some(caps) = m
+            && self.owner == caps.get(1).unwrap().as_str()
                 && self.repo == caps.get(2).unwrap().as_str()
             {
                 return Some(caps.get(3).unwrap().as_str().parse().unwrap());
             }
-        }
 
         None
     }
