@@ -5,15 +5,15 @@
  * LICENSE file in the root directory of this source tree.
  */
 
+use color_eyre::eyre::{Error, Result, WrapErr as _, eyre};
 use graphql_client::{GraphQLQuery, Response};
 use serde::Deserialize;
 
 use crate::{
-    error::{Error, Result, ResultExt},
     git::PreparedCommit,
     git_remote::GitRemote,
     message::{
-        build_github_body, parse_message, MessageSection, MessageSectionsMap,
+        MessageSection, MessageSectionsMap, build_github_body, parse_message,
     },
 };
 use std::collections::{HashMap, HashSet};
@@ -198,8 +198,7 @@ impl GitHub {
                 .await?;
 
         if let Some(errors) = response_body.errors {
-            let error =
-                Err(Error::new(format!("fetching PR #{number} failed")));
+            let error = Err(eyre!("fetching PR #{number} failed"));
             return errors
                 .into_iter()
                 .fold(error, |err, e| err.context(e.to_string()));
@@ -207,11 +206,11 @@ impl GitHub {
 
         let pr = response_body
             .data
-            .ok_or_else(|| Error::new("failed to fetch PR"))?
+            .ok_or_else(|| eyre!("failed to fetch PR"))?
             .repository
-            .ok_or_else(|| Error::new("failed to find repository"))?
+            .ok_or_else(|| eyre!("failed to find repository"))?
             .pull_request
-            .ok_or_else(|| Error::new("failed to find PR"))?;
+            .ok_or_else(|| eyre!("failed to find PR"))?;
 
         let base = config.new_github_branch_from_ref(&pr.base_ref_name)?;
         let head = config.new_github_branch_from_ref(&pr.head_ref_name)?;
@@ -226,10 +225,10 @@ impl GitHub {
         };
 
         let base_oid = base_oid.ok_or_else(|| {
-            Error::new(format!("{} not found on GitHub", &base.ref_on_github))
+            eyre!("{} not found on GitHub", &base.ref_on_github)
         })?;
         let head_oid = head_oid.ok_or_else(|| {
-            Error::new(format!("{} not found on GitHub", &head.ref_on_github))
+            eyre!("{} not found on GitHub", &head.ref_on_github)
         })?;
 
         let mut sections = parse_message(&pr.body, MessageSection::Summary);
@@ -428,21 +427,17 @@ impl GitHub {
             .await?;
 
         if let Some(errors) = response_body.errors {
-            let error = Err(Error::new(format!(
-                "querying PR #{number} mergeability failed"
-            )));
-            return errors
-                .into_iter()
-                .fold(error, |err, e| err.context(e.to_string()));
+            let error = Err(eyre!("querying PR #{number} mergeability failed"));
+            return errors.into_iter().fold(error, |err, e| err.wrap_err(e));
         }
 
         let pr = response_body
             .data
-            .ok_or_else(|| Error::new("failed to fetch PR"))?
+            .ok_or_else(|| eyre!("failed to fetch PR"))?
             .repository
-            .ok_or_else(|| Error::new("failed to find repository"))?
+            .ok_or_else(|| eyre!("failed to find repository"))?
             .pull_request
-            .ok_or_else(|| Error::new("failed to find PR"))?;
+            .ok_or_else(|| eyre!("failed to find PR"))?;
 
         Ok::<_, Error>(PullRequestMergeability {
             base: self.config.new_github_branch_from_ref(&pr.base_ref_name)?,
@@ -471,9 +466,7 @@ impl GitHubBranch {
         let ref_on_github = if ghref.starts_with("refs/heads/") {
             ghref.to_string()
         } else if ghref.starts_with("refs/") {
-            return Err(Error::new(format!(
-                "Ref '{ghref}' does not refer to a branch"
-            )));
+            return Err(eyre!("Ref '{ghref}' does not refer to a branch"));
         } else {
             format!("refs/heads/{ghref}")
         };

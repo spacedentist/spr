@@ -5,10 +5,9 @@
  * LICENSE file in the root directory of this source tree.
  */
 
-use indoc::formatdoc;
+use color_eyre::eyre::{Result, bail};
 
 use crate::{
-    error::{add_error, Error, Result},
     git::PreparedCommit,
     git_remote::PushSpec,
     github::{PullRequestState, PullRequestUpdate},
@@ -60,10 +59,7 @@ pub async fn close(
 
     // This updates the commit message in the local Git repository (if it was
     // changed by the implementation)
-    add_error(
-        &mut result,
-        git.rewrite_commit_messages(prepared_commits.as_mut_slice(), None),
-    );
+    git.rewrite_commit_messages(prepared_commits.as_mut_slice(), None)?;
 
     result
 }
@@ -77,18 +73,14 @@ async fn close_impl(
             output("#️⃣ ", &format!("Pull Request #{}", number))?;
             number
         } else {
-            return Err(Error::new(
-                "This commit does not refer to a Pull Request.",
-            ));
+            bail!("This commit does not refer to a Pull Request.");
         };
 
     // Load Pull Request information
     let pull_request = gh.clone().get_pull_request(pull_request_number).await?;
 
     if pull_request.state != PullRequestState::Open {
-        return Err(Error::new(formatdoc!(
-            "This Pull Request is already closed!",
-        )));
+        bail!("This Pull Request is already closed!");
     }
 
     output("📖", "Getting started...")?;

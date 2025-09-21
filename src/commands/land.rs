@@ -5,11 +5,11 @@
  * LICENSE file in the root directory of this source tree.
  */
 
+use color_eyre::eyre::{Error, Report, Result, WrapErr as _, bail, eyre};
 use indoc::formatdoc;
 use std::time::Duration;
 
 use crate::{
-    error::{Error, Result, ResultExt},
     git_remote::PushSpec,
     github::{PullRequestState, PullRequestUpdate, ReviewStatus},
     message::build_github_body_for_merging,
@@ -36,7 +36,7 @@ pub async fn land(
     let based_on_unlanded_commits = prepared_commits.len() > 1;
 
     if based_on_unlanded_commits && !opts.cherry_pick {
-        return Err(Error::new(formatdoc!(
+        return Err(Error::msg(formatdoc!(
             "Cannot land a commit whose parent is not on {master}. To land \
              this commit, rebase it so that it is a direct child of {master}.
              Alternatively, if you used the `--cherry-pick` option with `spr \
@@ -60,26 +60,20 @@ pub async fn land(
             output("#️⃣ ", &format!("Pull Request #{}", number))?;
             number
         } else {
-            return Err(Error::new(
-                "This commit does not refer to a Pull Request.",
-            ));
+            bail!("This commit does not refer to a Pull Request.");
         };
 
     // Load Pull Request information
     let pull_request = gh.clone().get_pull_request(pull_request_number).await?;
 
     if pull_request.state != PullRequestState::Open {
-        return Err(Error::new(formatdoc!(
-            "This Pull Request is already closed!",
-        )));
+        bail!("This Pull Request is already closed!");
     }
 
     if config.require_approval
         && pull_request.review_status != Some(ReviewStatus::Approved)
     {
-        return Err(Error::new(
-            "This Pull Request has not been approved on GitHub.",
-        ));
+        bail!("This Pull Request has not been approved on GitHub.");
     }
 
     output("🛫", "Getting started...")?;
@@ -92,7 +86,7 @@ pub async fn land(
     let index = git.cherrypick(prepared_commit.oid, current_master)?;
 
     if index.has_conflicts() {
-        return Err(Error::new(formatdoc!(
+        return Err(Error::msg(formatdoc!(
             "This commit cannot be applied on top of the '{master}' branch.
              Please rebase this commit.{unlanded}",
             master = &config.master_ref.branch_name(),
@@ -125,7 +119,7 @@ pub async fn land(
     };
 
     if !merge_matches_cherrypick {
-        return Err(Error::new(formatdoc!(
+        return Err(Error::msg(formatdoc!(
             "This commit has been updated and/or rebased since the pull \
              request was last updated. Please run `spr diff` to update the \
              pull request and then try `spr land` again!"
@@ -206,7 +200,7 @@ pub async fn land(
                     oid: Some(pr_head_oid),
                     remote_ref: pull_request.head.on_github(),
                 }])
-                .reword("git push failed".to_string())?;
+                .wrap_err("git push failed")?;
         }
 
         gh.update_pull_request(
@@ -231,17 +225,16 @@ pub async fn land(
             .await?;
 
         if mergeability.head_oid != pr_head_oid {
-            break Err(Error::new(formatdoc!(
-                "The Pull Request seems to have been updated externally.
-                     Please try again!"
-            )));
+            break Err(eyre!(
+                "The Pull Request seems to have been updated externally. Please try again!"
+            ));
         }
 
         if mergeability.base.is_master_branch()
             && mergeability.mergeable.is_some()
         {
             if mergeability.mergeable != Some(true) {
-                break Err(Error::new(formatdoc!(
+                break Err(Error::msg(formatdoc!(
                     "GitHub concluded the Pull Request is not mergeable at \
                     this point. Please rebase your changes and try again!"
                 )));
@@ -251,7 +244,7 @@ pub async fn land(
                 gh.remote().fetch_from_remote(&[], &[merge_commit])?;
 
                 if git.get_tree_oid_for_commit(merge_commit)? != our_tree_oid {
-                    return Err(Error::new(formatdoc!(
+                    return Err(Error::msg(formatdoc!(
                     "This commit has been updated and/or rebased since the pull
                      request was last updated. Please run `spr diff` to update the pull
                      request and then try `spr land` again!"
@@ -264,8 +257,8 @@ pub async fn land(
 
         if attempts >= 10 {
             // After ten failed attempts we give up.
-            break Err(Error::new(
-                "GitHub Pull Request did not update. Please try again!",
+            break Err(eyre!(
+                "GitHub Pull Request did not update. Please try again!"
             ));
         }
 
@@ -289,15 +282,15 @@ pub async fn land(
                 .sha(format!("{}", pr_head_oid))
                 .send()
                 .await
-                .convert()
+                .map_err(Report::new)
                 .and_then(|merge| {
                     if merge.merged {
                         Ok(merge)
                     } else {
-                        Err(Error::new(formatdoc!(
+                        Err(eyre!(
                             "GitHub Pull Request merge failed: {}",
                             merge.message.unwrap_or_default()
-                        )))
+                        ))
                     }
                 })
         }
@@ -324,7 +317,7 @@ pub async fn land(
                     )
                     .await;
                 if let Err(e) = result {
-                    error.push(format!("{}", e));
+                    error = error.wrap_err(e);
                 }
             }
 

@@ -5,7 +5,9 @@
  * LICENSE file in the root directory of this source tree.
  */
 
-use crate::{error::Result, github::GitHubBranch};
+use color_eyre::eyre::Result;
+
+use crate::github::GitHubBranch;
 
 #[derive(Clone, Debug)]
 pub struct Config {
@@ -67,10 +69,10 @@ impl Config {
         let m = regex.captures(text);
         if let Some(caps) = m
             && self.owner == caps.get(1).unwrap().as_str()
-                && self.repo == caps.get(2).unwrap().as_str()
-            {
-                return Some(caps.get(3).unwrap().as_str().parse().unwrap());
-            }
+            && self.repo == caps.get(2).unwrap().as_str()
+        {
+            return Some(caps.get(3).unwrap().as_str().parse().unwrap());
+        }
 
         None
     }
