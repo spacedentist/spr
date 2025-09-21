@@ -5,13 +5,13 @@
  * LICENSE file in the root directory of this source tree.
  */
 
+use color_eyre::eyre::{Error, Result, WrapErr as _, bail, eyre};
 use std::collections::{HashSet, VecDeque};
 
 use crate::{
     config::Config,
-    error::{Error, Result, ResultExt},
     message::{
-        build_commit_message, parse_message, MessageSection, MessageSectionsMap,
+        MessageSection, MessageSectionsMap, build_commit_message, parse_message,
     },
 };
 use git2::Oid;
@@ -123,13 +123,12 @@ impl Git {
             }
         }
 
-        if updating
-            && let Some(oid) = parent_oid {
-                self.repo
-                    .find_reference("HEAD")?
-                    .resolve()?
-                    .set_target(oid, "spr updated commit messages")?;
-            }
+        if updating && let Some(oid) = parent_oid {
+            self.repo
+                .find_reference("HEAD")?
+                .resolve()?
+                .set_target(oid, "spr updated commit messages")?;
+        }
 
         Ok(())
     }
@@ -155,7 +154,7 @@ impl Git {
                 None,
             )?;
             if index.has_conflicts() {
-                return Err(Error::new("Rebase failed due to merge conflicts"));
+                bail!("Rebase failed due to merge conflicts");
             }
 
             let tree_oid = index.write_tree_to(self.repo.as_ref())?;
@@ -209,9 +208,8 @@ impl Git {
         self.repo
             .checkout_tree(new_commit.as_object(), None)
             .map_err(Error::from)
-            .reword(
-                "Could not check out rebased branch - please rebase manually"
-                    .into(),
+            .wrap_err(
+                "Could not check out rebased branch - please rebase manually",
             )?;
 
         // Update the reference. The reference may be a branch or "HEAD", if
@@ -228,7 +226,7 @@ impl Git {
             .head()?
             .resolve()?
             .target()
-            .ok_or_else(|| Error::new("Cannot resolve HEAD"))?;
+            .ok_or_else(|| eyre!("Cannot resolve HEAD"))?;
 
         Ok(oid)
     }
@@ -248,7 +246,7 @@ impl Git {
         let commit = self.repo.find_commit(oid)?;
 
         if commit.parent_count() != 1 {
-            return Err(Error::new("Parent commit count != 1"));
+            bail!("Parent commit count != 1");
         }
 
         let parent_oid = commit.parent_id(0)?;
@@ -436,8 +434,8 @@ impl Git {
         if self.repo.statuses(Some(&mut opts))?.is_empty() {
             Ok(())
         } else {
-            Err(Error::new(
-                "There are uncommitted changes. Stash or amend them first",
+            Err(eyre!(
+                "There are uncommitted changes. Stash or amend them first"
             ))
         }
     }

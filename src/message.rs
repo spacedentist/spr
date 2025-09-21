@@ -5,10 +5,9 @@
  * LICENSE file in the root directory of this source tree.
  */
 
-use crate::{
-    error::{Error, Result},
-    output::output,
-};
+use color_eyre::eyre::{Result, bail};
+
+use crate::output::output;
 
 pub type MessageSectionsMap =
     std::collections::BTreeMap<MessageSection, String>;
@@ -206,7 +205,7 @@ pub fn validate_commit_message(
         && !message.contains_key(&MessageSection::TestPlan)
     {
         output("💔", "Commit message does not have a Test Plan!")?;
-        return Err(Error::empty());
+        bail!("Commit message does not have a Test Plan!");
     }
 
     let title_missing_or_empty = match message.get(&MessageSection::Title) {
@@ -215,7 +214,7 @@ pub fn validate_commit_message(
     };
     if title_missing_or_empty {
         output("💔", "Commit message does not have a title!")?;
-        return Err(Error::empty());
+        bail!("Commit message does not have a title!");
     }
 
     Ok(())

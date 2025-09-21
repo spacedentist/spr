@@ -3,10 +3,9 @@ use std::{
     fmt::Write as _,
 };
 
+use color_eyre::eyre::{Result, WrapErr, eyre};
 use git2::{Oid, PushOptions, RemoteCallbacks};
 use log::{debug, trace, warn};
-
-use crate::error::{Error, Result};
 
 #[derive(Clone)]
 pub struct GitRemote {
@@ -37,7 +36,10 @@ impl GitRemote {
         cb.credentials(move |_url, _username, _allowed_types| {
             git2::Cred::userpass_plaintext("spr", &self.auth_token)
         });
-        let mut connection = remote.connect_auth(dir, Some(cb), None)?;
+        let mut connection =
+            remote.connect_auth(dir, Some(cb), None).wrap_err_with(|| {
+                format!("Connection to git remote failed, url: {}", &self.url)
+            })?;
         log::trace!("Connected to remote {} ({:?})", &self.url, dir);
 
         let result = func(&mut connection)?;
@@ -119,9 +121,7 @@ impl GitRemote {
         self.fetch_from_remote(&[branch_name], &[])?
             .first()
             .and_then(|&x| x)
-            .ok_or_else(|| {
-                Error::new(format!("Could not fetch branch '{}'", branch_name,))
-            })
+            .ok_or_else(|| eyre!("Could not fetch branch '{}'", branch_name))
     }
 
     pub fn push_to_remote(&self, refs: &[PushSpec]) -> Result<()> {

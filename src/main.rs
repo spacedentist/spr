@@ -10,12 +10,9 @@
 //! stacked to allow for a series of code reviews of interdependent code.
 
 use clap::{Parser, Subcommand};
+use color_eyre::eyre::{Error, Result};
 use log::debug;
-use spr::{
-    commands,
-    error::{Error, Result},
-    output::output,
-};
+use spr::commands;
 
 #[derive(Parser, Debug)]
 #[clap(
@@ -95,10 +92,11 @@ pub async fn spr() -> Result<()> {
     debug!("Started with command line: {:?}", cli);
 
     if let Some(path) = &cli.cd
-        && let Err(err) = std::env::set_current_dir(path) {
-            eprintln!("Could not change directory to {:?}", &path);
-            return Err(err.into());
-        }
+        && let Err(err) = std::env::set_current_dir(path)
+    {
+        eprintln!("Could not change directory to {:?}", &path);
+        return Err(err.into());
+    }
 
     if let Commands::Init = cli.command {
         return commands::init::init().await;
@@ -209,15 +207,5 @@ pub async fn spr() -> Result<()> {
 async fn main() -> Result<()> {
     env_logger::init();
 
-    if let Err(error) = tokio::task::LocalSet::new().run_until(spr()).await {
-        for message in error.messages() {
-            output("🛑", message)?;
-        }
-        for message in error.cause_messages() {
-            output("caused by:", message)?;
-        }
-        std::process::exit(1);
-    }
-
-    Ok(())
+    tokio::task::LocalSet::new().run_until(spr()).await
 }
