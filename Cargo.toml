@@ -25,10 +25,10 @@ http-body = "1.0.1"
 indoc = "^2.0.6"
 lazy-regex = "^3.4.1"
 log = "0.4.28"
-octocrab = { version = "^0.44.1", default-features = false, features = ["opentls", "default-client", "tokio"] }
+octocrab = { version = "^0.45.0", default-features = false, features = ["opentls", "default-client", "tokio"] }
 open = "5.3.2"
 secrecy = { version = "0.10.3", default-features = false }
-serde = "^1.0.219"
+serde = "^1.0.225"
 textwrap = "^0.16.2"
 thiserror = "^2.0.16"
 tokio = { version = "^1.47.1", features = ["macros", "rt", "time"] }
