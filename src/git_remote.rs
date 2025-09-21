@@ -3,7 +3,7 @@ use std::{
     fmt::Write as _,
 };
 
-use color_eyre::eyre::{Result, eyre};
+use color_eyre::eyre::{Result, WrapErr, eyre};
 use git2::{Oid, PushOptions, RemoteCallbacks};
 use log::{debug, trace, warn};
 
@@ -36,7 +36,10 @@ impl GitRemote {
         cb.credentials(move |_url, _username, _allowed_types| {
             git2::Cred::userpass_plaintext("spr", &self.auth_token)
         });
-        let mut connection = remote.connect_auth(dir, Some(cb), None)?;
+        let mut connection =
+            remote.connect_auth(dir, Some(cb), None).wrap_err_with(|| {
+                format!("Connection to git remote failed, url: {}", &self.url)
+            })?;
         log::trace!("Connected to remote {} ({:?})", &self.url, dir);
 
         let result = func(&mut connection)?;
