@@ -3,10 +3,9 @@ use std::{
     fmt::Write as _,
 };
 
+use color_eyre::eyre::{Result, eyre};
 use git2::{Oid, PushOptions, RemoteCallbacks};
 use log::{debug, trace, warn};
-
-use crate::error::{Error, Result};
 
 #[derive(Clone)]
 pub struct GitRemote {
@@ -119,9 +118,7 @@ impl GitRemote {
         self.fetch_from_remote(&[branch_name], &[])?
             .first()
             .and_then(|&x| x)
-            .ok_or_else(|| {
-                Error::new(format!("Could not fetch branch '{}'", branch_name,))
-            })
+            .ok_or_else(|| eyre!("Could not fetch branch '{}'", branch_name))
     }
 
     pub fn push_to_remote(&self, refs: &[PushSpec]) -> Result<()> {

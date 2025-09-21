@@ -8,15 +8,16 @@
 use std::collections::HashSet;
 use std::iter::zip;
 
+use color_eyre::eyre::{Error, Result, WrapErr as _, bail, eyre};
+
 use crate::{
-    error::{add_error, Error, Result, ResultExt},
     git::PreparedCommit,
     git_remote::PushSpec,
     github::{
         GitHub, PullRequest, PullRequestRequestReviewers, PullRequestState,
         PullRequestUpdate,
     },
-    message::{validate_commit_message, MessageSection},
+    message::{MessageSection, validate_commit_message},
     output::{output, write_commit_title},
     utils::{parse_name_list, remove_all_parens, slugify},
 };
@@ -60,7 +61,7 @@ fn get_oids(refs: &str, repo: &git2::Repository) -> Result<HashSet<Oid>> {
 
     let from = revspec
         .from()
-        .ok_or(Error::new("Unexpectedly no from id in range"))?
+        .ok_or_else(|| eyre!("Unexpectedly no from id in range"))?
         .id();
     if revspec.mode().contains(git2::RevparseMode::SINGLE) {
         // simple case, just return the id
@@ -68,7 +69,7 @@ fn get_oids(refs: &str, repo: &git2::Repository) -> Result<HashSet<Oid>> {
     }
     let to = revspec
         .to()
-        .ok_or(Error::new("Unexpectedly no to id in range"))?
+        .ok_or_else(|| eyre!("Unexpectedly no to id in range"))?
         .id();
 
     let mut walk = repo.revwalk()?;
@@ -109,7 +110,7 @@ pub async fn diff(
     let revs_to_pr = match (opts.refs.as_deref(), opts.all) {
         (Some(refs), false) => Some(get_oids(refs, git.repo())?),
         (Some(_), true) => {
-            return Err(Error::new("Do not use --refs with --all"))
+            bail!("Do not use --refs with --all");
         }
         (None, true) => {
             // Operate on all commits
@@ -193,10 +194,7 @@ pub async fn diff(
 
     // This updates the commit message in the local Git repository (if it was
     // changed by the implementation)
-    add_error(
-        &mut result,
-        git.rewrite_commit_messages(prepared_commits.as_mut_slice(), None),
-    );
+    git.rewrite_commit_messages(prepared_commits.as_mut_slice(), None)?;
 
     result
 }
@@ -240,10 +238,10 @@ async fn diff_impl(
         let index = git.cherrypick(local_commit.oid, master_base_oid)?;
 
         if index.has_conflicts() {
-            return Err(Error::new(formatdoc!(
+            bail!(
                 "This commit cannot be cherry-picked on {master}.",
                 master = config.master_ref.branch_name(),
-            )));
+            );
         }
 
         // This is the tree we are getting from cherrypicking the local commit
@@ -271,7 +269,7 @@ async fn diff_impl(
 
     if let Some(ref pull_request) = pull_request {
         if pull_request.state == PullRequestState::Closed {
-            return Err(Error::new(formatdoc!(
+            return Err(Error::msg(formatdoc!(
                 "Pull request is closed. If you want to open a new one, \
                  remove the 'Pull Request' section from the commit message."
             )));
@@ -302,56 +300,49 @@ async fn diff_impl(
     let mut requested_reviewers = PullRequestRequestReviewers::default();
 
     if local_commit.pull_request_number.is_none()
-        && let Some(reviewers) = message.get(&MessageSection::Reviewers) {
-            let reviewers = parse_name_list(reviewers);
-            let mut checked_reviewers = Vec::new();
+        && let Some(reviewers) = message.get(&MessageSection::Reviewers)
+    {
+        let reviewers = parse_name_list(reviewers);
+        let mut checked_reviewers = Vec::new();
 
-            for reviewer in reviewers {
-                // Teams are indicated with a leading #
-                if let Some(slug) = reviewer.strip_prefix('#') {
-                    if let Ok(team) = GitHub::get_github_team(
-                        (&config.owner).into(),
-                        slug.into(),
-                    )
-                    .await
-                    {
-                        requested_reviewers
-                            .team_reviewers
-                            .push(team.slug.to_string());
-
-                        checked_reviewers.push(reviewer);
-                    } else {
-                        return Err(Error::new(format!(
-                            "Reviewers field contains unknown team '{}'",
-                            reviewer
-                        )));
-                    }
-                } else if let Ok(user) =
-                    GitHub::get_github_user(reviewer.clone()).await
+        for reviewer in reviewers {
+            // Teams are indicated with a leading #
+            if let Some(slug) = reviewer.strip_prefix('#') {
+                if let Ok(team) =
+                    GitHub::get_github_team((&config.owner).into(), slug.into())
+                        .await
                 {
-                    requested_reviewers.reviewers.push(user.login);
-                    if let Some(name) = user.name {
-                        checked_reviewers.push(format!(
-                            "{} ({})",
-                            reviewer.clone(),
-                            remove_all_parens(&name)
-                        ));
-                    } else {
-                        checked_reviewers.push(reviewer);
-                    }
-                } else {
-                    return Err(Error::new(format!(
-                        "Reviewers field contains unknown user '{}'",
-                        reviewer
-                    )));
-                }
-            }
+                    requested_reviewers
+                        .team_reviewers
+                        .push(team.slug.to_string());
 
-            message.insert(
-                MessageSection::Reviewers,
-                checked_reviewers.join(", "),
-            );
+                    checked_reviewers.push(reviewer);
+                } else {
+                    bail!(
+                        "Reviewers field contains unknown team '{}'",
+                        reviewer,
+                    );
+                }
+            } else if let Ok(user) =
+                GitHub::get_github_user(reviewer.clone()).await
+            {
+                requested_reviewers.reviewers.push(user.login);
+                if let Some(name) = user.name {
+                    checked_reviewers.push(format!(
+                        "{} ({})",
+                        reviewer.clone(),
+                        remove_all_parens(&name)
+                    ));
+                } else {
+                    checked_reviewers.push(reviewer);
+                }
+            } else {
+                bail!("Reviewers field contains unknown user '{}'", reviewer);
+            }
         }
+
+        message.insert(MessageSection::Reviewers, checked_reviewers.join(", "));
+    }
 
     // Get the name of the existing Pull Request branch, or constuct one if
     // there is none yet.
@@ -573,7 +564,7 @@ async fn diff_impl(
         };
 
         if input.is_empty() {
-            return Err(Error::new("Aborted as per user request".to_string()));
+            bail!("Aborted as per user request");
         }
 
         *message_on_prompt = input.clone();
@@ -727,10 +718,10 @@ async fn diff_impl(
             .await;
         match result {
             Ok(()) => (),
-            Err(error) => {
+            Err(report) => {
                 output("⚠️", "Requesting reviewers failed")?;
-                for message in error.messages() {
-                    output("  ", message)?;
+                for message in report.chain() {
+                    output("  ", &message.to_string())?;
                 }
             }
         }

@@ -5,9 +5,10 @@
  * LICENSE file in the root directory of this source tree.
  */
 
+use color_eyre::eyre::Result;
+
 use crate::{
-    error::Result,
-    message::{build_commit_message, MessageSection},
+    message::{MessageSection, build_commit_message},
     output::output,
 };
 
