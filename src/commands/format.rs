@@ -5,8 +5,9 @@
  * LICENSE file in the root directory of this source tree.
  */
 
+use color_eyre::eyre::{Result, eyre};
+
 use crate::{
-    error::{Error, Result},
     message::validate_commit_message,
     output::{output, write_commit_title},
 };
@@ -49,7 +50,7 @@ pub async fn format(
     git.rewrite_commit_messages(slice, None)?;
 
     if failure {
-        Err(Error::empty())
+        Err(eyre!("format failed"))
     } else {
         Ok(())
     }

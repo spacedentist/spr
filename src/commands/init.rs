@@ -5,21 +5,19 @@
  * LICENSE file in the root directory of this source tree.
  */
 
+use color_eyre::eyre::{Result, WrapErr, bail};
 use indoc::formatdoc;
 use lazy_regex::regex;
 use octocrab::FromResponse;
 use secrecy::ExposeSecret as _;
 
-use crate::{
-    error::{Error, Result, ResultExt},
-    output::output,
-};
+use crate::output::output;
 
 pub async fn init() -> Result<()> {
     output("👋", "Welcome to spr!")?;
 
     let path = std::env::current_dir()?;
-    let repo = git2::Repository::discover(path.clone()).reword(formatdoc!(
+    let repo = git2::Repository::discover(path.clone()).wrap_err(formatdoc!(
         "Could not open a Git repository in {:?}. Please run 'spr' from within \
          a Git repository.",
         path
@@ -209,34 +207,32 @@ fn validate_branch_prefix(branch_prefix: &str) -> Result<()> {
         || branch_prefix.ends_with(".lock")
         || branch_prefix.starts_with('.')
     {
-        return Err(Error::new("Branch prefix cannot have slash-separated component beginning with a dot . or ending with the sequence .lock"));
+        bail!(
+            "Branch prefix cannot have slash-separated component beginning with a dot . or ending with the sequence .lock",
+        );
     }
 
     if branch_prefix.contains("..") {
-        return Err(Error::new(
-            "Branch prefix cannot contain two consecutive dots anywhere.",
-        ));
+        bail!("Branch prefix cannot contain two consecutive dots anywhere.",);
     }
 
     if branch_prefix.chars().any(|c| c.is_ascii_control()) {
-        return Err(Error::new(
-            "Branch prefix cannot contain ASCII control sequence",
-        ));
+        bail!("Branch prefix cannot contain ASCII control sequence",);
     }
 
     let forbidden_chars_re = regex!(r"[ \~\^:?*\[\\]");
     if forbidden_chars_re.is_match(branch_prefix) {
-        return Err(Error::new(
-            "Branch prefix contains one or more forbidden characters.",
-        ));
+        bail!("Branch prefix contains one or more forbidden characters.",);
     }
 
     if branch_prefix.contains("//") || branch_prefix.starts_with('/') {
-        return Err(Error::new("Branch prefix contains multiple consecutive slashes or starts with slash."));
+        bail!(
+            "Branch prefix contains multiple consecutive slashes or starts with slash.",
+        );
     }
 
     if branch_prefix.contains("@{") {
-        return Err(Error::new("Branch prefix cannot contain the sequence @{"));
+        bail!("Branch prefix cannot contain the sequence @{{");
     }
 
     Ok(())
