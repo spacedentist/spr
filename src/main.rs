@@ -10,7 +10,7 @@
 //! stacked to allow for a series of code reviews of interdependent code.
 
 use clap::{Parser, Subcommand};
-use color_eyre::eyre::{Error, Result};
+use color_eyre::eyre::{Error, Result, eyre};
 use log::debug;
 use spr::commands;
 
@@ -79,14 +79,6 @@ enum Commands {
     Close(commands::close::CloseOptions),
 }
 
-#[derive(Debug, thiserror::Error)]
-pub enum OptionsError {
-    #[error(
-        "GitHub repository must be given as 'OWNER/REPO', but given value was '{0}'"
-    )]
-    InvalidRepository(String),
-}
-
 pub async fn spr() -> Result<()> {
     let cli = Cli::parse();
     debug!("Started with command line: {:?}", cli);
@@ -127,7 +119,10 @@ pub async fn spr() -> Result<()> {
         let captures = lazy_regex::regex!(r#"^([\w\-\.]+)/([\w\-\.]+)$"#)
             .captures(&github_repository)
             .ok_or_else(|| {
-                OptionsError::InvalidRepository(github_repository.clone())
+                eyre!(
+                    "GitHub repository must be given as 'OWNER/REPO', but given value was '{}'",
+                    &github_repository,
+                )
             })?;
         (
             captures.get(1).unwrap().as_str().to_string(),
