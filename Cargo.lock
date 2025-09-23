@@ -1709,7 +1709,6 @@ dependencies = [
  "secrecy",
  "serde",
  "textwrap",
- "thiserror 2.0.16",
  "tokio",
  "unicode-normalization",
 ]
