@@ -18,6 +18,7 @@ pub struct Config {
     pub auth_token: String,
     pub require_approval: bool,
     pub require_test_plan: bool,
+    pub check_for_commits_from_others: bool,
 }
 
 impl Config {
@@ -30,6 +31,7 @@ impl Config {
         auth_token: String,
         require_approval: bool,
         require_test_plan: bool,
+        check_for_commits_from_others: bool,
     ) -> Self {
         let master_ref =
             GitHubBranch::new_from_branch_name(&master_branch, &master_branch);
@@ -41,6 +43,7 @@ impl Config {
             auth_token,
             require_approval,
             require_test_plan,
+            check_for_commits_from_others,
         }
     }
 
@@ -106,6 +109,7 @@ mod tests {
             "xyz".into(),
             false,
             true,
+            false,
         )
     }
 

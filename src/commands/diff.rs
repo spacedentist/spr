@@ -18,7 +18,7 @@ use crate::{
         PullRequestUpdate,
     },
     message::{MessageSection, validate_commit_message},
-    output::{output, write_commit_title},
+    output::{output, write_commit_info, write_commit_title},
     utils::{parse_name_list, remove_all_parens, slugify},
 };
 use git2::Oid;
@@ -432,6 +432,49 @@ async fn diff_impl(
             }
 
             return Ok(());
+        }
+    }
+
+    if let Some(ref pull_request) = pull_request
+        && config.check_for_commits_from_others
+    {
+        let last_pr_commit = git.repo().find_commit(pull_request.head_oid)?;
+        let last_pr_committer = last_pr_commit.committer();
+        let local_commit = git.repo().find_commit(local_commit.oid)?;
+        let local_committer = local_commit.committer();
+        if local_committer.name() != last_pr_committer.name() {
+            let commit_id = last_pr_commit.id().to_string();
+            let summary = last_pr_commit.summary().unwrap_or("<title unknown>");
+            let pr_committer = last_pr_committer.name().unwrap_or("unknown");
+            output("⚠️", "The last PR commit is not from you:")?;
+            write_commit_info(&commit_id[0..7], &summary, &pr_committer)?;
+            let pr_branch_name = pull_request.head.branch_name().to_string();
+            let input = tokio::task::spawn_blocking(move || {
+                dialoguer::Input::<String>::new()
+                    .with_prompt(formatdoc!(
+                        "
+
+                            Please select what you want do:
+                            1) Type 'yes' to continue (risks losing changes from others)
+                            2) Hit Enter to stop
+
+                            Then manually merge in the changes from the PR:
+
+                            git fetch origin {pr_branch_name}
+                            git merge --squash origin/{pr_branch_name}
+                            git commit --amend
+
+                            Then run `spr diff` again.
+
+                            ",
+                    ))
+                    .allow_empty(true)
+                    .interact_text()
+            })
+            .await??;
+            if input.is_empty() || input != "yes" {
+                bail!("Aborted as per user request");
+            }
         }
     }
 
