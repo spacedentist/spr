@@ -42,3 +42,18 @@ pub fn write_commit_title(prepared_commit: &PreparedCommit) -> Result<()> {
     ))?;
     Ok(())
 }
+
+pub fn write_commit_info(
+    short_id: &str,
+    title: &str,
+    committer: &str,
+) -> Result<()> {
+    let term = console::Term::stdout();
+    term.write_line(&format!(
+        "{} {} (from {})",
+        console::style(short_id).italic(),
+        console::style(title).yellow(),
+        console::style(committer)
+    ))?;
+    Ok(())
+}

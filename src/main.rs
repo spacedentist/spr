@@ -138,6 +138,10 @@ pub async fn spr() -> Result<()> {
         .get_bool("spr.requireTestPlan")
         .ok()
         .unwrap_or(true);
+    let check_for_commits_from_others = git_config
+        .get_bool("spr.checkForCommitsFromOthers")
+        .ok()
+        .unwrap_or(false);
 
     let github_auth_token = match cli.github_auth_token {
         Some(v) => Ok(v),
@@ -152,6 +156,7 @@ pub async fn spr() -> Result<()> {
         github_auth_token.clone(),
         require_approval,
         require_test_plan,
+        check_for_commits_from_others,
     );
     debug!("config: {:?}", config);
 
