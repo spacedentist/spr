@@ -14,6 +14,8 @@ Comprehensive documentation is available here: https://spacedentist.github.io/sp
 
 ## Installation
 
+[![Packaging status](https://repology.org/badge/vertical-allrepos/spr-super-pull-requests.svg)](https://repology.org/project/spr-super-pull-requests/versions)
+
 ### Binary Installation
 
 #### Using Homebrew
