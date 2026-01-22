@@ -2,7 +2,6 @@ use color_eyre::eyre::{Result, eyre};
 
 use crate::{
     git::PreparedCommit,
-    message::validate_commit_message,
     output::{output, write_commit_title},
 };
 
@@ -54,10 +53,9 @@ pub async fn amend(
         let pull_request = pull_requests.pop().flatten();
         if let Some(pull_request) = pull_request {
             let pull_request = pull_request.await??;
-            commit.message = pull_request.sections;
+            commit.message = pull_request.message;
         }
-        failure = validate_commit_message(&commit.message, config).is_err()
-            || failure;
+        failure = commit.message.validate(config).is_err() || failure;
     }
     git.rewrite_commit_messages(slice, None)?;
 

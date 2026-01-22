@@ -5,7 +5,6 @@ use std::time::Duration;
 use crate::{
     git_remote::PushSpec,
     github::{PullRequestState, PullRequestUpdate, ReviewStatus},
-    message::build_github_body_for_merging,
     output::{output, write_commit_title},
 };
 
@@ -271,7 +270,7 @@ pub async fn land(
                 .merge(pull_request_number)
                 .method(octocrab::params::pulls::MergeMethod::Squash)
                 .title(pull_request.title)
-                .message(build_github_body_for_merging(&pull_request.sections))
+                .message(pull_request.message.to_github_body_for_merging())
                 .sha(format!("{}", pr_head_oid))
                 .send()
                 .await

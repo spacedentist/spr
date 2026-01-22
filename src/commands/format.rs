@@ -1,9 +1,6 @@
 use color_eyre::eyre::{Result, eyre};
 
-use crate::{
-    message::validate_commit_message,
-    output::{output, write_commit_title},
-};
+use crate::output::{output, write_commit_title};
 
 #[derive(Debug, clap::Parser)]
 pub struct FormatOptions {
@@ -37,8 +34,7 @@ pub async fn format(
 
     for commit in slice.iter() {
         write_commit_title(commit)?;
-        failure = validate_commit_message(&commit.message, config).is_err()
-            || failure;
+        failure = commit.message.validate(config).is_err() || failure;
     }
     git.rewrite_commit_messages(slice, None)?;
 

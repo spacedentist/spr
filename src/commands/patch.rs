@@ -1,9 +1,6 @@
 use color_eyre::eyre::Result;
 
-use crate::{
-    message::{MessageSection, build_commit_message},
-    output::output,
-};
+use crate::output::output;
 
 #[derive(Debug, clap::Parser)]
 pub struct PatchOptions {
@@ -26,16 +23,15 @@ pub async fn patch(
     config: &crate::config::Config,
 ) -> Result<()> {
     let pr = gh.clone().get_pull_request(opts.pull_request).await?;
+    let title = pr.message.title();
+    let title_display = if title.is_empty() {
+        "(no title)"
+    } else {
+        title
+    };
     output(
         "#️⃣ ",
-        &format!(
-            "Pull Request #{}: {}",
-            pr.number,
-            pr.sections
-                .get(&MessageSection::Title)
-                .map(|s| &s[..])
-                .unwrap_or("(no title)")
-        ),
+        &format!("Pull Request #{}: {}", pr.number, title_display),
     )?;
 
     let branch_name = if let Some(name) = opts.branch_name {
@@ -99,7 +95,7 @@ pub async fn patch(
         // the commit we created above to prepare the base of this commit.
         git.create_derived_commit(
             pr.head_oid,
-            &build_commit_message(&pr.sections),
+            &pr.message.to_string(),
             git.get_tree_oid_for_commit(pr.head_oid)?,
             &[pr_master_oid],
         )?

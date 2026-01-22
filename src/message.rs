@@ -1,278 +1,411 @@
 use color_eyre::eyre::{Result, bail};
+use std::fmt;
 
 use crate::output::output;
 
-pub type MessageSectionsMap =
-    std::collections::BTreeMap<MessageSection, String>;
-
-#[derive(PartialEq, Eq, PartialOrd, Ord, Clone, Copy, Debug)]
-pub enum MessageSection {
-    Title,
-    Body,
-    Reviewers,
-    ReviewedBy,
-    PullRequest,
+/// Represents a structured commit message with title, body, and trailers.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct CommitMessage {
+    title: String,
+    body: String,
+    trailers: Vec<(String, String)>, // Preserve order
 }
 
-pub fn message_section_label(section: &MessageSection) -> &'static str {
-    use MessageSection::*;
-
-    match section {
-        Title => "Title",
-        Body => "Body",
-        Reviewers => "Reviewers",
-        ReviewedBy => "Reviewed By",
-        PullRequest => "Pull Request",
+impl CommitMessage {
+    /// Create a new commit message.
+    pub fn new(title: String, body: String) -> Self {
+        Self {
+            title,
+            body,
+            trailers: Vec::new(),
+        }
     }
-}
 
-pub fn message_section_by_label(label: &str) -> Option<MessageSection> {
-    use MessageSection::*;
+    /// Parse a commit message from a string.
+    pub fn parse(msg: &str) -> Self {
+        let msg = msg.trim();
+        if msg.is_empty() {
+            return Self::new(String::new(), String::new());
+        }
 
-    match &label.to_ascii_lowercase()[..] {
-        "title" => Some(Title),
-        "reviewer" => Some(Reviewers),
-        "reviewers" => Some(Reviewers),
-        "reviewed by" => Some(ReviewedBy),
-        "pull request" => Some(PullRequest),
-        _ => None,
-    }
-}
+        let lines: Vec<&str> = msg.lines().collect();
 
-pub fn parse_message(
-    msg: &str,
-    top_section: MessageSection,
-) -> MessageSectionsMap {
-    let regex = lazy_regex::regex!(r#"^\s*([\w\s]+?)\s*:\s*(.*)$"#);
+        // First line is the title
+        let title = lines.first().map(|s| s.to_string()).unwrap_or_default();
 
-    let mut section = top_section;
-    let mut lines_in_section = Vec::<&str>::new();
-    let mut sections =
-        std::collections::BTreeMap::<MessageSection, String>::new();
+        if lines.len() == 1 {
+            return Self::new(title, String::new());
+        }
 
-    for (lineno, line) in msg
-        .trim()
-        .split('\n')
-        .map(|line| line.trim_end())
-        .enumerate()
-    {
-        if let Some(caps) = regex.captures(line) {
-            let label = caps.get(1).unwrap().as_str();
-            let payload = caps.get(2).unwrap().as_str();
+        // Find where trailers start (last paragraph that looks like trailers)
+        let trailer_start = Self::find_trailer_start(&lines);
 
-            if let Some(new_section) = message_section_by_label(label) {
-                append_to_message_section(
-                    sections.entry(section),
-                    lines_in_section.join("\n").trim(),
-                );
-                section = new_section;
-                lines_in_section = vec![payload];
-                continue;
+        // Extract body (everything between title and trailers)
+        let body_lines = &lines[1..trailer_start];
+        let body = body_lines.join("\n").trim().to_string();
+
+        // Parse trailers
+        let mut trailers = Vec::new();
+        if trailer_start < lines.len() {
+            trailers = Self::parse_trailers(&lines[trailer_start..]);
+        }
+
+        // Handle backwards compatibility: look for old-style sections in body
+        let (body, legacy_trailers) = Self::extract_legacy_sections(&body);
+
+        // Merge legacy trailers with parsed trailers (parsed trailers take precedence)
+        let trailer_keys: std::collections::HashSet<_> =
+            trailers.iter().map(|(k, _)| k.to_lowercase()).collect();
+        for (key, value) in legacy_trailers {
+            if !trailer_keys.contains(&key.to_lowercase()) {
+                trailers.push((key, value));
             }
         }
 
-        if lineno == 0 && top_section == MessageSection::Title {
-            sections.insert(top_section, line.to_string());
-            section = MessageSection::Body;
-        } else {
-            lines_in_section.push(line);
+        Self {
+            title,
+            body,
+            trailers,
         }
     }
 
-    if !lines_in_section.is_empty() {
-        append_to_message_section(
-            sections.entry(section),
-            lines_in_section.join("\n").trim(),
-        );
-    }
+    /// Find where trailers start in the message.
+    /// Returns the index of the first line that's part of the trailer block.
+    fn find_trailer_start(lines: &[&str]) -> usize {
+        if lines.len() <= 1 {
+            return lines.len();
+        }
 
-    sections
-}
+        // Trailers must be in the last paragraph, separated by blank lines
+        // Work backwards to find the last paragraph
+        let mut last_para_end = lines.len();
+        let mut last_para_start = lines.len();
+        let mut in_content = false;
 
-fn append_to_message_section(
-    entry: std::collections::btree_map::Entry<MessageSection, String>,
-    text: &str,
-) {
-    if !text.is_empty() {
-        entry
-            .and_modify(|value| {
-                if value.is_empty() {
-                    *value = text.to_string();
-                } else {
-                    *value = format!("{}\n\n{}", value, text);
+        for (i, line) in lines.iter().enumerate().rev() {
+            if line.trim().is_empty() {
+                if in_content {
+                    // Found blank line before content, this ends the last paragraph search
+                    last_para_start = i + 1;
+                    break;
                 }
-            })
-            .or_insert_with(|| text.to_string());
-    } else {
-        entry.or_default();
-    }
-}
-
-pub fn build_message(
-    section_texts: &MessageSectionsMap,
-    sections: &[MessageSection],
-) -> String {
-    let mut result = String::new();
-    let mut display_label = false;
-
-    for section in sections {
-        let value = section_texts.get(section);
-        if let Some(text) = value {
-            if !result.is_empty() {
-                result.push('\n');
+            } else {
+                if !in_content {
+                    // Found first non-blank line from the end
+                    last_para_end = i + 1;
+                }
+                in_content = true;
             }
+        }
 
-            if section != &MessageSection::Title
-                && section != &MessageSection::Body
-            {
-                // Once we encounter a section that's neither Title nor Body,
-                // we start displaying the labels.
-                display_label = true;
-            }
+        // If we never found a blank line, the whole message is one paragraph
+        if last_para_start >= last_para_end {
+            last_para_start = 1; // Skip title line
+        }
 
-            if display_label {
-                let label = message_section_label(section);
-                result.push_str(label);
-                result.push_str(
-                    if label.len() + text.len() > 76 || text.contains('\n') {
-                        ":\n"
-                    } else {
-                        ": "
-                    },
-                );
-            }
+        // Check if the last paragraph looks like trailers
+        if last_para_start >= lines.len() {
+            return lines.len();
+        }
 
-            result.push_str(text);
-            result.push('\n');
+        let para_lines = &lines[last_para_start..last_para_end];
+        let trailer_like_count = para_lines
+            .iter()
+            .filter(|line| Self::is_trailer_line(line))
+            .count();
+
+        // If most lines look like trailers, treat it as a trailer block
+        if trailer_like_count > 0 && trailer_like_count * 2 >= para_lines.len()
+        {
+            last_para_start
+        } else {
+            lines.len()
         }
     }
 
-    result
-}
-
-pub fn build_commit_message(section_texts: &MessageSectionsMap) -> String {
-    build_message(
-        section_texts,
-        &[
-            MessageSection::Title,
-            MessageSection::Body,
-            MessageSection::Reviewers,
-            MessageSection::ReviewedBy,
-            MessageSection::PullRequest,
-        ],
-    )
-}
-
-pub fn build_github_body(section_texts: &MessageSectionsMap) -> String {
-    build_message(section_texts, &[MessageSection::Body])
-}
-
-pub fn build_github_body_for_merging(
-    section_texts: &MessageSectionsMap,
-) -> String {
-    build_message(
-        section_texts,
-        &[
-            MessageSection::Body,
-            MessageSection::Reviewers,
-            MessageSection::ReviewedBy,
-            MessageSection::PullRequest,
-        ],
-    )
-}
-
-pub fn validate_commit_message(
-    message: &MessageSectionsMap,
-    _config: &crate::config::Config,
-) -> Result<()> {
-    let title_missing_or_empty = match message.get(&MessageSection::Title) {
-        None => true,
-        Some(title) => title.is_empty(),
-    };
-    if title_missing_or_empty {
-        output("💔", "Commit message does not have a title!")?;
-        bail!("Commit message does not have a title!");
+    /// Check if a line looks like a trailer.
+    fn is_trailer_line(line: &str) -> bool {
+        lazy_regex::regex!(r"^[A-Za-z0-9][\w-]*\s*:\s*.+$").is_match(line)
     }
 
-    Ok(())
+    /// Parse trailer lines into key-value pairs.
+    fn parse_trailers(lines: &[&str]) -> Vec<(String, String)> {
+        let mut trailers = Vec::new();
+        let regex = lazy_regex::regex!(r"^([A-Za-z0-9][\w-]*)\s*:\s*(.*)$");
+
+        for line in lines {
+            if let Some(caps) = regex.captures(line) {
+                let key = caps.get(1).unwrap().as_str().to_string();
+                let value = caps.get(2).unwrap().as_str().trim().to_string();
+                trailers.push((key, value));
+            }
+        }
+
+        trailers
+    }
+
+    /// Extract legacy-style sections from body for backwards compatibility.
+    /// Returns (cleaned_body, legacy_trailers).
+    fn extract_legacy_sections(body: &str) -> (String, Vec<(String, String)>) {
+        let mut trailers = Vec::new();
+        let mut cleaned_lines = Vec::new();
+        let mut in_legacy_section = false;
+
+        for line in body.lines() {
+            // Check for old-style sections: "Pull Request:", "Reviewers:", "Reviewed By:"
+            if let Some((key, value)) = Self::parse_legacy_section_line(line) {
+                in_legacy_section = true;
+                let trailer_key = match key.as_str() {
+                    "Pull Request" => "Pull-request".to_string(),
+                    _ => key,
+                };
+                trailers.push((trailer_key, value));
+            } else if line.trim().is_empty() {
+                if !in_legacy_section {
+                    cleaned_lines.push(line);
+                }
+            } else {
+                // If we hit a non-empty, non-section line after sections started,
+                // it's not a clean section block, so include everything
+                if in_legacy_section {
+                    // This shouldn't happen in well-formed messages
+                    in_legacy_section = false;
+                }
+                cleaned_lines.push(line);
+            }
+        }
+
+        (cleaned_lines.join("\n").trim().to_string(), trailers)
+    }
+
+    /// Parse a legacy section line like "Pull Request: url" or "Reviewers: names".
+    fn parse_legacy_section_line(line: &str) -> Option<(String, String)> {
+        let regex = lazy_regex::regex!(
+            r"^(Pull Request|Reviewers|Reviewed By)\s*:\s*(.*)$"
+        );
+        regex.captures(line).map(|caps| {
+            (
+                caps.get(1).unwrap().as_str().to_string(),
+                caps.get(2).unwrap().as_str().trim().to_string(),
+            )
+        })
+    }
+
+    /// Get the title.
+    pub fn title(&self) -> &str {
+        &self.title
+    }
+
+    /// Get the body.
+    pub fn body(&self) -> &str {
+        &self.body
+    }
+
+    /// Get a trailer value by key (case-insensitive lookup).
+    pub fn get_trailer(&self, key: &str) -> Option<&str> {
+        let key_lower = key.to_lowercase();
+        self.trailers
+            .iter()
+            .find(|(k, _)| k.to_lowercase() == key_lower)
+            .map(|(_, v)| v.as_str())
+    }
+
+    /// Set a trailer value. If the key exists, updates it; otherwise adds it.
+    pub fn set_trailer(&mut self, key: String, value: String) {
+        let key_lower = key.to_lowercase();
+
+        if let Some(pos) = self
+            .trailers
+            .iter()
+            .position(|(k, _)| k.to_lowercase() == key_lower)
+        {
+            self.trailers[pos] = (key, value);
+        } else {
+            self.trailers.push((key, value));
+        }
+    }
+
+    /// Remove a trailer by key (case-insensitive).
+    pub fn remove_trailer(&mut self, key: &str) {
+        let key_lower = key.to_lowercase();
+        self.trailers.retain(|(k, _)| k.to_lowercase() != key_lower);
+    }
+
+    /// Get all trailers as a slice.
+    pub fn trailers(&self) -> &[(String, String)] {
+        &self.trailers
+    }
+
+    /// Set the title.
+    pub fn set_title(&mut self, title: String) {
+        self.title = title;
+    }
+
+    /// Set the body.
+    pub fn set_body(&mut self, body: String) {
+        self.body = body;
+    }
+
+    /// Validate the commit message.
+    pub fn validate(&self, _config: &crate::config::Config) -> Result<()> {
+        if self.title.is_empty() {
+            output("💔", "Commit message does not have a title!")?;
+            bail!("Commit message does not have a title!");
+        }
+        Ok(())
+    }
+
+    /// Build a GitHub PR body from this message.
+    pub fn to_github_body(&self) -> String {
+        self.body.clone()
+    }
+
+    /// Build a GitHub PR body for merging (includes trailers).
+    pub fn to_github_body_for_merging(&self) -> String {
+        let mut result = self.body.clone();
+
+        // Add relevant trailers
+        for (key, value) in &self.trailers {
+            let key_lower = key.to_lowercase();
+            if key_lower == "reviewers"
+                || key_lower == "reviewed-by"
+                || key_lower == "pull-request"
+            {
+                if !result.is_empty() {
+                    result.push_str("\n\n");
+                }
+                result.push_str(key);
+                result.push_str(": ");
+                result.push_str(value);
+            }
+        }
+
+        result
+    }
+}
+
+impl fmt::Display for CommitMessage {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        // Title
+        write!(f, "{}", self.title)?;
+
+        // Body (if present)
+        if !self.body.is_empty() {
+            write!(f, "\n\n{}", self.body)?;
+        }
+
+        // Trailers (if present)
+        if !self.trailers.is_empty() {
+            write!(f, "\n\n")?;
+            for (key, value) in &self.trailers {
+                writeln!(f, "{}: {}", key, value)?;
+            }
+        }
+
+        Ok(())
+    }
 }
 
 #[cfg(test)]
 mod tests {
-    // Note this useful idiom: importing names from outer (for mod tests) scope.
     use super::*;
 
     #[test]
     fn test_parse_empty() {
-        assert_eq!(
-            parse_message("", MessageSection::Title),
-            [(MessageSection::Title, "".to_string())].into()
-        );
+        let msg = CommitMessage::parse("");
+        assert_eq!(msg.title(), "");
+        assert_eq!(msg.body(), "");
+        assert_eq!(msg.trailers().len(), 0);
     }
 
     #[test]
-    fn test_parse_title() {
-        assert_eq!(
-            parse_message("Hello", MessageSection::Title),
-            [(MessageSection::Title, "Hello".to_string())].into()
-        );
-        assert_eq!(
-            parse_message("Hello\n", MessageSection::Title),
-            [(MessageSection::Title, "Hello".to_string())].into()
-        );
-        assert_eq!(
-            parse_message("\n\nHello\n\n", MessageSection::Title),
-            [(MessageSection::Title, "Hello".to_string())].into()
-        );
+    fn test_parse_title_only() {
+        let msg = CommitMessage::parse("Hello");
+        assert_eq!(msg.title(), "Hello");
+        assert_eq!(msg.body(), "");
+        assert_eq!(msg.trailers().len(), 0);
     }
 
     #[test]
     fn test_parse_title_and_body() {
-        assert_eq!(
-            parse_message("Hello\nFoo Bar", MessageSection::Title),
-            [
-                (MessageSection::Title, "Hello".to_string()),
-                (MessageSection::Body, "Foo Bar".to_string())
-            ]
-            .into()
+        let msg = CommitMessage::parse("Hello\n\nThis is the body");
+        assert_eq!(msg.title(), "Hello");
+        assert_eq!(msg.body(), "This is the body");
+        assert_eq!(msg.trailers().len(), 0);
+    }
+
+    #[test]
+    fn test_parse_with_trailers() {
+        let msg = CommitMessage::parse(
+            "Fix bug\n\nThis fixes the issue\n\nSigned-off-by: Alice <alice@example.com>\nReviewed-by: Bob",
         );
+        assert_eq!(msg.title(), "Fix bug");
+        assert_eq!(msg.body(), "This fixes the issue");
+        assert_eq!(msg.trailers().len(), 2);
         assert_eq!(
-            parse_message("Hello\n\nFoo Bar", MessageSection::Title),
-            [
-                (MessageSection::Title, "Hello".to_string()),
-                (MessageSection::Body, "Foo Bar".to_string())
-            ]
-            .into()
+            msg.get_trailer("Signed-off-by"),
+            Some("Alice <alice@example.com>")
         );
+        assert_eq!(msg.get_trailer("Reviewed-by"), Some("Bob"));
+    }
+
+    #[test]
+    fn test_parse_legacy_pull_request() {
+        let msg = CommitMessage::parse(
+            "Title\n\nBody text\n\nPull Request: https://github.com/owner/repo/pull/123",
+        );
+        assert_eq!(msg.title(), "Title");
+        assert_eq!(msg.body(), "Body text");
         assert_eq!(
-            parse_message("Hello\n\n\nFoo Bar", MessageSection::Title),
-            [
-                (MessageSection::Title, "Hello".to_string()),
-                (MessageSection::Body, "Foo Bar".to_string())
-            ]
-            .into()
+            msg.get_trailer("Pull-request"),
+            Some("https://github.com/owner/repo/pull/123")
         );
     }
 
     #[test]
-    fn test_parse_sections() {
-        assert_eq!(
-            parse_message(
-                r#"Hello
-
-here is
-the
-body
-
-Reviewer:    a, b, c"#,
-                MessageSection::Title
-            ),
-            [
-                (MessageSection::Title, "Hello".to_string()),
-                (MessageSection::Body, "here is\nthe\nbody".to_string()),
-                (MessageSection::Reviewers, "a, b, c".to_string()),
-            ]
-            .into()
+    fn test_set_trailer() {
+        let mut msg =
+            CommitMessage::new("Title".to_string(), "Body".to_string());
+        msg.set_trailer(
+            "Pull-request".to_string(),
+            "https://github.com/owner/repo/pull/123".to_string(),
         );
+        assert_eq!(
+            msg.get_trailer("Pull-request"),
+            Some("https://github.com/owner/repo/pull/123")
+        );
+        assert_eq!(
+            msg.get_trailer("pull-request"),
+            Some("https://github.com/owner/repo/pull/123")
+        );
+    }
+
+    #[test]
+    fn test_remove_trailer() {
+        let mut msg = CommitMessage::parse(
+            "Title\n\nBody\n\nPull-request: url\nReviewers: alice",
+        );
+        assert_eq!(msg.trailers().len(), 2);
+        msg.remove_trailer("Pull-request");
+        assert_eq!(msg.trailers().len(), 1);
+        assert_eq!(msg.get_trailer("Pull-request"), None);
+        assert_eq!(msg.get_trailer("Reviewers"), Some("alice"));
+    }
+
+    #[test]
+    fn test_to_string() {
+        let mut msg =
+            CommitMessage::new("Title".to_string(), "Body text".to_string());
+        msg.set_trailer("Signed-off-by".to_string(), "Alice".to_string());
+        let result = msg.to_string();
+        assert_eq!(result, "Title\n\nBody text\n\nSigned-off-by: Alice\n");
+    }
+
+    #[test]
+    fn test_case_insensitive_trailer_lookup() {
+        let msg = CommitMessage::parse("Title\n\nBody\n\nPull-request: url");
+        assert_eq!(msg.get_trailer("Pull-request"), Some("url"));
+        assert_eq!(msg.get_trailer("pull-request"), Some("url"));
+        assert_eq!(msg.get_trailer("PULL-REQUEST"), Some("url"));
     }
 }

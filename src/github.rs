@@ -3,11 +3,7 @@ use graphql_client::{GraphQLQuery, Response};
 use serde::Deserialize;
 
 use crate::{
-    git::PreparedCommit,
-    git_remote::GitRemote,
-    message::{
-        MessageSection, MessageSectionsMap, build_github_body, parse_message,
-    },
+    git::PreparedCommit, git_remote::GitRemote, message::CommitMessage,
 };
 use std::collections::{HashMap, HashSet};
 
@@ -24,7 +20,7 @@ pub struct PullRequest {
     pub state: PullRequestState,
     pub title: String,
     pub body: Option<String>,
-    pub sections: MessageSectionsMap,
+    pub message: CommitMessage,
     pub base: GitHubBranch,
     pub head: GitHubBranch,
     pub base_oid: git2::Oid,
@@ -64,14 +60,14 @@ impl PullRequestUpdate {
     pub fn update_message(
         &mut self,
         pull_request: &PullRequest,
-        message: &MessageSectionsMap,
+        message: &CommitMessage,
     ) {
-        let title = message.get(&MessageSection::Title);
-        if title.is_some() && title != Some(&pull_request.title) {
-            self.title = title.cloned();
+        let title = message.title();
+        if !title.is_empty() && title != pull_request.title {
+            self.title = Some(title.to_string());
         }
 
-        let body = build_github_body(message);
+        let body = message.to_github_body();
         if pull_request.body.as_ref() != Some(&body) {
             self.body = Some(body);
         }
@@ -224,20 +220,17 @@ impl GitHub {
             eyre!("{} not found on GitHub", &head.ref_on_github)
         })?;
 
-        let mut sections = parse_message(&pr.body, MessageSection::Body);
-
         let title = pr.title.trim().to_string();
-        sections.insert(
-            MessageSection::Title,
-            if title.is_empty() {
-                String::from("(untitled)")
-            } else {
-                title
-            },
-        );
+        let title = if title.is_empty() {
+            String::from("(untitled)")
+        } else {
+            title
+        };
 
-        sections.insert(
-            MessageSection::PullRequest,
+        let mut message = CommitMessage::new(title, pr.body.clone());
+
+        message.set_trailer(
+            "Pull-request".to_string(),
             config.pull_request_url(number),
         );
 
@@ -284,37 +277,38 @@ impl GitHub {
             .into_iter()
             .collect();
 
-        sections.insert(
-            MessageSection::Reviewers,
+        let reviewers_str =
             requested_reviewers.iter().fold(String::new(), |out, slug| {
                 if out.is_empty() {
                     slug.to_string()
                 } else {
                     format!("{}, {}", out, slug)
                 }
-            }),
-        );
+            });
+        if !reviewers_str.is_empty() {
+            message.set_trailer("Reviewers".to_string(), reviewers_str);
+        }
 
         if review_status == Some(ReviewStatus::Approved) {
-            sections.insert(
-                MessageSection::ReviewedBy,
-                reviewers
-                    .iter()
-                    .filter_map(|(k, v)| {
-                        if v == &ReviewStatus::Approved {
-                            Some(k)
-                        } else {
-                            None
-                        }
-                    })
-                    .fold(String::new(), |out, slug| {
-                        if out.is_empty() {
-                            slug.to_string()
-                        } else {
-                            format!("{}, {}", out, slug)
-                        }
-                    }),
-            );
+            let reviewed_by = reviewers
+                .iter()
+                .filter_map(|(k, v)| {
+                    if v == &ReviewStatus::Approved {
+                        Some(k)
+                    } else {
+                        None
+                    }
+                })
+                .fold(String::new(), |out, slug| {
+                    if out.is_empty() {
+                        slug.to_string()
+                    } else {
+                        format!("{}, {}", out, slug)
+                    }
+                });
+            if !reviewed_by.is_empty() {
+                message.set_trailer("Reviewed-by".to_string(), reviewed_by);
+            }
         }
 
         Ok::<_, Error>(PullRequest {
@@ -327,7 +321,7 @@ impl GitHub {
             },
             title: pr.title,
             body: Some(pr.body),
-            sections,
+            message,
             base,
             head,
             base_oid,
@@ -342,21 +336,22 @@ impl GitHub {
 
     pub async fn create_pull_request(
         &self,
-        message: &MessageSectionsMap,
+        message: &CommitMessage,
         base_ref_name: String,
         head_ref_name: String,
         draft: bool,
     ) -> Result<u64> {
+        let title = message.title();
+        let title = if title.is_empty() {
+            "(untitled)"
+        } else {
+            title
+        };
+
         let number = octocrab::instance()
             .pulls(self.config.owner.clone(), self.config.repo.clone())
-            .create(
-                message
-                    .get(&MessageSection::Title)
-                    .unwrap_or(&String::new()),
-                head_ref_name,
-                base_ref_name,
-            )
-            .body(build_github_body(message))
+            .create(title, head_ref_name, base_ref_name)
+            .body(message.to_github_body())
             .draft(Some(draft))
             .send()
             .await?

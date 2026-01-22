@@ -1,12 +1,7 @@
 use color_eyre::eyre::{Error, Result, WrapErr as _, bail, eyre};
 use std::collections::{HashSet, VecDeque};
 
-use crate::{
-    config::Config,
-    message::{
-        MessageSection, MessageSectionsMap, build_commit_message, parse_message,
-    },
-};
+use crate::{config::Config, message::CommitMessage};
 use git2::Oid;
 
 #[derive(Debug)]
@@ -14,7 +9,7 @@ pub struct PreparedCommit {
     pub oid: Oid,
     pub short_id: String,
     pub parent_oid: Oid,
-    pub message: MessageSectionsMap,
+    pub message: CommitMessage,
     pub pull_request_number: Option<u64>,
 }
 
@@ -81,7 +76,7 @@ impl Git {
         for prepared_commit in commits.iter_mut() {
             let commit = self.repo.find_commit(prepared_commit.oid)?;
             if limit != Some(0) {
-                message = build_commit_message(&prepared_commit.message);
+                message = prepared_commit.message.to_string();
                 if Some(&message[..]) != commit.message() {
                     updating = true;
                 }
@@ -244,26 +239,26 @@ impl Git {
 
         let parent_oid = commit.parent_id(0)?;
 
-        let message =
+        let message_text =
             String::from_utf8_lossy(commit.message_bytes()).into_owned();
 
         let short_id =
             commit.as_object().short_id()?.as_str().unwrap().to_string();
         drop(commit);
 
-        let mut message = parse_message(&message, MessageSection::Title);
+        let mut message = CommitMessage::parse(&message_text);
 
         let pull_request_number = message
-            .get(&MessageSection::PullRequest)
+            .get_trailer("Pull-request")
             .and_then(|text| config.parse_pull_request_field(text));
 
         if let Some(number) = pull_request_number {
-            message.insert(
-                MessageSection::PullRequest,
+            message.set_trailer(
+                "Pull-request".to_string(),
                 config.pull_request_url(number),
             );
         } else {
-            message.remove(&MessageSection::PullRequest);
+            message.remove_trailer("Pull-request");
         }
 
         Ok(PreparedCommit {

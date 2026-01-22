@@ -1,6 +1,6 @@
 use color_eyre::eyre::Result;
 
-use crate::{git::PreparedCommit, message::MessageSection};
+use crate::git::PreparedCommit;
 
 pub fn output(icon: &str, text: &str) -> Result<()> {
     let term = console::Term::stdout();
@@ -21,17 +21,16 @@ pub fn output(icon: &str, text: &str) -> Result<()> {
 
 pub fn write_commit_title(prepared_commit: &PreparedCommit) -> Result<()> {
     let term = console::Term::stdout();
+    let title = prepared_commit.message.title();
+    let title_display = if title.is_empty() {
+        "(untitled)"
+    } else {
+        title
+    };
     term.write_line(&format!(
         "{} {}",
         console::style(&prepared_commit.short_id).italic(),
-        console::style(
-            prepared_commit
-                .message
-                .get(&MessageSection::Title)
-                .map(|s| &s[..])
-                .unwrap_or("(untitled)"),
-        )
-        .yellow()
+        console::style(title_display).yellow()
     ))?;
     Ok(())
 }

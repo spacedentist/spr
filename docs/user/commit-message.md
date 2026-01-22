@@ -34,16 +34,24 @@ At various stages of a commit's lifecycle, `spr` will add lines to the commit me
 - After first creating a PR, `spr diff` will amend the commit message to include a line like this at the end:
 
   ```
-  Pull Request: https://github.com/example/project/pull/123
+  Pull-request: https://github.com/example/project/pull/123
   ```
 
   The presence or absence of this line is how `spr diff` knows whether a commit already has a PR created for it, and thus whether it should create a new PR or update an existing one.
 
 - `spr land` will amend the commit message to exactly match the title/description of the PR (just as `spr amend` does), as well as adding a line like this:
   ```
-  Reviewed By: github-username-a
+  Reviewed-by: github-username-a
   ```
   This line names the GitHub users who approved the PR.
+
+These metadata fields (`Pull-request`, `Reviewers`, `Reviewed-by`) are stored as [git trailers](https://git-scm.com/docs/git-interpret-trailers) — special key-value lines at the end of commit messages that follow git's trailer conventions.
+
+### Backwards compatibility
+
+Older versions of spr used different field names with spaces instead of hyphens (`Pull Request:` instead of `Pull-request:`, and `Reviewed By:` instead of `Reviewed-by:`). Current versions of spr can read commit messages written by older versions and will automatically recognize these old-style fields. When spr updates a commit message (e.g., when running `spr diff` or `spr land`), it will rewrite the fields to use the new trailer format.
+
+If you have old commits with the previous field format, they will continue to work seamlessly — spr will read them correctly and update them to the new format when it next modifies the commit message.
 
 ### Example commit message lifecycle
 
@@ -66,7 +74,7 @@ This is a really cool feature! It's going to be great.
 
 Reviewers: user-a, coworker-b
 
-Pull Request: https://github.com/example/my-thing/pull/123
+Pull-request: https://github.com/example/my-thing/pull/123
 ```
 
 In this state, running `spr diff` again will update PR 123.
@@ -80,9 +88,9 @@ This is a really cool feature! It's going to be great.
 
 Reviewers: user-a, coworker-b
 
-Reviewed By: coworker-b
+Reviewed-by: coworker-b
 
-Pull Request: https://github.com/example/my-thing/pull/123
+Pull-request: https://github.com/example/my-thing/pull/123
 ```
 
 ### Reformatting the commit message
