@@ -8,17 +8,10 @@ One-line title
 Then a description, which may be multiple lines long.
 This describes the change you are making with this commit.
 
-Test Plan: how to test the change in this commit.
-
-The test plan can also be several lines long.
-
 Reviewers: github-username-a, github-username-b
 ```
 
 The first line will be the title of the PR created by `spr diff`, and the rest of the lines except for the `Reviewers` line will be the PR description (i.e. the content of the first comment). The GitHub users named on the `Reviewers` line will be added to the PR as reviewers.
-
-The `Test Plan` section is required to be present by default; `spr diff` will fail with an error if it isn't.
-You can disable this in the [configuration](../reference/configuration.md).
 
 ## Updating the commit message
 
@@ -61,10 +54,6 @@ Add feature
 
 This is a really cool feature! It's going to be great.
 
-Test Plan:
-- Run tests
-- Use the feature
-
 Reviewers: user-a, coworker-b
 ```
 
@@ -74,10 +63,6 @@ After running `spr diff` to create a PR, the local commit message will be amende
 Add feature
 
 This is a really cool feature! It's going to be great.
-
-Test Plan:
-- Run tests
-- Use the feature
 
 Reviewers: user-a, coworker-b
 
@@ -92,10 +77,6 @@ Running `spr land` will amend the commit message to have the exact title/descrip
 Add feature
 
 This is a really cool feature! It's going to be great.
-
-Test Plan:
-- Run tests
-- Use the feature
 
 Reviewers: user-a, coworker-b
 

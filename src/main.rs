@@ -127,10 +127,6 @@ pub async fn spr() -> Result<()> {
         .get_bool("spr.requireApproval")
         .ok()
         .unwrap_or(false);
-    let require_test_plan = git_config
-        .get_bool("spr.requireTestPlan")
-        .ok()
-        .unwrap_or(true);
 
     let github_auth_token = match cli.github_auth_token {
         Some(v) => Ok(v),
@@ -144,7 +140,6 @@ pub async fn spr() -> Result<()> {
         branch_prefix,
         github_auth_token.clone(),
         require_approval,
-        require_test_plan,
     );
     debug!("config: {:?}", config);
 

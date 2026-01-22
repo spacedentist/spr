@@ -224,7 +224,7 @@ impl GitHub {
             eyre!("{} not found on GitHub", &head.ref_on_github)
         })?;
 
-        let mut sections = parse_message(&pr.body, MessageSection::Summary);
+        let mut sections = parse_message(&pr.body, MessageSection::Body);
 
         let title = pr.title.trim().to_string();
         sections.insert(

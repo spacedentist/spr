@@ -8,8 +8,7 @@ pub type MessageSectionsMap =
 #[derive(PartialEq, Eq, PartialOrd, Ord, Clone, Copy, Debug)]
 pub enum MessageSection {
     Title,
-    Summary,
-    TestPlan,
+    Body,
     Reviewers,
     ReviewedBy,
     PullRequest,
@@ -20,8 +19,7 @@ pub fn message_section_label(section: &MessageSection) -> &'static str {
 
     match section {
         Title => "Title",
-        Summary => "Summary",
-        TestPlan => "Test Plan",
+        Body => "Body",
         Reviewers => "Reviewers",
         ReviewedBy => "Reviewed By",
         PullRequest => "Pull Request",
@@ -33,8 +31,6 @@ pub fn message_section_by_label(label: &str) -> Option<MessageSection> {
 
     match &label.to_ascii_lowercase()[..] {
         "title" => Some(Title),
-        "summary" => Some(Summary),
-        "test plan" => Some(TestPlan),
         "reviewer" => Some(Reviewers),
         "reviewers" => Some(Reviewers),
         "reviewed by" => Some(ReviewedBy),
@@ -77,7 +73,7 @@ pub fn parse_message(
 
         if lineno == 0 && top_section == MessageSection::Title {
             sections.insert(top_section, line.to_string());
-            section = MessageSection::Summary;
+            section = MessageSection::Body;
         } else {
             lines_in_section.push(line);
         }
@@ -127,9 +123,9 @@ pub fn build_message(
             }
 
             if section != &MessageSection::Title
-                && section != &MessageSection::Summary
+                && section != &MessageSection::Body
             {
-                // Once we encounter a section that's neither Title nor Summary,
+                // Once we encounter a section that's neither Title nor Body,
                 // we start displaying the labels.
                 display_label = true;
             }
@@ -159,8 +155,7 @@ pub fn build_commit_message(section_texts: &MessageSectionsMap) -> String {
         section_texts,
         &[
             MessageSection::Title,
-            MessageSection::Summary,
-            MessageSection::TestPlan,
+            MessageSection::Body,
             MessageSection::Reviewers,
             MessageSection::ReviewedBy,
             MessageSection::PullRequest,
@@ -169,10 +164,7 @@ pub fn build_commit_message(section_texts: &MessageSectionsMap) -> String {
 }
 
 pub fn build_github_body(section_texts: &MessageSectionsMap) -> String {
-    build_message(
-        section_texts,
-        &[MessageSection::Summary, MessageSection::TestPlan],
-    )
+    build_message(section_texts, &[MessageSection::Body])
 }
 
 pub fn build_github_body_for_merging(
@@ -181,8 +173,7 @@ pub fn build_github_body_for_merging(
     build_message(
         section_texts,
         &[
-            MessageSection::Summary,
-            MessageSection::TestPlan,
+            MessageSection::Body,
             MessageSection::Reviewers,
             MessageSection::ReviewedBy,
             MessageSection::PullRequest,
@@ -192,15 +183,8 @@ pub fn build_github_body_for_merging(
 
 pub fn validate_commit_message(
     message: &MessageSectionsMap,
-    config: &crate::config::Config,
+    _config: &crate::config::Config,
 ) -> Result<()> {
-    if config.require_test_plan
-        && !message.contains_key(&MessageSection::TestPlan)
-    {
-        output("💔", "Commit message does not have a Test Plan!")?;
-        bail!("Commit message does not have a Test Plan!");
-    }
-
     let title_missing_or_empty = match message.get(&MessageSection::Title) {
         None => true,
         Some(title) => title.is_empty(),
@@ -243,12 +227,12 @@ mod tests {
     }
 
     #[test]
-    fn test_parse_title_and_summary() {
+    fn test_parse_title_and_body() {
         assert_eq!(
             parse_message("Hello\nFoo Bar", MessageSection::Title),
             [
                 (MessageSection::Title, "Hello".to_string()),
-                (MessageSection::Summary, "Foo Bar".to_string())
+                (MessageSection::Body, "Foo Bar".to_string())
             ]
             .into()
         );
@@ -256,7 +240,7 @@ mod tests {
             parse_message("Hello\n\nFoo Bar", MessageSection::Title),
             [
                 (MessageSection::Title, "Hello".to_string()),
-                (MessageSection::Summary, "Foo Bar".to_string())
+                (MessageSection::Body, "Foo Bar".to_string())
             ]
             .into()
         );
@@ -264,15 +248,7 @@ mod tests {
             parse_message("Hello\n\n\nFoo Bar", MessageSection::Title),
             [
                 (MessageSection::Title, "Hello".to_string()),
-                (MessageSection::Summary, "Foo Bar".to_string())
-            ]
-            .into()
-        );
-        assert_eq!(
-            parse_message("Hello\n\nSummary:\nFoo Bar", MessageSection::Title),
-            [
-                (MessageSection::Title, "Hello".to_string()),
-                (MessageSection::Summary, "Foo Bar".to_string())
+                (MessageSection::Body, "Foo Bar".to_string())
             ]
             .into()
         );
@@ -284,24 +260,16 @@ mod tests {
             parse_message(
                 r#"Hello
 
-Test plan: testzzz
-
-Summary:
 here is
 the
-summary (it's not a "Test plan:"!)
+body
 
 Reviewer:    a, b, c"#,
                 MessageSection::Title
             ),
             [
                 (MessageSection::Title, "Hello".to_string()),
-                (
-                    MessageSection::Summary,
-                    "here is\nthe\nsummary (it's not a \"Test plan:\"!)"
-                        .to_string()
-                ),
-                (MessageSection::TestPlan, "testzzz".to_string()),
+                (MessageSection::Body, "here is\nthe\nbody".to_string()),
                 (MessageSection::Reviewers, "a, b, c".to_string()),
             ]
             .into()
