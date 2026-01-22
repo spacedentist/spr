@@ -9,6 +9,7 @@ use std::collections::HashSet;
 use std::iter::zip;
 
 use color_eyre::eyre::{Error, Result, WrapErr as _, bail, eyre};
+use log::debug;
 
 use crate::{
     git::PreparedCommit,
@@ -118,8 +119,8 @@ pub async fn diff(
         }
         (None, false) => {
             // Only operate on the HEAD commit.
-            prepared_commits.drain(0..prepared_commits.len() - 1);
-            None
+            let head_oid = prepared_commits.last().unwrap().oid;
+            Some(HashSet::from([head_oid]))
         }
     };
 
@@ -148,9 +149,11 @@ pub async fn diff(
         .collect();
 
     let mut message_on_prompt = "".to_string();
+    let mut selected_indices = HashSet::new();
 
-    for (prepared_commit, pull_request_task) in
+    for (i, (prepared_commit, pull_request_task)) in
         zip(prepared_commits.iter_mut(), pull_request_tasks.into_iter())
+            .enumerate()
     {
         if result.is_err() {
             break;
@@ -165,6 +168,8 @@ pub async fn diff(
         {
             continue;
         }
+
+        selected_indices.insert(i);
 
         let pull_request = if let Some(task) = pull_request_task {
             Some(task.await??)
@@ -196,7 +201,306 @@ pub async fn diff(
     // changed by the implementation)
     git.rewrite_commit_messages(prepared_commits.as_mut_slice(), None)?;
 
+    // Create or update dependency comments for each PR
+    if config.create_dependency_comments && !opts.cherry_pick {
+        debug!("Checking for dependency comments");
+        for (i, prepared_commit) in prepared_commits.iter().enumerate() {
+            if !selected_indices.contains(&i) {
+                continue;
+            }
+
+            if let Some(number) = prepared_commit.pull_request_number {
+                let marker = "<!-- spr-dependencies -->";
+                let existing_comment = gh.find_comment(number, marker).await;
+
+                if let Some(body) = build_dependency_body(
+                    i,
+                    prepared_commits.as_slice(),
+                    existing_comment.as_ref().ok().map(|(_, b)| b.as_str()),
+                ) {
+                    debug!(
+                        "PR #{}: dependency comment body generated:\n{}",
+                        number, body
+                    );
+                    if let Ok((comment_id, old_body)) = existing_comment {
+                        if old_body == body {
+                            debug!(
+                                "PR #{}: existing comment {} is identical, skipping update",
+                                number, comment_id
+                            );
+                        } else {
+                            debug!(
+                                "PR #{}: updating existing comment {}\nOld body:\n{}",
+                                number, comment_id, old_body
+                            );
+                            gh.update_comment(comment_id, body).await?;
+                        }
+                    } else {
+                        debug!(
+                            "PR #{}: creating new dependency comment",
+                            number
+                        );
+                        gh.create_comment(number, body).await?;
+                    }
+                } else {
+                    debug!("PR #{}: no dependencies, skipping comment", number);
+                }
+            }
+        }
+    }
+
     result
+}
+
+const LIST_START_MARKER: &str = "<!-- spr-dependencies-list-start -->";
+const LIST_END_MARKER: &str = "<!-- spr-dependencies-list-end -->";
+
+fn build_dependency_body(
+    i: usize,
+    prepared_commits: &[PreparedCommit],
+    existing_body: Option<&str>,
+) -> Option<String> {
+    if prepared_commits[i].is_cherry_pick {
+        return None;
+    }
+
+    let mut current_stack_prs = Vec::new();
+    for pc in prepared_commits[0..i].iter().rev() {
+        if let Some(num) = pc.pull_request_number {
+            current_stack_prs.push(num);
+        }
+    }
+    current_stack_prs.reverse();
+
+    let mut dependencies = Vec::new();
+    let mut seen = HashSet::new();
+
+    if let Some(body) = existing_body {
+        let re = lazy_regex::regex!(r"^- #(\d+)");
+        for line in body.lines() {
+            if let Some(caps) = re.captures(line.trim()) {
+                if let Ok(num) = caps[1].parse::<u64>() {
+                    if !current_stack_prs.contains(&num)
+                        && Some(num) != prepared_commits[i].pull_request_number
+                        && !seen.contains(&num)
+                    {
+                        dependencies.push(format!("- #{}", num));
+                        seen.insert(num);
+                    }
+                }
+            }
+        }
+    }
+
+    for num in current_stack_prs {
+        if !seen.contains(&num) {
+            dependencies.push(format!("- #{}", num));
+            seen.insert(num);
+        }
+    }
+
+    if dependencies.is_empty() {
+        None
+    } else {
+        let marker = "<!-- spr-dependencies -->";
+        let list_content = dependencies.join("\n");
+        let list_with_markers = format!(
+            "{}\n{}\n{}",
+            LIST_START_MARKER, list_content, LIST_END_MARKER
+        );
+
+        if let Some(body) = existing_body {
+            if let (Some(start), Some(end)) =
+                (body.find(LIST_START_MARKER), body.find(LIST_END_MARKER))
+            {
+                if start < end {
+                    let mut new_body = body[..start].to_string();
+                    new_body.push_str(&list_with_markers);
+                    new_body.push_str(&body[end + LIST_END_MARKER.len()..]);
+                    return Some(new_body);
+                }
+            }
+            // If markers not found or invalid, append to the end
+            let mut new_body = body.trim_end().to_string();
+            new_body.push_str("\n\n");
+            new_body.push_str(&list_with_markers);
+            Some(new_body)
+        } else {
+            Some(format!(
+                "{}\nThis is a stacked pull request managed by [spr](https://github.com/spacedentist/spr). The following pull requests must be merged before this one:\n\n{}\n",
+                marker,
+                list_with_markers
+            ))
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::message::MessageSection;
+    use std::collections::BTreeMap;
+
+    fn make_commit(
+        oid_byte: u8,
+        pr: Option<u64>,
+        title: &str,
+    ) -> PreparedCommit {
+        let mut message = BTreeMap::new();
+        message.insert(MessageSection::Title, title.to_string());
+        PreparedCommit {
+            oid: git2::Oid::from_bytes(&[oid_byte; 20]).unwrap(),
+            short_id: format!("{:x}", oid_byte),
+            parent_oid: git2::Oid::from_bytes(&[0; 20]).unwrap(),
+            message,
+            pull_request_number: pr,
+            is_cherry_pick: false,
+        }
+    }
+
+    #[test]
+    fn test_build_dependency_body() {
+        let commits = vec![
+            make_commit(1, Some(101), "Commit 1"),
+            make_commit(2, Some(102), "Commit 2"),
+            make_commit(3, Some(103), "Commit 3"),
+        ];
+
+        // First commit has no dependencies
+        assert_eq!(build_dependency_body(0, &commits, None), None);
+
+        // Second commit depends on first
+        let body2 = build_dependency_body(1, &commits, None).unwrap();
+        assert!(body2.contains("- #101"));
+        assert!(!body2.contains("Commit 1"));
+        assert!(body2.contains("stacked pull request"));
+
+        // Third commit depends on first and second
+        let body3 = build_dependency_body(2, &commits, None).unwrap();
+        assert!(body3.contains("- #101"));
+        assert!(body3.contains("- #102"));
+    }
+
+    #[test]
+    fn test_build_dependency_body_reorder_scenario() {
+        // Initial stack: Master -> C1 -> C2 -> C3
+        let mut stack = vec![
+            make_commit(1, Some(101), "Commit 1"),
+            make_commit(2, Some(102), "Commit 2"),
+            make_commit(3, Some(103), "Commit 3"),
+        ];
+
+        // PR1: No dependencies
+        assert_eq!(build_dependency_body(0, &stack, None), None);
+
+        // PR2: Depends on PR1
+        let body2 = build_dependency_body(1, &stack, None).unwrap();
+        assert!(body2.contains("- #101"));
+        assert!(!body2.contains("#102"));
+        assert!(!body2.contains("#103"));
+
+        // PR3: Depends on PR1 and PR2
+        let body3 = build_dependency_body(2, &stack, None).unwrap();
+        assert!(body3.contains("- #101"));
+        assert!(body3.contains("- #102"));
+        assert!(!body3.contains("#103"));
+
+        // Reorder stack: Master -> C1 -> C3 -> C2
+        stack.swap(1, 2);
+
+        // PR3: Now depends only on PR1
+        let body3_new = build_dependency_body(1, &stack, None).unwrap();
+        assert!(body3_new.contains("- #101"));
+        assert!(!body3_new.contains("#102"));
+        assert!(!body3_new.contains("#103"));
+
+        // PR2: Now depends on PR1 and PR3
+        let body2_new = build_dependency_body(2, &stack, None).unwrap();
+        assert!(body2_new.contains("- #101"));
+        assert!(body2_new.contains("- #103"));
+        assert!(!body2_new.contains("#102"));
+    }
+
+    #[test]
+    fn test_build_dependency_body_with_cherry_pick() {
+        let mut stack = vec![
+            make_commit(1, Some(101), "Commit 1"),
+            make_commit(2, Some(102), "Commit 2"),
+            make_commit(3, Some(103), "Commit 3"),
+        ];
+
+        // C2 is cherry-picked
+        stack[1].is_cherry_pick = true;
+
+        // PR1: No dependencies
+        assert_eq!(build_dependency_body(0, &stack, None), None);
+
+        // PR2: Cherry-picked, so no dependencies
+        assert_eq!(build_dependency_body(1, &stack, None), None);
+
+        // PR3: Depends on PR2 and PR1 (even though PR2 is a cherry-pick)
+        let body3 = build_dependency_body(2, &stack, None).unwrap();
+        assert!(body3.contains("- #102"));
+        assert!(body3.contains("- #101"));
+    }
+
+    #[test]
+    fn test_build_dependency_body_retains_merged() {
+        let mut commits = vec![
+            make_commit(1, Some(101), "Commit 1"),
+            make_commit(2, Some(102), "Commit 2"),
+            make_commit(3, Some(103), "Commit 3"),
+        ];
+        // Pull request 101 was merged and is no longer in the stack.
+        let initial_body = build_dependency_body(2, &commits, None).unwrap();
+        assert!(initial_body.contains("- #101"), "Should include dependency PR #101");
+
+        commits.remove(0); // PR 101 was merged, so no longer in dependencies
+        let new_body = build_dependency_body(1, &commits, Some(initial_body.as_str())).unwrap();
+        assert!(new_body.contains("- #101"), "Should retain merged PR #101");
+        assert!(new_body.contains("- #102"), "Should include current dependency PR #102");
+
+        // Ensure #101 is before #102 if it was before in the existing body
+        let pos101 = new_body.find("#101").unwrap();
+        let pos102 = new_body.find("#102").unwrap();
+        assert!(pos101 < pos102);
+    }
+
+    #[test]
+    fn test_build_dependency_body_preserves_manual_edits() {
+        let commits = vec![
+            make_commit(1, Some(101), "Commit 1"),
+            make_commit(2, Some(102), "Commit 2"),
+        ];
+        let existing_body = "<!-- spr-dependencies -->\n\
+                             MANUAL NOTE: THIS IS IMPORTANT\n\n\
+                             <!-- spr-dependencies-list-start -->\n\
+                             - #100\n\
+                             <!-- spr-dependencies-list-end -->\n\
+                             ANOTHER MANUAL NOTE";
+
+        let body = build_dependency_body(1, &commits, Some(existing_body)).unwrap();
+        
+        assert!(body.contains("MANUAL NOTE: THIS IS IMPORTANT"));
+        assert!(body.contains("ANOTHER MANUAL NOTE"));
+        assert!(body.contains("- #100"), "Should retain merged/manual PR #100");
+        assert!(body.contains("- #101"), "Should include current dependency PR #101");
+        assert!(!body.contains("- #102"), "Should not include itself");
+        
+        // Ensure markers are still there
+        assert!(body.contains(LIST_START_MARKER));
+        assert!(body.contains(LIST_END_MARKER));
+        
+        // Verify manual addition to the list is preserved
+        let existing_body_with_manual_pr = "<!-- spr-dependencies -->\n\
+                                            <!-- spr-dependencies-list-start -->\n\
+                                            - #999\n\
+                                            - #101\n\
+                                            <!-- spr-dependencies-list-end -->";
+        let body2 = build_dependency_body(1, &commits, Some(existing_body_with_manual_pr)).unwrap();
+        assert!(body2.contains("- #999"));
+        assert!(body2.contains("- #101"));
+    }
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -261,6 +565,10 @@ async fn diff_impl(
                 config.pull_request_url(number)
             ),
         )?;
+    }
+
+    if let Some(ref pr) = pull_request {
+        local_commit.is_cherry_pick = pr.base.is_master_branch();
     }
 
     if local_commit.pull_request_number.is_none() || opts.update_message {
@@ -712,6 +1020,8 @@ async fn diff_impl(
         )?;
 
         message.insert(MessageSection::PullRequest, pull_request_url);
+        local_commit.pull_request_number = Some(pull_request_number);
+        local_commit.is_cherry_pick = opts.cherry_pick;
 
         let result = gh
             .request_reviewers(pull_request_number, requested_reviewers)

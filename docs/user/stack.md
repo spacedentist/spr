@@ -56,6 +56,10 @@ This is the workflow for creating multiple PRs at the same time. This example on
 
 6. Now you're left with just commit B on top of upstream `main`, and you can use the non-stacked workflow to update and land it.
 
+If you have many pull requests in a stack, it can be helpful to have comments on each pull request that link to the other pull requests it depends on.
+You can enable this by setting the `spr.createDependencyComments` configuration value to `true`.
+When enabled, `spr diff` will automatically create and update a comment on each pull request in the stack with links to all pull requests that must be merged before it.
+
 There are a few possible variations to note:
 
 - Instead of a single run of `spr diff --all` at the beginning, you could run plain `spr diff` right after making each commit.

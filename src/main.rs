@@ -138,6 +138,10 @@ pub async fn spr() -> Result<()> {
         .get_bool("spr.requireTestPlan")
         .ok()
         .unwrap_or(true);
+    let create_dependency_comments = git_config
+        .get_bool("spr.createDependencyComments")
+        .ok()
+        .unwrap_or(false);
 
     let github_auth_token = match cli.github_auth_token {
         Some(v) => Ok(v),
@@ -152,6 +156,7 @@ pub async fn spr() -> Result<()> {
         github_auth_token.clone(),
         require_approval,
         require_test_plan,
+        create_dependency_comments,
     );
     debug!("config: {:?}", config);
 

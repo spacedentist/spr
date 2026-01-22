@@ -7,6 +7,7 @@
 
 use color_eyre::eyre::{Error, Result, WrapErr as _, eyre};
 use graphql_client::{GraphQLQuery, Response};
+use log::debug;
 use serde::Deserialize;
 
 use crate::{
@@ -452,6 +453,59 @@ impl GitHub {
             .merge_commit
             .and_then(|sha| git2::Oid::from_str(&sha.oid).ok()),
         })
+    }
+
+    pub async fn find_comment(
+        &self,
+        pr_number: u64,
+        marker: &str,
+    ) -> Result<(u64, String)> {
+        debug!("Searching for comment with marker in PR #{}", pr_number);
+        let comments = octocrab::instance()
+            .issues(&self.config.owner, &self.config.repo)
+            .list_comments(pr_number)
+            .send()
+            .await?;
+
+        for comment in comments {
+            if let Some(body) = comment.body {
+                if body.contains(marker) {
+                    debug!("Found matching comment: {}", comment.id.0);
+                    return Ok((comment.id.0, body));
+                }
+            }
+        }
+
+        debug!("No matching comment found");
+        Err(eyre!("No comment with marker found"))
+    }
+
+    pub async fn create_comment(
+        &self,
+        pr_number: u64,
+        body: String,
+    ) -> Result<u64> {
+        debug!("Creating new comment on PR #{}", pr_number);
+        let comment = octocrab::instance()
+            .issues(&self.config.owner, &self.config.repo)
+            .create_comment(pr_number, body)
+            .await?;
+
+        Ok(comment.id.0)
+    }
+
+    pub async fn update_comment(
+        &self,
+        comment_id: u64,
+        body: String,
+    ) -> Result<()> {
+        debug!("Updating comment {}", comment_id);
+        octocrab::instance()
+            .issues(&self.config.owner, &self.config.repo)
+            .update_comment(octocrab::models::CommentId(comment_id), body)
+            .await?;
+
+        Ok(())
     }
 }
 

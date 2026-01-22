@@ -23,6 +23,7 @@ pub struct PreparedCommit {
     pub parent_oid: Oid,
     pub message: MessageSectionsMap,
     pub pull_request_number: Option<u64>,
+    pub is_cherry_pick: bool,
 }
 
 #[derive(Clone)]
@@ -279,6 +280,7 @@ impl Git {
             parent_oid,
             message,
             pull_request_number,
+            is_cherry_pick: false,
         })
     }
 
