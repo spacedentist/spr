@@ -138,6 +138,10 @@ pub async fn spr() -> Result<()> {
         .get_bool("spr.requireTestPlan")
         .ok()
         .unwrap_or(true);
+    let use_commit_title_for_initial_commit = git_config
+        .get_bool("spr.useCommitTitleForInitialCommit")
+        .ok()
+        .unwrap_or(true);
 
     let github_auth_token = match cli.github_auth_token {
         Some(v) => Ok(v),
@@ -152,6 +156,7 @@ pub async fn spr() -> Result<()> {
         github_auth_token.clone(),
         require_approval,
         require_test_plan,
+        use_commit_title_for_initial_commit,
     );
     debug!("config: {:?}", config);
 

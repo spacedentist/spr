@@ -18,6 +18,7 @@ pub struct Config {
     pub auth_token: String,
     pub require_approval: bool,
     pub require_test_plan: bool,
+    pub use_commit_title_for_initial_commit: bool,
 }
 
 impl Config {
@@ -30,6 +31,7 @@ impl Config {
         auth_token: String,
         require_approval: bool,
         require_test_plan: bool,
+        use_commit_title_for_initial_commit: bool,
     ) -> Self {
         let master_ref =
             GitHubBranch::new_from_branch_name(&master_branch, &master_branch);
@@ -41,6 +43,7 @@ impl Config {
             auth_token,
             require_approval,
             require_test_plan,
+            use_commit_title_for_initial_commit,
         }
     }
 
@@ -106,7 +109,41 @@ mod tests {
             "xyz".into(),
             false,
             true,
+            true,
         )
+    }
+
+    fn config_factory_with_use_commit_title(
+        use_commit_title_for_initial_commit: bool,
+    ) -> Config {
+        crate::config::Config::new(
+            "acme".into(),
+            "codez".into(),
+            "master".into(),
+            "spr/foo/".into(),
+            "xyz".into(),
+            false,
+            true,
+            use_commit_title_for_initial_commit,
+        )
+    }
+
+    #[test]
+    fn test_use_commit_title_for_initial_commit_default() {
+        let config = config_factory();
+        assert!(config.use_commit_title_for_initial_commit);
+    }
+
+    #[test]
+    fn test_use_commit_title_for_initial_commit_enabled() {
+        let config = config_factory_with_use_commit_title(true);
+        assert!(config.use_commit_title_for_initial_commit);
+    }
+
+    #[test]
+    fn test_use_commit_title_for_initial_commit_disabled() {
+        let config = config_factory_with_use_commit_title(false);
+        assert!(!config.use_commit_title_for_initial_commit);
     }
 
     #[test]
