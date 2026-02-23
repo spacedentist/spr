@@ -20,6 +20,7 @@ pub enum MessageSection {
     Reviewers,
     ReviewedBy,
     PullRequest,
+    Trailers,
 }
 
 pub fn message_section_label(section: &MessageSection) -> &'static str {
@@ -32,6 +33,7 @@ pub fn message_section_label(section: &MessageSection) -> &'static str {
         Reviewers => "Reviewers",
         ReviewedBy => "Reviewed By",
         PullRequest => "Pull Request",
+        Trailers => "",
     }
 }
 
@@ -55,9 +57,12 @@ pub fn parse_message(
     top_section: MessageSection,
 ) -> MessageSectionsMap {
     let regex = lazy_regex::regex!(r#"^\s*([\w\s]+?)\s*:\s*(.*)$"#);
+    let trailer_regex =
+        lazy_regex::regex!(r#"^([\w]+(?:-[\w]+)+)\s*:\s*(.+)$"#);
 
     let mut section = top_section;
     let mut lines_in_section = Vec::<&str>::new();
+    let mut trailer_lines = Vec::<&str>::new();
     let mut sections =
         std::collections::BTreeMap::<MessageSection, String>::new();
 
@@ -67,6 +72,17 @@ pub fn parse_message(
         .map(|line| line.trim_end())
         .enumerate()
     {
+        if trailer_regex.is_match(line) {
+            // Flush pending lines to current section before collecting trailer
+            append_to_message_section(
+                sections.entry(section),
+                lines_in_section.join("\n").trim(),
+            );
+            lines_in_section = vec![];
+            trailer_lines.push(line);
+            continue;
+        }
+
         if let Some(caps) = regex.captures(line) {
             let label = caps.get(1).unwrap().as_str();
             let payload = caps.get(2).unwrap().as_str();
@@ -95,6 +111,10 @@ pub fn parse_message(
             sections.entry(section),
             lines_in_section.join("\n").trim(),
         );
+    }
+
+    if !trailer_lines.is_empty() {
+        sections.insert(MessageSection::Trailers, trailer_lines.join("\n"));
     }
 
     sections
@@ -131,6 +151,13 @@ pub fn build_message(
         if let Some(text) = value {
             if !result.is_empty() {
                 result.push('\n');
+            }
+
+            if section == &MessageSection::Trailers {
+                // Output trailers raw, without a label
+                result.push_str(text);
+                result.push('\n');
+                continue;
             }
 
             if section != &MessageSection::Title
@@ -171,6 +198,7 @@ pub fn build_commit_message(section_texts: &MessageSectionsMap) -> String {
             MessageSection::Reviewers,
             MessageSection::ReviewedBy,
             MessageSection::PullRequest,
+            MessageSection::Trailers,
         ],
     )
 }
@@ -178,7 +206,11 @@ pub fn build_commit_message(section_texts: &MessageSectionsMap) -> String {
 pub fn build_github_body(section_texts: &MessageSectionsMap) -> String {
     build_message(
         section_texts,
-        &[MessageSection::Summary, MessageSection::TestPlan],
+        &[
+            MessageSection::Summary,
+            MessageSection::TestPlan,
+            MessageSection::Trailers,
+        ],
     )
 }
 
@@ -193,6 +225,7 @@ pub fn build_github_body_for_merging(
             MessageSection::Reviewers,
             MessageSection::ReviewedBy,
             MessageSection::PullRequest,
+            MessageSection::Trailers,
         ],
     )
 }
@@ -312,6 +345,100 @@ Reviewer:    a, b, c"#,
                 (MessageSection::Reviewers, "a, b, c".to_string()),
             ]
             .into()
+        );
+    }
+
+    #[test]
+    fn test_parse_trailer() {
+        assert_eq!(
+            parse_message(
+                "Fix auth bug\n\nUpdated token validation.\n\nCo-Authored-By: Alice <alice@example.com>",
+                MessageSection::Title
+            ),
+            [
+                (MessageSection::Title, "Fix auth bug".to_string()),
+                (MessageSection::Summary, "Updated token validation.".to_string()),
+                (MessageSection::Trailers, "Co-Authored-By: Alice <alice@example.com>".to_string()),
+            ]
+            .into()
+        );
+    }
+
+    #[test]
+    fn test_parse_trailer_with_sections() {
+        assert_eq!(
+            parse_message(
+                "Fix auth bug\n\nUpdated token validation.\n\nTest Plan: manual\n\nCo-Authored-By: Alice <alice@example.com>",
+                MessageSection::Title
+            ),
+            [
+                (MessageSection::Title, "Fix auth bug".to_string()),
+                (MessageSection::Summary, "Updated token validation.".to_string()),
+                (MessageSection::TestPlan, "manual".to_string()),
+                (MessageSection::Trailers, "Co-Authored-By: Alice <alice@example.com>".to_string()),
+            ]
+            .into()
+        );
+    }
+
+    #[test]
+    fn test_parse_multiple_trailers() {
+        assert_eq!(
+            parse_message(
+                "Fix auth bug\n\nUpdated token validation.\n\nCo-Authored-By: Alice <alice@example.com>\nSigned-off-by: Bob <bob@example.com>",
+                MessageSection::Title
+            ),
+            [
+                (MessageSection::Title, "Fix auth bug".to_string()),
+                (MessageSection::Summary, "Updated token validation.".to_string()),
+                (MessageSection::Trailers, "Co-Authored-By: Alice <alice@example.com>\nSigned-off-by: Bob <bob@example.com>".to_string()),
+            ]
+            .into()
+        );
+    }
+
+    #[test]
+    fn test_build_message_with_trailers() {
+        let sections: MessageSectionsMap = [
+            (MessageSection::Title, "Fix auth bug".to_string()),
+            (
+                MessageSection::Summary,
+                "Updated token validation.".to_string(),
+            ),
+            (MessageSection::TestPlan, "manual".to_string()),
+            (
+                MessageSection::Trailers,
+                "Co-Authored-By: Alice <alice@example.com>".to_string(),
+            ),
+        ]
+        .into();
+
+        let result = build_commit_message(&sections);
+        assert!(result.ends_with("Co-Authored-By: Alice <alice@example.com>\n"));
+        assert!(!result.contains("Trailers"));
+    }
+
+    #[test]
+    fn test_roundtrip_with_trailers() {
+        let input = "Fix auth bug\n\nUpdated token validation.\n\nTest Plan: manual\n\nCo-Authored-By: Alice <alice@example.com>";
+        let sections = parse_message(input, MessageSection::Title);
+        let rebuilt = build_commit_message(&sections);
+        let reparsed = parse_message(rebuilt.trim(), MessageSection::Title);
+        assert_eq!(
+            reparsed.get(&MessageSection::Trailers),
+            Some(&"Co-Authored-By: Alice <alice@example.com>".to_string())
+        );
+        assert_eq!(
+            reparsed.get(&MessageSection::Title),
+            sections.get(&MessageSection::Title)
+        );
+        assert_eq!(
+            reparsed.get(&MessageSection::Summary),
+            sections.get(&MessageSection::Summary)
+        );
+        assert_eq!(
+            reparsed.get(&MessageSection::TestPlan),
+            sections.get(&MessageSection::TestPlan)
         );
     }
 }
