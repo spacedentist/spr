@@ -18,7 +18,7 @@ pub async fn close(
     opts: CloseOptions,
     git: &crate::git::Git,
     gh: &mut crate::github::GitHub,
-    _config: &crate::config::Config,
+    config: &crate::config::Config,
 ) -> Result<()> {
     let mut result = Ok(());
 
@@ -46,7 +46,7 @@ pub async fn close(
         // This makes it easier to run the code to update the local commit message
         // with all the changes that the implementation makes at the end, even if
         // the implementation encounters an error or exits early.
-        result = close_impl(gh, prepared_commit).await;
+        result = close_impl(gh, config, prepared_commit).await;
     }
 
     // This updates the commit message in the local Git repository (if it was
@@ -58,6 +58,7 @@ pub async fn close(
 
 async fn close_impl(
     gh: &mut crate::github::GitHub,
+    config: &crate::config::Config,
     prepared_commit: &mut PreparedCommit,
 ) -> Result<()> {
     let pull_request_number =
@@ -76,8 +77,6 @@ async fn close_impl(
     }
 
     output("📖", "Getting started...")?;
-
-    let base_is_master = pull_request.base.is_master_branch();
 
     let result = gh
         .update_pull_request(
@@ -100,6 +99,23 @@ async fn close_impl(
 
     output("📕", "Closed!")?;
 
+    // Pull Requests stacked on this one (in chain stacking mode) are based on
+    // its branch, which we are going to delete below. Base them on what this
+    // Pull Request was based on.
+    let retargeted = gh
+        .retarget_pull_requests(&pull_request.head, &pull_request.base)
+        .await?;
+    for number in retargeted {
+        output(
+            "🎯",
+            &format!(
+                "Changed the base of Pull Request #{} to {}",
+                number,
+                pull_request.base.branch_name()
+            ),
+        )?;
+    }
+
     // Remove trailers from commit that are not relevant after closing.
     prepared_commit.message.remove_trailer("Pull-request");
     prepared_commit.message.remove_trailer("Reviewed-by");
@@ -109,7 +125,10 @@ async fn close_impl(
         remote_ref: pull_request.head.on_github(),
     }];
 
-    if !base_is_master {
+    // Delete the base branch too, if spr created it for this Pull Request. If
+    // the Pull Request was stacked on another Pull Request, its base branch
+    // is the branch of that other Pull Request, which we must not delete.
+    if config.is_spr_base_branch(&pull_request.base) {
         push_specs.push(PushSpec {
             oid: None,
             remote_ref: pull_request.base.on_github(),

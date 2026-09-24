@@ -4,11 +4,12 @@ use std::iter::zip;
 use color_eyre::eyre::{Error, Result, WrapErr as _, bail, eyre};
 
 use crate::{
+    config::StackingMode,
     git::PreparedCommit,
     git_remote::PushSpec,
     github::{
-        GitHub, PullRequest, PullRequestRequestReviewers, PullRequestState,
-        PullRequestUpdate,
+        GitHub, GitHubBranch, PullRequest, PullRequestRequestReviewers,
+        PullRequestState, PullRequestUpdate,
     },
     output::{output, write_commit_title},
     utils::{parse_name_list, remove_all_parens, slugify},
@@ -99,6 +100,17 @@ pub async fn diff(
     // entire list (or more specifically the list after the first update) for
     // the rewrite_commit_messages step. This is not a problem for opts.all as
     // it only ever has a single commit to update, and so nothing after it.
+    // In chain stacking mode, we need the Pull Request of the parent of each
+    // commit we operate on. Remember the one of the parent of the first
+    // commit in the list, before we possibly drop commits from the list
+    // below. (That's `None` for the first commit on the branch, which is based
+    // on master.)
+    let mut parent_pull_request_number: Option<u64> = None;
+    if opts.refs.is_none() && !opts.all && prepared_commits.len() > 1 {
+        parent_pull_request_number =
+            prepared_commits[prepared_commits.len() - 2].pull_request_number;
+    }
+
     let revs_to_pr = match (opts.refs.as_deref(), opts.all) {
         (Some(refs), false) => Some(get_oids(refs, git.repo())?),
         (Some(_), true) => {
@@ -155,6 +167,7 @@ pub async fn diff(
             .map(|revs| !revs.contains(&prepared_commit.oid))
             .unwrap_or(false)
         {
+            parent_pull_request_number = prepared_commit.pull_request_number;
             continue;
         }
 
@@ -165,6 +178,36 @@ pub async fn diff(
         };
 
         write_commit_title(prepared_commit)?;
+
+        // In chain stacking mode, a commit that is not directly based on
+        // master gets a Pull Request that is based on the parent commit's Pull
+        // Request.
+        let stack_on = if config.stacking_mode == StackingMode::Chain
+            && !opts.cherry_pick
+            && prepared_commit.parent_oid != master_base_oid
+        {
+            match parent_pull_request_number {
+                Some(number) => {
+                    match gh.clone().get_pull_request(number).await {
+                        Ok(pull_request) => Some(pull_request),
+                        Err(error) => {
+                            result = Err(error);
+                            break;
+                        }
+                    }
+                }
+                None => {
+                    result = Err(eyre!(
+                        "The parent commit does not have a Pull Request. Run \
+                         `spr diff` on the parent commit first, or use \
+                         `spr diff --all`."
+                    ));
+                    break;
+                }
+            }
+        } else {
+            None
+        };
 
         // The further implementation of the diff command is in a separate
         // function. This makes it easier to run the code to update the local
@@ -180,8 +223,11 @@ pub async fn diff(
             prepared_commit,
             master_base_oid,
             pull_request,
+            stack_on,
         )
         .await;
+
+        parent_pull_request_number = prepared_commit.pull_request_number;
     }
 
     // This updates the commit message in the local Git repository (if it was
@@ -201,6 +247,7 @@ async fn diff_impl(
     local_commit: &mut PreparedCommit,
     master_base_oid: Oid,
     pull_request: Option<PullRequest>,
+    stack_on: Option<PullRequest>,
 ) -> Result<()> {
     // Parsed commit message of the local commit
     let message = &mut local_commit.message;
@@ -337,6 +384,36 @@ async fn diff_impl(
             .set_trailer("Reviewers".to_string(), checked_reviewers.join(", "));
     }
 
+    // In chain stacking mode, if this commit is stacked on other commits, the
+    // Pull Request is based on the Pull Request of the parent commit. That
+    // Pull Request must reflect the parent commit, so check that first.
+    if let Some(ref stack_on) = stack_on {
+        if stack_on.state != PullRequestState::Open {
+            bail!(
+                "The Pull Request of the parent commit (#{}) is closed. Rebase \
+                 this commit or update the parent commit first.",
+                stack_on.number
+            );
+        }
+
+        let current_master_oid =
+            gh.remote().fetch_branch(config.master_ref.branch_name())?;
+        let stack_on_master_base = git
+            .repo()
+            .merge_base(stack_on.head_oid, current_master_oid)?;
+
+        if git.get_tree_oid_for_commit(stack_on.head_oid)? != new_base_tree
+            || stack_on_master_base != master_base_oid
+        {
+            bail!(
+                "The Pull Request of the parent commit (#{}) is not up to \
+                 date. Run `spr diff` on the parent commit first, or use \
+                 `spr diff --all`.",
+                stack_on.number
+            );
+        }
+    }
+
     // Get the name of the existing Pull Request branch, or constuct one if
     // there is none yet.
 
@@ -356,7 +433,8 @@ async fn diff_impl(
     // base, and the commit id of the master commit this PR is currently based
     // on.
     // If there is no pre-existing Pull Request, we fill in the equivalent
-    // values.
+    // values. (If the new Pull Request is stacked on the parent commit's Pull
+    // Request, its head starts off at the head of that Pull Request.)
     let (pr_head_oid, pr_head_tree, pr_base_oid, pr_base_tree, pr_master_base) =
         if let Some(pr) = &pull_request {
             let pr_head_tree = git.get_tree_oid_for_commit(pr.head_oid)?;
@@ -381,7 +459,10 @@ async fn diff_impl(
             let master_base_tree =
                 git.get_tree_oid_for_commit(master_base_oid)?;
             (
-                master_base_oid,
+                stack_on
+                    .as_ref()
+                    .map(|pr| pr.head_oid)
+                    .unwrap_or(master_base_oid),
                 master_base_tree,
                 master_base_oid,
                 master_base_tree,
@@ -390,27 +471,82 @@ async fn diff_impl(
         };
     let needs_merging_master = pr_master_base != master_base_oid;
 
-    // If the existing Pull Request targets a base branch created by spr, but
-    // the local commit is now directly based on master (typically because the
-    // commits below it have been landed and the local branch was rebased), or
-    // we are cherry-picking, then the base branch is not needed anymore. The
-    // Pull Request should target master directly, so it can be merged there.
-    // We only do this for base branches using our branch prefix, so we never
-    // retarget Pull Requests that the user pointed at some other branch.
-    let obsolete_base_branch = pull_request.as_ref().and_then(|pr| {
-        (!pr.base.is_master_branch()
-            && pr.base.branch_name().starts_with(&config.branch_prefix)
-            && (directly_based_on_master || opts.cherry_pick))
-            .then(|| pr.base.clone())
-    });
+    // Determine the branch the Pull Request should be based on, if it's not
+    // the master branch:
+    // * If we are stacking on the parent commit's Pull Request, it's the head
+    //   branch of that Pull Request.
+    // * If the existing Pull Request uses a base branch created by spr, we
+    //   keep using it, unless the local commit is now directly based on
+    //   master (typically because the commits below it have been landed and
+    //   the local branch was rebased), or we are cherry-picking. Then that
+    //   base branch is not needed anymore.
+    // * If the existing Pull Request is stacked on another spr Pull Request
+    //   (i.e. its base is a Pull Request branch with our branch prefix), but
+    //   we are not stacking on it anymore, we don't use that as a base.
+    // * If the user pointed an existing Pull Request at some other branch, we
+    //   leave that as it is.
+    // `None` means that the Pull Request is based on master, or that we are
+    // going to create a new base branch below.
+    let is_stacked_base = |branch: &GitHubBranch| {
+        !branch.is_master_branch()
+            && !config.is_spr_base_branch(branch)
+            && branch.branch_name().starts_with(&config.branch_prefix)
+    };
+    let base_branch = if let Some(ref stack_on) = stack_on {
+        Some(stack_on.head.clone())
+    } else {
+        match &pull_request {
+            None => None,
+            Some(pr) if pr.base.is_master_branch() => None,
+            Some(pr) if config.is_spr_base_branch(&pr.base) => {
+                (!directly_based_on_master && !opts.cherry_pick)
+                    .then(|| pr.base.clone())
+            }
+            Some(pr) if is_stacked_base(&pr.base) => None,
+            Some(pr) => Some(pr.base.clone()),
+        }
+    };
+
+    // Whether the existing Pull Request is already based on the branch
+    // determined above.
+    let keeps_base =
+        pull_request.as_ref().is_none_or(|pr| match &base_branch {
+            Some(base_branch) => {
+                pr.base.branch_name() == base_branch.branch_name()
+            }
+            None => pr.base.is_master_branch(),
+        });
+
+    // Whether the Pull Request branch already contains everything it should
+    // be based on, so that nothing needs to be merged into it.
+    let nothing_to_merge = if let Some(ref stack_on) = stack_on {
+        pull_request.as_ref().is_some_and(|pr| {
+            pr.head_oid == stack_on.head_oid
+                || git
+                    .repo()
+                    .graph_descendant_of(pr.head_oid, stack_on.head_oid)
+                    .unwrap_or(false)
+        })
+    } else {
+        !needs_merging_master && pr_base_tree == new_base_tree
+    };
+
+    // Whether we may change the Pull Request's base without merging anything
+    // into the Pull Request branch. That's the case if the Pull Request is
+    // going to be based on master or stacked on another Pull Request. It is
+    // not the case if we are going to create a new base branch.
+    let can_rebase_without_merge = keeps_base
+        || stack_on.is_some()
+        || directly_based_on_master
+        || opts.cherry_pick;
 
     // At this point we can check if we can exit early because no update to the
-    // existing Pull Request is necessary
+    // existing Pull Request branch is necessary
     if let Some(ref pull_request) = pull_request {
         // So there is an existing Pull Request...
-        if !needs_merging_master
-            && pr_head_tree == new_head_tree
-            && pr_base_tree == new_base_tree
+        if pr_head_tree == new_head_tree
+            && nothing_to_merge
+            && can_rebase_without_merge
         {
             // ...and it does not need a rebase, and the trees of both Pull
             // Request branch and base are all the right ones.
@@ -425,11 +561,16 @@ async fn diff_impl(
                 pull_request_updates.update_message(pull_request, message);
             }
 
-            if obsolete_base_branch.is_some() {
-                // The Pull Request branch already contains the master commit
-                // we are based on, so we only need to change its base.
-                pull_request_updates.base =
-                    Some(config.master_ref.branch_name().to_string());
+            if !keeps_base {
+                // The Pull Request branch already contains what it should be
+                // based on, so we only need to change its base.
+                pull_request_updates.base = Some(
+                    base_branch
+                        .as_ref()
+                        .unwrap_or(&config.master_ref)
+                        .branch_name()
+                        .to_string(),
+                );
             }
 
             if !pull_request_updates.is_empty() {
@@ -445,28 +586,19 @@ async fn diff_impl(
                 }
             }
 
-            if let Some(ref obsolete_base_branch) = obsolete_base_branch {
-                retargeted_to_master(gh, config, obsolete_base_branch)?;
+            if !keeps_base {
+                base_changed(
+                    gh,
+                    config,
+                    &pull_request.base,
+                    base_branch.as_ref().unwrap_or(&config.master_ref),
+                    stack_on.as_ref().map(|pr| pr.number),
+                )?;
             }
 
             return Ok(());
         }
     }
-
-    // Check if there is a base branch on GitHub already. That's the case when
-    // there is an existing Pull Request, and its base is not the master branch
-    // (unless we determined above that the base branch is not needed anymore).
-    let base_branch = if obsolete_base_branch.is_some() {
-        None
-    } else if let Some(ref pr) = pull_request {
-        if pr.base.is_master_branch() {
-            None
-        } else {
-            Some(pr.base.clone())
-        }
-    } else {
-        None
-    };
 
     // We are going to construct `pr_base_parent: Option<Oid>`.
     // The value will be the commit we have to merge into the new Pull Request
@@ -475,7 +607,11 @@ async fn diff_impl(
     // that's also rebasing).
     // If it's `None`, then we will not merge anything into the new Pull Request
     // commit.
-    // If we are updating an existing PR, then there are three cases here:
+    // If we are stacking on the parent commit's Pull Request, we merge in the
+    // head of that Pull Request, unless the Pull Request branch already
+    // contains it.
+    // Otherwise, if we are updating an existing PR, then there are three cases
+    // here:
     // (1) the parent tree of this commit is unchanged and we do not need to
     //     merge in master, which means that the local commit was amended, but
     //     not rebased. We don't need to merge anything into the Pull Request
@@ -507,16 +643,25 @@ async fn diff_impl(
     // master, those two are the same (and we want to apply case 1). If the
     // commit is not directly based on master, we have to create this new PR
     // with a base branch, so that is case 3.
+    // `new_base_branch_commit` is the commit we constructed for the base
+    // branch in case 3, which needs pushing to the base branch.
 
-    let (pr_base_parent, base_branch) =
-        if pr_base_tree == new_base_tree && !needs_merging_master {
+    let (pr_base_parent, new_base_branch_commit, base_branch) =
+        if let Some(ref stack_on) = stack_on {
+            // Stacking on the parent commit's Pull Request
+            (
+                (!nothing_to_merge).then_some(stack_on.head_oid),
+                None,
+                base_branch,
+            )
+        } else if nothing_to_merge && can_rebase_without_merge {
             // Case 1
-            (None, base_branch)
+            (None, None, base_branch)
         } else if base_branch.is_none()
             && (directly_based_on_master || opts.cherry_pick)
         {
             // Case 2
-            (Some(master_base_oid), None)
+            (Some(master_base_oid), None, None)
         } else {
             // Case 3
 
@@ -566,7 +711,11 @@ async fn diff_impl(
                 )?)
             };
 
-            (Some(new_base_branch_commit), Some(base_branch))
+            (
+                Some(new_base_branch_commit),
+                Some(new_base_branch_commit),
+                Some(base_branch),
+            )
         };
 
     let mut github_commit_message = opts.message.clone();
@@ -594,7 +743,8 @@ async fn diff_impl(
 
     // Construct the new commit for the Pull Request branch. First parent is the
     // current head commit of the Pull Request (we set this to the master base
-    // commit earlier if the Pull Request does not yet exist)
+    // commit, or the head of the Pull Request we are stacking on, earlier if
+    // the Pull Request does not yet exist)
     let mut pr_commit_parents = vec![pr_head_oid];
 
     // If we prepared a commit earlier that needs merging into the Pull Request
@@ -627,9 +777,17 @@ async fn diff_impl(
         remote_ref: pull_request_branch.on_github(),
     }];
 
-    if let Some(pull_request) = pull_request {
-        // We are updating an existing Pull Request
+    // If we prepared a new commit for the base branch, add it to the push
+    if let (Some(base_branch), Some(base_branch_commit)) =
+        (&base_branch, new_base_branch_commit)
+    {
+        push_specs.push(PushSpec {
+            oid: Some(base_branch_commit),
+            remote_ref: base_branch.on_github(),
+        });
+    }
 
+    if let Some(ref pull_request) = pull_request {
         if needs_merging_master {
             output(
                 "⚾",
@@ -647,6 +805,16 @@ async fn diff_impl(
                 ),
             )?;
         }
+    }
+
+    // Push the new commit onto the Pull Request branch (and also the new base
+    // commit, if we added that to push_specs above).
+    gh.remote()
+        .push_to_remote(push_specs.as_slice())
+        .context("git push failed".to_string())?;
+
+    if let Some(pull_request) = pull_request {
+        // We are updating an existing Pull Request
 
         // Things we want to update in the Pull Request on GitHub
         let mut pull_request_updates: PullRequestUpdate = Default::default();
@@ -655,43 +823,14 @@ async fn diff_impl(
             pull_request_updates.update_message(&pull_request, message);
         }
 
-        if let Some(base_branch) = base_branch {
-            // We are using a base branch.
-
-            if let Some(base_branch_commit) = pr_base_parent {
-                // ...and we prepared a new commit for it, so we need to push an
-                // update of the base branch.
-                push_specs.push(PushSpec {
-                    oid: Some(base_branch_commit),
-                    remote_ref: base_branch.on_github(),
-                });
-            }
-
-            // Push the new commit onto the Pull Request branch (and also the
-            // new base commit, if we added that to push_specs above).
-            gh.remote()
-                .push_to_remote(push_specs.as_slice())
-                .context("git push failed".to_string())?;
-
-            // If the Pull Request's base is not set to the base branch yet,
-            // change that now.
-            if pull_request.base.branch_name() != base_branch.branch_name() {
-                pull_request_updates.base =
-                    Some(base_branch.branch_name().to_string());
-            }
-        } else {
-            // The Pull Request is against the master branch. In that case we
-            // only need to push the update to the Pull Request branch.
-            gh.remote()
-                .push_to_remote(push_specs.as_slice())
-                .context("git push failed".to_string())?;
-
-            // If the Pull Request still targets a base branch that is not
-            // needed anymore, change its base to master.
-            if obsolete_base_branch.is_some() {
-                pull_request_updates.base =
-                    Some(config.master_ref.branch_name().to_string());
-            }
+        // If the Pull Request is not based on the right branch yet, change
+        // that now.
+        let new_base = base_branch.as_ref().unwrap_or(&config.master_ref);
+        let base_is_changing =
+            pull_request.base.branch_name() != new_base.branch_name();
+        if base_is_changing {
+            pull_request_updates.base =
+                Some(new_base.branch_name().to_string());
         }
 
         if !pull_request_updates.is_empty() {
@@ -699,27 +838,19 @@ async fn diff_impl(
                 .await?;
         }
 
-        if let Some(ref obsolete_base_branch) = obsolete_base_branch {
-            retargeted_to_master(gh, config, obsolete_base_branch)?;
+        if base_is_changing {
+            base_changed(
+                gh,
+                config,
+                &pull_request.base,
+                new_base,
+                stack_on.as_ref().map(|pr| pr.number),
+            )?;
         }
     } else {
         // We are creating a new Pull Request.
 
-        // If there's a base branch, add it to the push
-        if let (Some(base_branch), Some(base_branch_commit)) =
-            (&base_branch, pr_base_parent)
-        {
-            push_specs.push(PushSpec {
-                oid: Some(base_branch_commit),
-                remote_ref: base_branch.on_github(),
-            });
-        }
-        // Push the pull request branch and the base branch if present
-        gh.remote()
-            .push_to_remote(push_specs.as_slice())
-            .context("git push failed".to_string())?;
-
-        // Then call GitHub to create the Pull Request.
+        // Call GitHub to create the Pull Request.
         let pull_request_number = gh
             .create_pull_request(
                 message,
@@ -744,6 +875,7 @@ async fn diff_impl(
         )?;
 
         message.set_trailer("Pull-request".to_string(), pull_request_url);
+        local_commit.pull_request_number = Some(pull_request_number);
 
         let result = gh
             .request_reviewers(pull_request_number, requested_reviewers)
@@ -762,28 +894,44 @@ async fn diff_impl(
     Ok(())
 }
 
-/// Report that a Pull Request was changed to target master instead of its
-/// base branch, and delete the base branch, which is not needed anymore.
+/// Report that the base of a Pull Request was changed, and delete its old base
+/// branch if that was a base branch created by spr, as it's not needed
+/// anymore.
 ///
 /// This must only be called after the Pull Request's base has been changed:
 /// GitHub closes Pull Requests whose base branch gets deleted.
-fn retargeted_to_master(
+fn base_changed(
     gh: &crate::github::GitHub,
     config: &crate::config::Config,
-    obsolete_base_branch: &crate::github::GitHubBranch,
+    old_base: &GitHubBranch,
+    new_base: &GitHubBranch,
+    stacked_on: Option<u64>,
 ) -> Result<()> {
+    let description = if let Some(number) = stacked_on {
+        format!("now stacked on Pull Request #{number}")
+    } else if new_base.is_master_branch() {
+        format!("now based directly on {}", new_base.branch_name())
+    } else {
+        format!("now based on branch {}", new_base.branch_name())
+    };
     output(
         "🎯",
         &format!(
-            "Pull Request is now based directly on {} - changed its base \
-             branch accordingly",
-            config.master_ref.branch_name()
+            "Pull Request is {description} - changed its base branch \
+             accordingly"
         ),
     )?;
 
+    if !config.is_spr_base_branch(old_base) {
+        // Only delete base branches that spr created for this Pull Request.
+        // Any other branch may be in use elsewhere (e.g. it's the branch of
+        // another Pull Request).
+        return Ok(());
+    }
+
     let result = gh.remote().push_to_remote(&[PushSpec {
         oid: None,
-        remote_ref: obsolete_base_branch.on_github(),
+        remote_ref: old_base.on_github(),
     }]);
     if let Err(error) = result {
         // The Pull Request is in the right state already, so this is not an
@@ -792,7 +940,7 @@ fn retargeted_to_master(
             "⚠️",
             &format!(
                 "Could not delete the old base branch {}: {}",
-                obsolete_base_branch.branch_name(),
+                old_base.branch_name(),
                 error
             ),
         )?;

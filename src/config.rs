@@ -11,6 +11,7 @@ pub struct Config {
     pub auth_token: String,
     pub require_approval: bool,
     pub merge_method: MergeMethod,
+    pub stacking_mode: StackingMode,
 }
 
 /// How Pull Requests get merged into the master branch in this repository.
@@ -40,6 +41,54 @@ impl std::str::FromStr for MergeMethod {
     }
 }
 
+/// How spr sets up Pull Requests for commits that are not directly based on
+/// the master branch, i.e. that are stacked on other commits.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum StackingMode {
+    /// The Pull Request targets a synthetic base branch created by spr, which
+    /// reflects the changes the commit is based on. This keeps the Pull
+    /// Request's timeline readable after squash-merging, but does not work
+    /// with merge commits.
+    BaseBranches,
+    /// The Pull Request targets the Pull Request branch of the parent commit,
+    /// so Pull Requests form a chain.
+    Chain,
+}
+
+impl StackingMode {
+    /// The stacking mode used if none is configured
+    pub fn default_for(merge_method: MergeMethod) -> Self {
+        match merge_method {
+            MergeMethod::Squash => StackingMode::BaseBranches,
+            MergeMethod::Merge => StackingMode::Chain,
+        }
+    }
+}
+
+impl std::str::FromStr for StackingMode {
+    type Err = color_eyre::eyre::Report;
+
+    fn from_str(s: &str) -> Result<Self> {
+        match s.to_lowercase().as_str() {
+            "base-branches" => Ok(StackingMode::BaseBranches),
+            "chain" => Ok(StackingMode::Chain),
+            _ => bail!(
+                "Stacking mode must be either 'base-branches' or 'chain', but \
+                 given value was '{s}'"
+            ),
+        }
+    }
+}
+
+impl std::fmt::Display for StackingMode {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(match self {
+            StackingMode::BaseBranches => "base-branches",
+            StackingMode::Chain => "chain",
+        })
+    }
+}
+
 impl std::fmt::Display for MergeMethod {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_str(match self {
@@ -50,6 +99,7 @@ impl std::fmt::Display for MergeMethod {
 }
 
 impl Config {
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         owner: String,
         repo: String,
@@ -58,10 +108,23 @@ impl Config {
         auth_token: String,
         require_approval: bool,
         merge_method: MergeMethod,
-    ) -> Self {
+        stacking_mode: StackingMode,
+    ) -> Result<Self> {
+        if merge_method == MergeMethod::Merge
+            && stacking_mode == StackingMode::BaseBranches
+        {
+            // Merging Pull Requests that use base branches with a merge commit
+            // would bring the commits on the base branches, which spr
+            // constructed, into the history of the master branch.
+            bail!(
+                "Stacking mode '{stacking_mode}' cannot be used with merge \
+                 method '{merge_method}'"
+            );
+        }
+
         let master_ref =
             GitHubBranch::new_from_branch_name(&master_branch, &master_branch);
-        Self {
+        Ok(Self {
             owner,
             repo,
             master_ref,
@@ -69,7 +132,8 @@ impl Config {
             auth_token,
             require_approval,
             merge_method,
-        }
+            stacking_mode,
+        })
     }
 
     pub fn pull_request_url(&self, number: u64) -> String {
@@ -149,7 +213,9 @@ mod tests {
             "xyz".into(),
             false,
             MergeMethod::Squash,
+            StackingMode::BaseBranches,
         )
+        .unwrap()
     }
 
     #[test]
@@ -249,5 +315,52 @@ mod tests {
         assert!(!is_base("spr/bar/master.fix-the-bug"));
         assert!(!is_base("master"));
         assert!(!is_base("release-1.0"));
+    }
+
+    #[test]
+    fn test_stacking_mode() {
+        assert_eq!(
+            "chain".parse::<StackingMode>().unwrap(),
+            StackingMode::Chain
+        );
+        assert_eq!(
+            "base-branches".parse::<StackingMode>().unwrap(),
+            StackingMode::BaseBranches
+        );
+        assert!("stack".parse::<StackingMode>().is_err());
+
+        assert_eq!(
+            StackingMode::default_for(MergeMethod::Squash),
+            StackingMode::BaseBranches
+        );
+        assert_eq!(
+            StackingMode::default_for(MergeMethod::Merge),
+            StackingMode::Chain
+        );
+    }
+
+    #[test]
+    fn test_merge_method_and_stacking_mode_combinations() {
+        let config = |merge_method, stacking_mode| {
+            Config::new(
+                "acme".into(),
+                "codez".into(),
+                "master".into(),
+                "spr/foo/".into(),
+                "xyz".into(),
+                false,
+                merge_method,
+                stacking_mode,
+            )
+        };
+
+        assert!(
+            config(MergeMethod::Squash, StackingMode::BaseBranches).is_ok()
+        );
+        assert!(config(MergeMethod::Squash, StackingMode::Chain).is_ok());
+        assert!(config(MergeMethod::Merge, StackingMode::Chain).is_ok());
+        assert!(
+            config(MergeMethod::Merge, StackingMode::BaseBranches).is_err()
+        );
     }
 }

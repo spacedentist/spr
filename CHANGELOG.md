@@ -5,6 +5,11 @@
 ### Improvements
 
 - new config option `spr.mergeMethod` (`squash` or `merge`), used by `spr land`
+- new config option `spr.stackingMode` (`base-branches` or `chain`): with
+  `chain`, the pull requests of stacked commits target the pull request branch
+  of the parent commit instead of a synthetic base branch
+- `spr land` and `spr close` change the base of pull requests stacked on the
+  landed/closed pull request, instead of leaving them to be closed by GitHub
 
 ## [1.3.7] - 2025-08-25
 

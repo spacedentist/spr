@@ -398,6 +398,66 @@ impl GitHub {
         Ok(())
     }
 
+    /// Change the base of all open Pull Requests that are currently based on
+    /// `from_branch` to `to_branch`. Returns the numbers of the Pull Requests
+    /// that were changed.
+    ///
+    /// This must be done before deleting a branch that other Pull Requests
+    /// are based on, because GitHub closes Pull Requests whose base branch
+    /// gets deleted.
+    pub async fn retarget_pull_requests(
+        &self,
+        from_branch: &GitHubBranch,
+        to_branch: &GitHubBranch,
+    ) -> Result<Vec<u64>> {
+        let pulls = octocrab::instance()
+            .pulls(self.config.owner.clone(), self.config.repo.clone())
+            .list()
+            .state(octocrab::params::State::Open)
+            .base(from_branch.branch_name())
+            .per_page(100)
+            .send()
+            .await?;
+        let pulls = octocrab::instance().all_pages(pulls).await?;
+
+        let mut numbers = Vec::new();
+        for pull in pulls {
+            let result = self
+                .update_pull_request(
+                    pull.number,
+                    PullRequestUpdate {
+                        base: Some(to_branch.branch_name().to_string()),
+                        ..Default::default()
+                    },
+                )
+                .await;
+
+            if let Err(error) = result {
+                // GitHub itself changes the base of Pull Requests whose base
+                // branch gets deleted after merging (if the repository is set
+                // up to delete branches after merging), so the Pull Request
+                // may already have been changed in the meantime. Then GitHub
+                // refuses our update.
+                let current_base = octocrab::instance()
+                    .pulls(self.config.owner.clone(), self.config.repo.clone())
+                    .get(pull.number)
+                    .await
+                    .map(|pull| pull.base.ref_field);
+                if current_base.ok().as_deref() != Some(to_branch.branch_name())
+                {
+                    return Err(error.wrap_err(format!(
+                        "Changing the base of Pull Request #{} failed",
+                        pull.number
+                    )));
+                }
+            }
+
+            numbers.push(pull.number);
+        }
+
+        Ok(numbers)
+    }
+
     pub async fn get_pull_request_mergeability(
         &self,
         number: u64,

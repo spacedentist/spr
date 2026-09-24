@@ -100,6 +100,32 @@ If you want to be able to land commit B before A, do this:
 
    - Do an interactive rebase that puts B directly on top of upstream `main`, then runs `spr land`, then puts A on top of B.
 
+## Stacking modes
+
+There are two ways spr can set up pull requests for stacked commits, selected by the `spr.stackingMode` config option (see [configuration](../reference/configuration.md)).
+
+### Base branches (`base-branches`)
+
+This is the default if pull requests are squash-merged (`spr.mergeMethod` is `squash`, the default). Each pull request for a stacked commit gets its own synthetic base branch, as described [above](#cherry-picking). The pull request's timeline stays readable after the commits below it have been squash-merged: changes that came in from the commits below appear as clearly labelled commits on the base branch.
+
+Once the commits below have landed and you rebased your local branch, `spr diff` changes the pull request to target the master branch directly, and deletes the synthetic base branch.
+
+Pull requests with a synthetic base branch must not be merged in the GitHub UI, as that would merge them into their base branch, not into the master branch. Use `spr land`.
+
+### Chained pull requests (`chain`)
+
+This is the default if pull requests are merged with merge commits (`spr.mergeMethod` is `merge`), and it's the only mode that works with merge commits. The pull request of a stacked commit targets the pull request branch of its parent commit. This is the classic way of stacking pull requests on GitHub.
+
+- The pull request of the parent commit must be up to date before you can run `spr diff` on a commit. `spr diff --all` updates the whole stack from the bottom up, so this is taken care of.
+
+- `spr land` lands the bottom pull request of a stack. Pull requests stacked on it are then changed to target the master branch. When you rebase your local branch and run `spr diff` on the next commit, spr merges the new master commit into its pull request branch.
+
+- With squash-merging, the timelines of the remaining pull requests of a stack show the commits of the pull requests below them after those have been squash-merged. The result on the master branch is correct, though.
+
+- Reordering commits in a stack doesn't work well: a pull request branch that once had another pull request's changes merged in keeps them in its history. `spr land` detects this and refuses to land such a pull request.
+
+You can switch between the stacking modes at any time. `spr diff` changes existing pull requests over to the configured mode as it updates them.
+
 ## Rebasing the whole stack
 
 One of the major advantages of committing everything to local `main` is that rebasing your work onto new upstream `main` commits is much simpler than if you had a branch for every in-flight review. The difference is especially pronounced if some of your reviews depend on others, which would entail dependent feature branches in a branch-based workflow.

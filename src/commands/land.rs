@@ -341,6 +341,43 @@ pub async fn land(
 
     output("🛬", "Landed!")?;
 
+    // Pull Requests stacked on this one (in chain stacking mode) are based on
+    // its branch, which we are going to delete below. Base them on master now,
+    // which is where their changes have to go next.
+    // The Pull Request has landed at this point, so failing here is not an
+    // error. But we must not delete the branch then, as GitHub would close
+    // the Pull Requests based on it.
+    let delete_head_branch = match gh
+        .retarget_pull_requests(&pull_request.head, &config.master_ref)
+        .await
+    {
+        Ok(retargeted) => {
+            for number in retargeted {
+                output(
+                    "🎯",
+                    &format!(
+                        "Changed the base of Pull Request #{} to {}",
+                        number,
+                        config.master_ref.branch_name()
+                    ),
+                )?;
+            }
+            true
+        }
+        Err(error) => {
+            output(
+                "⚠️",
+                &format!(
+                    "Could not change the base of Pull Requests stacked on \
+                     this one, so not deleting branch {}: {:#}",
+                    pull_request.head.branch_name(),
+                    error
+                ),
+            )?;
+            false
+        }
+    };
+
     // Rebase us on top of the now-landed commit
     if let Some(sha) = merge.sha {
         let new_parent_oid = git2::Oid::from_str(&sha)?;
@@ -365,19 +402,28 @@ pub async fn land(
             )?;
     }
 
-    let mut push_specs = vec![PushSpec {
-        oid: None,
-        remote_ref: pull_request.head.on_github(),
-    }];
+    let mut push_specs = Vec::new();
 
-    if !base_is_master {
+    if delete_head_branch {
+        push_specs.push(PushSpec {
+            oid: None,
+            remote_ref: pull_request.head.on_github(),
+        });
+    }
+
+    // Delete the base branch too, if spr created it for this Pull Request. If
+    // the Pull Request was stacked on another Pull Request, its base branch
+    // is the branch of that other Pull Request, which we must not delete.
+    if config.is_spr_base_branch(&pull_request.base) {
         push_specs.push(PushSpec {
             oid: None,
             remote_ref: pull_request.base.on_github(),
         });
     }
 
-    gh.remote().push_to_remote(&push_specs)?;
+    if !push_specs.is_empty() {
+        gh.remote().push_to_remote(&push_specs)?;
+    }
 
     Ok(())
 }

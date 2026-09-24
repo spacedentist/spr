@@ -133,6 +133,11 @@ pub async fn spr() -> Result<()> {
         Err(_) => spr::config::MergeMethod::Squash,
     };
 
+    let stacking_mode = match git_config.get_string("spr.stackingMode") {
+        Ok(value) => value.parse()?,
+        Err(_) => spr::config::StackingMode::default_for(merge_method),
+    };
+
     let github_auth_token = match cli.github_auth_token {
         Some(v) => Ok(v),
         None => git_config.get_string("spr.githubAuthToken"),
@@ -146,7 +151,8 @@ pub async fn spr() -> Result<()> {
         github_auth_token.clone(),
         require_approval,
         merge_method,
-    );
+        stacking_mode,
+    )?;
     debug!("config: {:?}", config);
 
     let git = spr::git::Git::new(repo);
