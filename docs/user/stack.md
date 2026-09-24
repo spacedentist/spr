@@ -102,7 +102,7 @@ If you want to be able to land commit B before A, do this:
 
 ## Stacking modes
 
-There are two ways spr can set up pull requests for stacked commits, selected by the `spr.stackingMode` config option (see [configuration](../reference/configuration.md)).
+There are three ways spr can set up pull requests for stacked commits, selected by the `spr.stackingMode` config option (see [configuration](../reference/configuration.md)). [How it works - Stacked PRs](../reference/how-it-works-stacks.md) explains what happens behind the scenes.
 
 ### Base branches (`base-branches`)
 
@@ -122,7 +122,19 @@ This is the default if pull requests are merged with merge commits (`spr.mergeMe
 
 - With squash-merging, the timelines of the remaining pull requests of a stack show the commits of the pull requests below them after those have been squash-merged. The result on the master branch is correct, though.
 
-- Reordering commits in a stack doesn't work well: a pull request branch that once had another pull request's changes merged in keeps them in its history. `spr land` detects this and refuses to land such a pull request.
+- Reordering commits in a stack works, but leaves traces: spr never rewrites pull request branches, so a branch that once had another pull request's changes merged in keeps them in its history, even though they are no longer part of its changes. With squash-merging, that doesn't matter. With merge commits, those commits end up in the history of the master branch (their changes don't).
+
+### GitHub stacks (`github-stack`)
+
+This is chain mode, plus the pull requests of a chain are linked as a [stack on GitHub](https://docs.github.com/en/pull-requests/get-started/about-stacked-prs). GitHub then shows the stack on each pull request, evaluates branch protection and CI for every pull request in it against the stack's base branch, and can merge several pull requests of a stack at once. It works with both merge methods. You have to opt in, as GitHub's stacked pull requests are a preview feature.
+
+- `spr diff` creates the stack, adds new pull requests on top of it, and, if you reordered or dropped commits, replaces it with a new one. Running `spr diff` on a commit in the middle of a stack (e.g. during an interactive rebase) leaves the pull requests above it in the stack.
+
+- `spr land` lands the pull request of the current commit **together with all pull requests below it**. So to land a whole stack, run `spr land` on its top commit. spr first checks that each of these pull requests reflects its local commit.
+
+- After a pull request is merged, GitHub itself changes the base of the next pull request in the stack and rebases the branches of the remaining pull requests onto the result (a force-push). That's fine for spr: the next `spr diff` finds nothing to update, or builds on top of the rebased branches. If the rebase has conflicts, GitHub leaves the branches alone, and `spr diff` merges the new master commit into them once you have resolved the conflicts locally.
+
+- GitHub doesn't allow changing the base of a pull request that is part of a stack. When spr needs to (e.g. after reordering commits), it dissolves the stack first, and creates a new one at the end of `spr diff`.
 
 You can switch between the stacking modes at any time. `spr diff` changes existing pull requests over to the configured mode as it updates them.
 

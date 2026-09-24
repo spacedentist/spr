@@ -95,6 +95,62 @@ pub struct UserWithName {
     pub is_collaborator: bool,
 }
 
+/// The version of the GitHub REST API that the stacked pull requests APIs
+/// (stacks and asynchronous merging) require.
+const STACKS_API_VERSION: &str = "2026-03-10";
+
+/// A stack of Pull Requests on GitHub (stacked pull requests feature)
+#[derive(Debug, Deserialize)]
+pub struct PullRequestStack {
+    pub number: u64,
+    pub open: bool,
+    /// The Pull Requests in the stack, from bottom to top
+    pub pull_requests: Vec<PullRequestStackEntry>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct PullRequestStackEntry {
+    pub number: u64,
+    pub state: String,
+}
+
+impl PullRequestStack {
+    /// The numbers of the Pull Requests in this stack that are still open,
+    /// from bottom to top. (Merged Pull Requests remain part of a stack.)
+    pub fn open_pull_requests(&self) -> Vec<u64> {
+        self.pull_requests
+            .iter()
+            .filter(|pr| pr.state == "open")
+            .map(|pr| pr.number)
+            .collect()
+    }
+}
+
+/// Status of an asynchronous merge request
+#[derive(Debug, Deserialize)]
+pub struct AsyncMergeStatus {
+    /// One of `pending`, `merged`, `enqueued` and `failed`
+    pub status: String,
+    pub details: AsyncMergeDetails,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct AsyncMergeDetails {
+    pub message: Option<String>,
+    pub uuid: Option<String>,
+    /// The resulting commit, once merged
+    pub sha: Option<String>,
+}
+
+/// The branches and state of a Pull Request, as far as needed for stacking
+#[derive(Debug, Clone)]
+pub struct PullRequestRefs {
+    pub number: u64,
+    pub open: bool,
+    pub head: String,
+    pub base: String,
+}
+
 #[derive(Debug, Clone)]
 pub struct PullRequestMergeability {
     pub base: GitHubBranch,
@@ -456,6 +512,168 @@ impl GitHub {
         }
 
         Ok(numbers)
+    }
+
+    /// Send a request to one of the stacked pull requests APIs, which
+    /// require a newer API version than octocrab uses. Returns the parsed
+    /// response, or `None` if the response has no body.
+    async fn stacks_api_request<R, B>(
+        &self,
+        method: http::Method,
+        path: &str,
+        body: Option<&B>,
+    ) -> Result<Option<R>>
+    where
+        R: serde::de::DeserializeOwned,
+        B: serde::Serialize + ?Sized,
+    {
+        let octocrab = octocrab::instance();
+        let uri = format!(
+            "/repos/{}/{}/{}",
+            self.config.owner, self.config.repo, path
+        );
+        let mut request = octocrab.build_request(
+            http::request::Builder::new().method(method).uri(uri),
+            body,
+        )?;
+        // `build_request` adds octocrab's default API version header, which
+        // we replace.
+        request.headers_mut().insert(
+            "x-github-api-version",
+            http::HeaderValue::from_static(STACKS_API_VERSION),
+        );
+        let response = octocrab.execute(request).await?;
+        let response = octocrab::map_github_error(response).await?;
+        let text = octocrab.body_to_string(response).await?;
+
+        if text.trim().is_empty() {
+            Ok(None)
+        } else {
+            Ok(Some(serde_json::from_str(&text)?))
+        }
+    }
+
+    /// Find the open stack on GitHub that a Pull Request belongs to.
+    pub async fn find_pull_request_stack(
+        &self,
+        number: u64,
+    ) -> Result<Option<PullRequestStack>> {
+        let stacks: Vec<PullRequestStack> = self
+            .stacks_api_request(
+                http::Method::GET,
+                &format!("stacks?pull_request={number}"),
+                None::<&()>,
+            )
+            .await?
+            .unwrap_or_default();
+
+        Ok(stacks.into_iter().find(|stack| stack.open))
+    }
+
+    /// Create a stack on GitHub from the given Pull Requests, bottom to top.
+    pub async fn create_pull_request_stack(
+        &self,
+        numbers: &[u64],
+    ) -> Result<PullRequestStack> {
+        self.stacks_api_request(
+            http::Method::POST,
+            "stacks",
+            Some(&serde_json::json!({ "pull_requests": numbers })),
+        )
+        .await?
+        .ok_or_else(|| eyre!("Creating a Pull Request stack failed"))
+    }
+
+    /// Add the given Pull Requests on top of a stack on GitHub.
+    pub async fn add_to_pull_request_stack(
+        &self,
+        stack_number: u64,
+        numbers: &[u64],
+    ) -> Result<()> {
+        self.stacks_api_request::<serde_json::Value, _>(
+            http::Method::POST,
+            &format!("stacks/{stack_number}/add"),
+            Some(&serde_json::json!({ "pull_requests": numbers })),
+        )
+        .await?;
+        Ok(())
+    }
+
+    /// Remove all Pull Requests that are not merged yet from a stack on
+    /// GitHub, which dissolves it.
+    pub async fn unstack_pull_request_stack(
+        &self,
+        stack_number: u64,
+    ) -> Result<()> {
+        self.stacks_api_request::<serde_json::Value, _>(
+            http::Method::POST,
+            &format!("stacks/{stack_number}/unstack"),
+            None::<&()>,
+        )
+        .await?;
+        Ok(())
+    }
+
+    /// Request merging a Pull Request asynchronously. This is required for
+    /// Pull Requests in a stack on GitHub, and merges all Pull Requests below
+    /// it in the stack, too.
+    pub async fn merge_pull_request_async(
+        &self,
+        number: u64,
+        head_oid: git2::Oid,
+        merge_method: crate::config::MergeMethod,
+        commit_title: &str,
+        commit_message: &str,
+    ) -> Result<AsyncMergeStatus> {
+        self.stacks_api_request(
+            http::Method::PUT,
+            &format!("pulls/{number}/merge-async"),
+            Some(&serde_json::json!({
+                "sha": head_oid.to_string(),
+                "merge_method": merge_method.to_string(),
+                "commit_title": commit_title,
+                "commit_message": commit_message,
+            })),
+        )
+        .await?
+        .ok_or_else(|| {
+            eyre!("Requesting merge of Pull Request #{number} failed")
+        })
+    }
+
+    /// Get the status of an asynchronous merge request.
+    pub async fn get_async_merge_status(
+        &self,
+        number: u64,
+        uuid: &str,
+    ) -> Result<AsyncMergeStatus> {
+        self.stacks_api_request(
+            http::Method::GET,
+            &format!("pulls/{number}/merge-async/{uuid}"),
+            None::<&()>,
+        )
+        .await?
+        .ok_or_else(|| {
+            eyre!("Getting merge status of Pull Request #{number} failed")
+        })
+    }
+
+    /// Get the head and base branch names and the state of a Pull Request.
+    pub async fn get_pull_request_refs(
+        &self,
+        number: u64,
+    ) -> Result<PullRequestRefs> {
+        let pull = octocrab::instance()
+            .pulls(self.config.owner.clone(), self.config.repo.clone())
+            .get(number)
+            .await?;
+
+        Ok(PullRequestRefs {
+            number,
+            open: pull.state == Some(octocrab::models::IssueState::Open),
+            head: pull.head.ref_field,
+            base: pull.base.ref_field,
+        })
     }
 
     pub async fn get_pull_request_mergeability(

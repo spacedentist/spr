@@ -53,9 +53,18 @@ pub enum StackingMode {
     /// The Pull Request targets the Pull Request branch of the parent commit,
     /// so Pull Requests form a chain.
     Chain,
+    /// Like `Chain`, and the Pull Requests of a chain are also linked as a
+    /// stack on GitHub (stacked pull requests feature).
+    GitHubStack,
 }
 
 impl StackingMode {
+    /// Whether Pull Requests of stacked commits are chained, i.e. target the
+    /// Pull Request branch of the parent commit.
+    pub fn is_chained(self) -> bool {
+        matches!(self, StackingMode::Chain | StackingMode::GitHubStack)
+    }
+
     /// The stacking mode used if none is configured
     pub fn default_for(merge_method: MergeMethod) -> Self {
         match merge_method {
@@ -72,9 +81,10 @@ impl std::str::FromStr for StackingMode {
         match s.to_lowercase().as_str() {
             "base-branches" => Ok(StackingMode::BaseBranches),
             "chain" => Ok(StackingMode::Chain),
+            "github-stack" => Ok(StackingMode::GitHubStack),
             _ => bail!(
-                "Stacking mode must be either 'base-branches' or 'chain', but \
-                 given value was '{s}'"
+                "Stacking mode must be one of 'base-branches', 'chain' and \
+                 'github-stack', but given value was '{s}'"
             ),
         }
     }
@@ -85,6 +95,7 @@ impl std::fmt::Display for StackingMode {
         f.write_str(match self {
             StackingMode::BaseBranches => "base-branches",
             StackingMode::Chain => "chain",
+            StackingMode::GitHubStack => "github-stack",
         })
     }
 }
@@ -327,7 +338,15 @@ mod tests {
             "base-branches".parse::<StackingMode>().unwrap(),
             StackingMode::BaseBranches
         );
+        assert_eq!(
+            "github-stack".parse::<StackingMode>().unwrap(),
+            StackingMode::GitHubStack
+        );
         assert!("stack".parse::<StackingMode>().is_err());
+
+        assert!(!StackingMode::BaseBranches.is_chained());
+        assert!(StackingMode::Chain.is_chained());
+        assert!(StackingMode::GitHubStack.is_chained());
 
         assert_eq!(
             StackingMode::default_for(MergeMethod::Squash),
@@ -359,6 +378,8 @@ mod tests {
         );
         assert!(config(MergeMethod::Squash, StackingMode::Chain).is_ok());
         assert!(config(MergeMethod::Merge, StackingMode::Chain).is_ok());
+        assert!(config(MergeMethod::Squash, StackingMode::GitHubStack).is_ok());
+        assert!(config(MergeMethod::Merge, StackingMode::GitHubStack).is_ok());
         assert!(
             config(MergeMethod::Merge, StackingMode::BaseBranches).is_err()
         );

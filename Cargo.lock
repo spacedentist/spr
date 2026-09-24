@@ -2191,6 +2191,7 @@ dependencies = [
  "open",
  "secrecy",
  "serde",
+ "serde_json",
  "textwrap",
  "tokio",
  "unicode-normalization",

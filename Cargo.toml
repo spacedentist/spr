@@ -30,6 +30,7 @@ octocrab = { version = "^0.48.1", default-features = false, features = ["opentls
 open = "5.3.3"
 secrecy = { version = "0.10.3", default-features = false }
 serde = "^1.0.228"
+serde_json = "^1.0"
 textwrap = "^0.16.2"
 tokio = { version = "^1.49.0", features = ["macros", "rt", "time"] }
 unicode-normalization = "^0.1.25"

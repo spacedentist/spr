@@ -10,6 +10,9 @@
   of the parent commit instead of a synthetic base branch
 - `spr land` and `spr close` change the base of pull requests stacked on the
   landed/closed pull request, instead of leaving them to be closed by GitHub
+- new stacking mode `github-stack` (opt-in): chained pull requests are linked
+  as a stack on GitHub (stacked pull requests preview); `spr land` lands the
+  current commit's pull request together with all pull requests below it
 
 ## [1.3.7] - 2025-08-25
 

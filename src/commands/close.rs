@@ -1,6 +1,7 @@
 use color_eyre::eyre::{Result, bail};
 
 use crate::{
+    config::StackingMode,
     git::PreparedCommit,
     git_remote::PushSpec,
     github::{PullRequestState, PullRequestUpdate},
@@ -77,6 +78,17 @@ async fn close_impl(
     }
 
     output("📖", "Getting started...")?;
+
+    // In the github-stack stacking mode, remove the Pull Request's stack on
+    // GitHub first, as the stack won't be valid anymore without it. The next
+    // `spr diff` creates a new stack of the remaining Pull Requests.
+    if config.stacking_mode == StackingMode::GitHubStack
+        && let Some(stack) =
+            gh.find_pull_request_stack(pull_request_number).await?
+    {
+        gh.unstack_pull_request_stack(stack.number).await?;
+        output("📚", &format!("Dissolved stack #{}", stack.number))?;
+    }
 
     let result = gh
         .update_pull_request(

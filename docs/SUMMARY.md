@@ -18,3 +18,4 @@
 
 - [Configuration](reference/configuration.md)
 - [How it works - Simple PR](reference/how-it-works-simple.md)
+- [How it works - Stacked PRs](reference/how-it-works-stacks.md)

@@ -3,9 +3,13 @@ use indoc::formatdoc;
 use std::time::Duration;
 
 use crate::{
-    config::MergeMethod,
+    config::{MergeMethod, StackingMode},
+    git::PreparedCommit,
     git_remote::PushSpec,
-    github::{PullRequestState, PullRequestUpdate, ReviewStatus},
+    github::{
+        PullRequest, PullRequestStack, PullRequestState, PullRequestUpdate,
+        ReviewStatus,
+    },
     output::{output, write_commit_title},
 };
 
@@ -25,6 +29,18 @@ pub async fn land(
 ) -> Result<()> {
     git.check_no_uncommitted_changes()?;
     let mut prepared_commits = gh.get_prepared_commits()?;
+
+    // In the github-stack stacking mode, if the Pull Request of this commit
+    // is part of a stack on GitHub, we land it together with all Pull
+    // Requests below it.
+    if config.stacking_mode == StackingMode::GitHubStack
+        && let Some(number) = prepared_commits
+            .last()
+            .and_then(|pc| pc.pull_request_number)
+        && let Some(stack) = gh.find_pull_request_stack(number).await?
+    {
+        return land_stack(git, gh, config, &mut prepared_commits, stack).await;
+    }
 
     let based_on_unlanded_commits = prepared_commits.len() > 1;
 
@@ -423,6 +439,238 @@ pub async fn land(
 
     if !push_specs.is_empty() {
         gh.remote().push_to_remote(&push_specs)?;
+    }
+
+    Ok(())
+}
+
+/// Land the Pull Request of the current commit, which is part of a stack on
+/// GitHub, together with the Pull Requests of all commits below it. GitHub
+/// merges all Pull Requests in a stack up to the requested one.
+async fn land_stack(
+    git: &crate::git::Git,
+    gh: &mut crate::github::GitHub,
+    config: &crate::config::Config,
+    prepared_commits: &mut [PreparedCommit],
+    stack: PullRequestStack,
+) -> Result<()> {
+    // Load the Pull Requests of all commits on the local branch, and check
+    // that each of them is in the state we expect.
+    let mut pull_requests: Vec<PullRequest> = Vec::new();
+    for prepared_commit in prepared_commits.iter() {
+        write_commit_title(prepared_commit)?;
+
+        let Some(number) = prepared_commit.pull_request_number else {
+            bail!("This commit does not refer to a Pull Request.");
+        };
+        output("#️⃣ ", &format!("Pull Request #{number}"))?;
+
+        let pull_request = gh.clone().get_pull_request(number).await?;
+
+        if pull_request.state != PullRequestState::Open {
+            bail!(
+                "This Pull Request is already closed! Rebase your local branch \
+                 on {}.",
+                config.master_ref.branch_name()
+            );
+        }
+
+        if config.require_approval
+            && pull_request.review_status != Some(ReviewStatus::Approved)
+        {
+            bail!("This Pull Request has not been approved on GitHub.");
+        }
+
+        // The Pull Request must be based on the Pull Request of the commit
+        // below (or master, for the first one), and contain exactly what the
+        // local commit contains.
+        let expected_base = pull_requests
+            .last()
+            .map(|pr| pr.head.branch_name())
+            .unwrap_or(config.master_ref.branch_name());
+        if pull_request.base.branch_name() != expected_base
+            || git.get_tree_oid_for_commit(pull_request.head_oid)?
+                != git.get_tree_oid_for_commit(prepared_commit.oid)?
+        {
+            bail!(
+                "Pull Request #{number} does not reflect the local commit. \
+                 Please run `spr diff --all` to update the Pull Requests and \
+                 then try `spr land` again!"
+            );
+        }
+
+        pull_requests.push(pull_request);
+    }
+
+    let numbers: Vec<u64> = pull_requests.iter().map(|pr| pr.number).collect();
+    if !stack.open_pull_requests().starts_with(&numbers) {
+        bail!(
+            "The stack on GitHub (#{}) does not match the local branch. Please \
+             run `spr diff --all` to update it and then try `spr land` again!",
+            stack.number
+        );
+    }
+
+    let Some(top) = pull_requests.last() else {
+        output("👋", "Branch is empty - nothing to do. Good bye!")?;
+        return Ok(());
+    };
+
+    output("🛫", "Getting started...")?;
+
+    // Check that merging the top Pull Request into the current master branch
+    // gives the same result as applying the local commits to it. (Merging
+    // the Pull Requests of a stack one by one ends up with the same tree.)
+    let current_master =
+        gh.remote().fetch_branch(config.master_ref.branch_name())?;
+    {
+        let repo = git.repo();
+        let master_commit = repo.find_commit(current_master)?;
+        let local_index = repo.merge_trees(
+            &repo.find_commit(prepared_commits[0].parent_oid)?.tree()?,
+            &master_commit.tree()?,
+            &repo
+                .find_commit(prepared_commits[prepared_commits.len() - 1].oid)?
+                .tree()?,
+            None,
+        )?;
+        if local_index.has_conflicts() {
+            bail!(
+                "The local commits cannot be applied on top of the '{}' \
+                 branch. Please rebase them.",
+                config.master_ref.branch_name()
+            );
+        }
+        let merge_index = repo.merge_commits(
+            &master_commit,
+            &repo.find_commit(top.head_oid)?,
+            None,
+        )?;
+        if merge_index.has_conflicts()
+            || git.write_index(merge_index)? != git.write_index(local_index)?
+        {
+            bail!(
+                "Merging the Pull Requests would not give the same result as \
+                 the local commits. Please rebase your local branch on '{}', \
+                 run `spr diff --all` and then try `spr land` again!",
+                config.master_ref.branch_name()
+            );
+        }
+    }
+
+    // Let GitHub merge the stack up to the top Pull Request
+    let request = gh
+        .merge_pull_request_async(
+            top.number,
+            top.head_oid,
+            config.merge_method,
+            &top.title,
+            &top.message.to_github_body_for_merging(),
+        )
+        .await?;
+
+    let mut status = request;
+    let uuid = status.details.uuid.clone();
+    for _ in 0..60 {
+        if status.status != "pending" {
+            break;
+        }
+        tokio::time::sleep(Duration::from_secs(2)).await;
+        let Some(ref uuid) = uuid else { break };
+        status = gh.get_async_merge_status(top.number, uuid).await?;
+    }
+
+    let merge_sha = match status.status.as_str() {
+        "merged" => status.details.sha.clone(),
+        "enqueued" => {
+            output(
+                "🚦",
+                "The Pull Requests were added to the merge queue. Rebase your \
+                 local branch once they have landed.",
+            )?;
+            return Ok(());
+        }
+        "pending" => bail!(
+            "GitHub has not finished merging the Pull Requests yet. Check on \
+             GitHub, and rebase your local branch once they have landed."
+        ),
+        _ => bail!(
+            "GitHub Pull Request merge failed: {}",
+            status.details.message.unwrap_or_default()
+        ),
+    };
+
+    output(
+        "🛬",
+        &format!(
+            "Landed Pull Request{} {}!",
+            if numbers.len() > 1 { "s" } else { "" },
+            numbers
+                .iter()
+                .map(|number| format!("#{number}"))
+                .collect::<Vec<_>>()
+                .join(", ")
+        ),
+    )?;
+
+    // Pull Requests further up the stack were based on the top Pull Request's
+    // branch. GitHub changes their base itself, but make sure that has
+    // happened before we delete the branch.
+    let delete_branches = match gh
+        .retarget_pull_requests(&top.head, &config.master_ref)
+        .await
+    {
+        Ok(_) => true,
+        Err(error) => {
+            output(
+                "⚠️",
+                &format!(
+                    "Could not change the base of Pull Requests stacked on \
+                     the landed ones, so not deleting any branches: {error:#}"
+                ),
+            )?;
+            false
+        }
+    };
+
+    // Rebase us on top of the now-landed commits
+    if let Some(sha) = merge_sha {
+        let new_parent_oid = git2::Oid::from_str(&sha)?;
+        // Try this up to three times, because fetching the very moment after
+        // the merge might still not find the new commit.
+        for i in 0..3 {
+            let result = gh.remote().fetch_from_remote(&[], &[new_parent_oid]);
+            if result.is_ok() {
+                break;
+            } else if i == 2 {
+                return result
+                    .map(|_| ())
+                    .context("git fetch failed".to_string());
+            }
+        }
+        git.rebase_commits(prepared_commits, new_parent_oid)
+            .context(
+                "The automatic rebase failed - please rebase manually!"
+                    .to_string(),
+            )?;
+    }
+
+    if delete_branches {
+        let push_specs: Vec<_> = pull_requests
+            .iter()
+            .map(|pr| PushSpec {
+                oid: None,
+                remote_ref: pr.head.on_github(),
+            })
+            .collect();
+        // GitHub may have deleted the branches already, if the repository is
+        // set up to do that after merging.
+        if let Err(error) = gh.remote().push_to_remote(&push_specs) {
+            output(
+                "⚠️",
+                &format!("Could not delete Pull Request branches: {error:#}"),
+            )?;
+        }
     }
 
     Ok(())

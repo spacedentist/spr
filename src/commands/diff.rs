@@ -9,7 +9,7 @@ use crate::{
     git_remote::PushSpec,
     github::{
         GitHub, GitHubBranch, PullRequest, PullRequestRequestReviewers,
-        PullRequestState, PullRequestUpdate,
+        PullRequestStack, PullRequestState, PullRequestUpdate,
     },
     output::{output, write_commit_title},
     utils::{parse_name_list, remove_all_parens, slugify},
@@ -111,6 +111,20 @@ pub async fn diff(
             prepared_commits[prepared_commits.len() - 2].pull_request_number;
     }
 
+    // In the github-stack stacking mode, we link the Pull Requests of the
+    // local branch into a stack on GitHub at the end. Remember the Pull
+    // Request numbers of all commits for that, before we possibly drop commits
+    // from the list below.
+    let mut branch_pull_request_numbers: Vec<Option<u64>> = prepared_commits
+        .iter()
+        .map(|pc| pc.pull_request_number)
+        .collect();
+    let first_commit_index = if opts.refs.is_none() && !opts.all {
+        prepared_commits.len() - 1
+    } else {
+        0
+    };
+
     let revs_to_pr = match (opts.refs.as_deref(), opts.all) {
         (Some(refs), false) => Some(get_oids(refs, git.repo())?),
         (Some(_), true) => {
@@ -182,7 +196,7 @@ pub async fn diff(
         // In chain stacking mode, a commit that is not directly based on
         // master gets a Pull Request that is based on the parent commit's Pull
         // Request.
-        let stack_on = if config.stacking_mode == StackingMode::Chain
+        let stack_on = if config.stacking_mode.is_chained()
             && !opts.cherry_pick
             && prepared_commit.parent_oid != master_base_oid
         {
@@ -234,7 +248,137 @@ pub async fn diff(
     // changed by the implementation)
     git.rewrite_commit_messages(prepared_commits.as_mut_slice(), None)?;
 
+    if result.is_ok() && config.stacking_mode == StackingMode::GitHubStack {
+        for (index, prepared_commit) in prepared_commits.iter().enumerate() {
+            branch_pull_request_numbers[first_commit_index + index] =
+                prepared_commit.pull_request_number;
+        }
+        sync_github_stack(gh, config, &branch_pull_request_numbers).await?;
+    }
+
     result
+}
+
+/// GitHub refuses to change the base of a Pull Request that is part of a
+/// stack. Dissolve the Pull Request's stack, if there is one. (In the
+/// github-stack stacking mode, `spr diff` creates a new stack afterwards.)
+async fn leave_github_stack(gh: &GitHub, number: u64) -> Result<()> {
+    // If the stacks API is not available (e.g. on older GitHub Enterprise
+    // Server versions), the Pull Request can't be part of a stack either.
+    let Ok(Some(stack)) = gh.find_pull_request_stack(number).await else {
+        return Ok(());
+    };
+
+    gh.unstack_pull_request_stack(stack.number).await?;
+    output(
+        "📚",
+        &format!(
+            "Dissolved stack #{} to change the base of Pull Request #{}",
+            stack.number, number
+        ),
+    )?;
+
+    Ok(())
+}
+
+/// Make the chain of Pull Requests of the local branch a stack on GitHub.
+///
+/// `pull_request_numbers` are the Pull Requests of the commits of the local
+/// branch, from bottom to top.
+async fn sync_github_stack(
+    gh: &GitHub,
+    config: &crate::config::Config,
+    pull_request_numbers: &[Option<u64>],
+) -> Result<()> {
+    // Determine the chain of Pull Requests: starting at the bottom of the
+    // local branch, each Pull Request must be open and based on the head
+    // branch of the one below (the first one on master). The chain ends at
+    // the first commit that doesn't fit (e.g. it has no Pull Request, or its
+    // Pull Request was created with --cherry-pick).
+    let mut chain: Vec<u64> = Vec::new();
+    let mut expected_base = config.master_ref.branch_name().to_string();
+    for &number in pull_request_numbers {
+        let Some(number) = number else { break };
+        let refs = gh.get_pull_request_refs(number).await?;
+        if !refs.open || refs.base != expected_base {
+            break;
+        }
+        expected_base = refs.head;
+        chain.push(number);
+    }
+
+    // The stacks on GitHub that these Pull Requests currently belong to
+    let mut stacks: Vec<PullRequestStack> = Vec::new();
+    for &number in &chain {
+        if let Some(stack) = gh.find_pull_request_stack(number).await?
+            && !stacks.iter().any(|s| s.number == stack.number)
+        {
+            stacks.push(stack);
+        }
+    }
+
+    // If all Pull Requests of the chain that are in a stack are in the same
+    // stack, and the order matches, we keep that stack. The local branch may
+    // contain only the lower part of the stack (e.g. when running `spr diff`
+    // during an interactive rebase), or more Pull Requests than the stack,
+    // which we then add on top.
+    if let [stack] = &stacks[..] {
+        let in_stack = stack.open_pull_requests();
+        if in_stack.starts_with(&chain) {
+            return Ok(());
+        }
+        if chain.starts_with(&in_stack) {
+            let new = &chain[in_stack.len()..];
+            gh.add_to_pull_request_stack(stack.number, new).await?;
+            output(
+                "📚",
+                &format!(
+                    "Added {} to stack #{}",
+                    format_pull_request_numbers(new),
+                    stack.number
+                ),
+            )?;
+            return Ok(());
+        }
+    }
+
+    // Otherwise, the existing stacks don't reflect the local branch anymore
+    // (e.g. commits were reordered or dropped). Dissolve them, and create a
+    // new stack.
+    for stack in &stacks {
+        gh.unstack_pull_request_stack(stack.number).await?;
+        output(
+            "📚",
+            &format!(
+                "Dissolved stack #{} as it does not match the local branch \
+                 anymore",
+                stack.number
+            ),
+        )?;
+    }
+
+    if chain.len() >= 2 {
+        let stack = gh.create_pull_request_stack(&chain).await?;
+        output(
+            "📚",
+            &format!(
+                "Created stack #{} with {}",
+                stack.number,
+                format_pull_request_numbers(&chain)
+            ),
+        )?;
+    }
+
+    Ok(())
+}
+
+fn format_pull_request_numbers(numbers: &[u64]) -> String {
+    let numbers = numbers
+        .iter()
+        .map(|number| format!("#{number}"))
+        .collect::<Vec<_>>()
+        .join(", ");
+    format!("Pull Requests {numbers}")
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -552,6 +696,10 @@ async fn diff_impl(
             // Request branch and base are all the right ones.
             output("✅", "No update necessary")?;
 
+            if !keeps_base {
+                leave_github_stack(gh, pull_request.number).await?;
+            }
+
             let mut pull_request_updates: PullRequestUpdate =
                 Default::default();
 
@@ -788,6 +936,18 @@ async fn diff_impl(
     }
 
     if let Some(ref pull_request) = pull_request {
+        // If the Pull Request's base is going to change, it must not be part
+        // of a stack on GitHub. Take care of this before pushing anything, so
+        // we don't leave the Pull Request half-updated.
+        if pull_request.base.branch_name()
+            != base_branch
+                .as_ref()
+                .unwrap_or(&config.master_ref)
+                .branch_name()
+        {
+            leave_github_stack(gh, pull_request.number).await?;
+        }
+
         if needs_merging_master {
             output(
                 "⚾",
