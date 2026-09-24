@@ -123,7 +123,7 @@ pub async fn init() -> Result<()> {
             // We can provide a default value in case the remote "origin" is pointing to github.com
             repo.find_remote("origin")
                 .ok()
-                .and_then(|remote| remote.url().map(String::from))
+                .and_then(|remote| remote.url().ok().map(String::from))
                 .and_then(|url| {
                     regex.captures(&url).and_then(|caps| {
                         caps.get(1).map(|m| m.as_str().to_string())

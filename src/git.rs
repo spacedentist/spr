@@ -77,7 +77,7 @@ impl Git {
             let commit = self.repo.find_commit(prepared_commit.oid)?;
             if limit != Some(0) {
                 message = prepared_commit.message.to_string();
-                if Some(&message[..]) != commit.message() {
+                if Some(&message[..]) != commit.message().ok() {
                     updating = true;
                 }
             } else {
