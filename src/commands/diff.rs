@@ -390,6 +390,20 @@ async fn diff_impl(
         };
     let needs_merging_master = pr_master_base != master_base_oid;
 
+    // If the existing Pull Request targets a base branch created by spr, but
+    // the local commit is now directly based on master (typically because the
+    // commits below it have been landed and the local branch was rebased), or
+    // we are cherry-picking, then the base branch is not needed anymore. The
+    // Pull Request should target master directly, so it can be merged there.
+    // We only do this for base branches using our branch prefix, so we never
+    // retarget Pull Requests that the user pointed at some other branch.
+    let obsolete_base_branch = pull_request.as_ref().and_then(|pr| {
+        (!pr.base.is_master_branch()
+            && pr.base.branch_name().starts_with(&config.branch_prefix)
+            && (directly_based_on_master || opts.cherry_pick))
+            .then(|| pr.base.clone())
+    });
+
     // At this point we can check if we can exit early because no update to the
     // existing Pull Request is necessary
     if let Some(ref pull_request) = pull_request {
@@ -402,23 +416,37 @@ async fn diff_impl(
             // Request branch and base are all the right ones.
             output("✅", "No update necessary")?;
 
+            let mut pull_request_updates: PullRequestUpdate =
+                Default::default();
+
             if opts.update_message {
                 // However, the user requested to update the commit message on
                 // GitHub
-
-                let mut pull_request_updates: PullRequestUpdate =
-                    Default::default();
                 pull_request_updates.update_message(pull_request, message);
+            }
 
-                if !pull_request_updates.is_empty() {
-                    // ...and there are actual changes to the message
-                    gh.update_pull_request(
-                        pull_request.number,
-                        pull_request_updates,
-                    )
-                    .await?;
+            if obsolete_base_branch.is_some() {
+                // The Pull Request branch already contains the master commit
+                // we are based on, so we only need to change its base.
+                pull_request_updates.base =
+                    Some(config.master_ref.branch_name().to_string());
+            }
+
+            if !pull_request_updates.is_empty() {
+                let message_updated = pull_request_updates.title.is_some()
+                    || pull_request_updates.body.is_some();
+                gh.update_pull_request(
+                    pull_request.number,
+                    pull_request_updates,
+                )
+                .await?;
+                if message_updated {
                     output("✍", "Updated commit message on GitHub")?;
                 }
+            }
+
+            if let Some(ref obsolete_base_branch) = obsolete_base_branch {
+                retargeted_to_master(gh, config, obsolete_base_branch)?;
             }
 
             return Ok(());
@@ -426,8 +454,11 @@ async fn diff_impl(
     }
 
     // Check if there is a base branch on GitHub already. That's the case when
-    // there is an existing Pull Request, and its base is not the master branch.
-    let base_branch = if let Some(ref pr) = pull_request {
+    // there is an existing Pull Request, and its base is not the master branch
+    // (unless we determined above that the base branch is not needed anymore).
+    let base_branch = if obsolete_base_branch.is_some() {
+        None
+    } else if let Some(ref pr) = pull_request {
         if pr.base.is_master_branch() {
             None
         } else {
@@ -654,11 +685,22 @@ async fn diff_impl(
             gh.remote()
                 .push_to_remote(push_specs.as_slice())
                 .context("git push failed".to_string())?;
+
+            // If the Pull Request still targets a base branch that is not
+            // needed anymore, change its base to master.
+            if obsolete_base_branch.is_some() {
+                pull_request_updates.base =
+                    Some(config.master_ref.branch_name().to_string());
+            }
         }
 
         if !pull_request_updates.is_empty() {
             gh.update_pull_request(pull_request.number, pull_request_updates)
                 .await?;
+        }
+
+        if let Some(ref obsolete_base_branch) = obsolete_base_branch {
+            retargeted_to_master(gh, config, obsolete_base_branch)?;
         }
     } else {
         // We are creating a new Pull Request.
@@ -715,6 +757,45 @@ async fn diff_impl(
                 }
             }
         }
+    }
+
+    Ok(())
+}
+
+/// Report that a Pull Request was changed to target master instead of its
+/// base branch, and delete the base branch, which is not needed anymore.
+///
+/// This must only be called after the Pull Request's base has been changed:
+/// GitHub closes Pull Requests whose base branch gets deleted.
+fn retargeted_to_master(
+    gh: &crate::github::GitHub,
+    config: &crate::config::Config,
+    obsolete_base_branch: &crate::github::GitHubBranch,
+) -> Result<()> {
+    output(
+        "🎯",
+        &format!(
+            "Pull Request is now based directly on {} - changed its base \
+             branch accordingly",
+            config.master_ref.branch_name()
+        ),
+    )?;
+
+    let result = gh.remote().push_to_remote(&[PushSpec {
+        oid: None,
+        remote_ref: obsolete_base_branch.on_github(),
+    }]);
+    if let Err(error) = result {
+        // The Pull Request is in the right state already, so this is not an
+        // error. The branch is merely left behind.
+        output(
+            "⚠️",
+            &format!(
+                "Could not delete the old base branch {}: {}",
+                obsolete_base_branch.branch_name(),
+                error
+            ),
+        )?;
     }
 
     Ok(())
