@@ -154,7 +154,7 @@ pub async fn diff(
     let mut message_on_prompt = "".to_string();
 
     for (prepared_commit, pull_request_task) in
-        zip(prepared_commits.iter_mut(), pull_request_tasks.into_iter())
+        zip(prepared_commits.iter_mut(), pull_request_tasks)
     {
         if result.is_err() {
             break;
