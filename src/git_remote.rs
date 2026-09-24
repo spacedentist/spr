@@ -42,7 +42,7 @@ impl GitRemote {
                 || allowed_types.is_ssh_key()
                 || allowed_types.is_ssh_interactive()
             {
-                git2::Cred::ssh_key_from_agent(username.unwrap())
+                git2::Cred::ssh_key_from_agent(username.unwrap_or("git"))
             } else {
                 git2::Cred::userpass_plaintext("spr", &self.auth_token)
             }
