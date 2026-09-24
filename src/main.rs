@@ -1,10 +1,3 @@
-/*
- * Copyright (c) Radical HQ Limited
- *
- * This source code is licensed under the MIT license found in the
- * LICENSE file in the root directory of this source tree.
- */
-
 //! A command-line tool for submitting and updating GitHub Pull Requests from
 //! local Git commits that may be amended and rebased. Pull Requests can be
 //! stacked to allow for a series of code reviews of interdependent code.
@@ -134,10 +127,6 @@ pub async fn spr() -> Result<()> {
         .get_bool("spr.requireApproval")
         .ok()
         .unwrap_or(false);
-    let require_test_plan = git_config
-        .get_bool("spr.requireTestPlan")
-        .ok()
-        .unwrap_or(true);
 
     let github_auth_token = match cli.github_auth_token {
         Some(v) => Ok(v),
@@ -151,7 +140,6 @@ pub async fn spr() -> Result<()> {
         branch_prefix,
         github_auth_token.clone(),
         require_approval,
-        require_test_plan,
     );
     debug!("config: {:?}", config);
 

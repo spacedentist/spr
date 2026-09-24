@@ -1,10 +1,3 @@
-/*
- * Copyright (c) Radical HQ Limited
- *
- * This source code is licensed under the MIT license found in the
- * LICENSE file in the root directory of this source tree.
- */
-
 use std::collections::HashSet;
 use std::iter::zip;
 
@@ -17,7 +10,6 @@ use crate::{
         GitHub, PullRequest, PullRequestRequestReviewers, PullRequestState,
         PullRequestUpdate,
     },
-    message::{MessageSection, validate_commit_message},
     output::{output, write_commit_title},
     utils::{parse_name_list, remove_all_parens, slugify},
 };
@@ -264,7 +256,7 @@ async fn diff_impl(
     }
 
     if local_commit.pull_request_number.is_none() || opts.update_message {
-        validate_commit_message(message, config)?;
+        message.validate(config)?;
     }
 
     if let Some(ref pull_request) = pull_request {
@@ -296,11 +288,11 @@ async fn diff_impl(
         }
     }
 
-    // Parse "Reviewers" section, if this is a new Pull Request
+    // Parse "Reviewers" trailer, if this is a new Pull Request
     let mut requested_reviewers = PullRequestRequestReviewers::default();
 
     if local_commit.pull_request_number.is_none()
-        && let Some(reviewers) = message.get(&MessageSection::Reviewers)
+        && let Some(reviewers) = message.get_trailer("Reviewers")
     {
         let reviewers = parse_name_list(reviewers);
         let mut checked_reviewers = Vec::new();
@@ -341,16 +333,14 @@ async fn diff_impl(
             }
         }
 
-        message.insert(MessageSection::Reviewers, checked_reviewers.join(", "));
+        message
+            .set_trailer("Reviewers".to_string(), checked_reviewers.join(", "));
     }
 
     // Get the name of the existing Pull Request branch, or constuct one if
     // there is none yet.
 
-    let title = message
-        .get(&MessageSection::Title)
-        .map(|t| &t[..])
-        .unwrap_or("");
+    let title = message.title();
 
     let pull_request_branch = match &pull_request {
         Some(pr) => pr.head.clone(),
@@ -711,7 +701,7 @@ async fn diff_impl(
             ),
         )?;
 
-        message.insert(MessageSection::PullRequest, pull_request_url);
+        message.set_trailer("Pull-request".to_string(), pull_request_url);
 
         let result = gh
             .request_reviewers(pull_request_number, requested_reviewers)

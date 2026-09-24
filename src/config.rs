@@ -1,10 +1,3 @@
-/*
- * Copyright (c) Radical HQ Limited
- *
- * This source code is licensed under the MIT license found in the
- * LICENSE file in the root directory of this source tree.
- */
-
 use color_eyre::eyre::Result;
 
 use crate::github::GitHubBranch;
@@ -17,11 +10,9 @@ pub struct Config {
     pub branch_prefix: String,
     pub auth_token: String,
     pub require_approval: bool,
-    pub require_test_plan: bool,
 }
 
 impl Config {
-    #[allow(clippy::too_many_arguments)]
     pub fn new(
         owner: String,
         repo: String,
@@ -29,7 +20,6 @@ impl Config {
         branch_prefix: String,
         auth_token: String,
         require_approval: bool,
-        require_test_plan: bool,
     ) -> Self {
         let master_ref =
             GitHubBranch::new_from_branch_name(&master_branch, &master_branch);
@@ -40,7 +30,6 @@ impl Config {
             branch_prefix,
             auth_token,
             require_approval,
-            require_test_plan,
         }
     }
 
@@ -105,7 +94,6 @@ mod tests {
             "spr/foo/".into(),
             "xyz".into(),
             false,
-            true,
         )
     }
 

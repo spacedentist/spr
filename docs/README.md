@@ -41,7 +41,7 @@ One reasonable position is to make small changes directly on `main`, but make br
 
 ### Why Review Commits?
 
-The principle behind spr is **one commit per logical change**. Each commit should be able to stand on its own: it should have a coherent thesis and be a complete change in and of itself. It should have a clear summary, description, and test plan. It should leave the codebase in a consistent state: building and passing tests, etc.
+The principle behind spr is **one commit per logical change**. Each commit should be able to stand on its own: it should have a coherent thesis and be a complete change in and of itself. It should have a clear title and description. It should leave the codebase in a consistent state: building and passing tests, etc.
 
 In addition, ideally, it shouldn't be possible to further split a commit into multiple commits that each stand on their own. If you _can_ split a commit that way, you should.
 

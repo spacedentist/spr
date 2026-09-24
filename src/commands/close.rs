@@ -1,17 +1,9 @@
-/*
- * Copyright (c) Radical HQ Limited
- *
- * This source code is licensed under the MIT license found in the
- * LICENSE file in the root directory of this source tree.
- */
-
 use color_eyre::eyre::{Result, bail};
 
 use crate::{
     git::PreparedCommit,
     git_remote::PushSpec,
     github::{PullRequestState, PullRequestUpdate},
-    message::MessageSection,
     output::{output, write_commit_title},
 };
 
@@ -108,9 +100,9 @@ async fn close_impl(
 
     output("📕", "Closed!")?;
 
-    // Remove sections from commit that are not relevant after closing.
-    prepared_commit.message.remove(&MessageSection::PullRequest);
-    prepared_commit.message.remove(&MessageSection::ReviewedBy);
+    // Remove trailers from commit that are not relevant after closing.
+    prepared_commit.message.remove_trailer("Pull-request");
+    prepared_commit.message.remove_trailer("Reviewed-by");
 
     let mut push_specs = vec![PushSpec {
         oid: None,
