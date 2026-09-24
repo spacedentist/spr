@@ -26,7 +26,7 @@ http-body = "1.1.0"
 indoc = "^2.0.7"
 lazy-regex = "^3.6.1"
 log = "0.4.34"
-octocrab = { version = "^0.48.1", default-features = false, features = ["opentls", "default-client", "tokio"] }
+octocrab = { version = "^0.54.2", default-features = false, features = ["opentls", "default-client", "tokio", "jwt-rust-crypto"] }
 open = "5.4.4"
 secrecy = { version = "0.10.3", default-features = false }
 serde = "^1.0.229"

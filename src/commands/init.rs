@@ -237,41 +237,31 @@ struct AuthScopes {
 }
 
 impl FromResponse for AuthScopes {
-    fn from_response<'async_trait, B>(
+    async fn from_response<B>(
         response: http::Response<B>,
-    ) -> std::pin::Pin<
-        Box<
-            dyn std::future::Future<Output = octocrab::Result<Self>>
-                + std::marker::Send
-                + 'async_trait,
-        >,
-    >
+    ) -> octocrab::Result<Self>
     where
         B: http_body::Body<Data = bytes::Bytes, Error = octocrab::Error> + Send,
-        B: 'async_trait,
-        Self: 'async_trait,
     {
-        Box::pin(async move {
-            let scopes = response
-                .headers()
-                .get("x-oauth-scopes")
-                .map(|v| v.to_str())
-                .transpose()
-                .map_err(|err| octocrab::Error::Other {
-                    source: Box::new(err),
-                    backtrace: std::backtrace::Backtrace::capture(),
-                })?
-                .map(|value| {
-                    value
-                        .split(',')
-                        .map(str::trim)
-                        .filter(|x| !x.is_empty())
-                        .map(String::from)
-                        .collect::<Vec<_>>()
-                })
-                .unwrap_or_default();
-            Ok(AuthScopes { scopes })
-        })
+        let scopes = response
+            .headers()
+            .get("x-oauth-scopes")
+            .map(|v| v.to_str())
+            .transpose()
+            .map_err(|err| octocrab::Error::Other {
+                source: Box::new(err),
+                backtrace: std::backtrace::Backtrace::capture(),
+            })?
+            .map(|value| {
+                value
+                    .split(',')
+                    .map(str::trim)
+                    .filter(|x| !x.is_empty())
+                    .map(String::from)
+                    .collect::<Vec<_>>()
+            })
+            .unwrap_or_default();
+        Ok(AuthScopes { scopes })
     }
 }
 
