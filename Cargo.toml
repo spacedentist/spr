@@ -18,7 +18,7 @@ dialoguer = "^0.12.0"
 env_logger = "0.11.8"
 futures = "^0.3.31"
 futures-lite = "^2.6.1"
-git2 = { version = "^0.20.3", default-features = false, features = ["https"]}
+git2 = { version = "^0.20.3", default-features = false, features = ["https", "ssh"]}
 git2-ext = "^0.6.3"
 graphql_client = "^0.15.0"
 http = "1.4.0"
@@ -33,3 +33,6 @@ serde = "^1.0.228"
 textwrap = "^0.16.2"
 tokio = { version = "^1.49.0", features = ["macros", "rt", "time"] }
 unicode-normalization = "^0.1.25"
+
+[lints.clippy]
+used-underscore-binding = "deny"

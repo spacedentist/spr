@@ -33,9 +33,21 @@ impl GitRemote {
     {
         let mut remote = self.repo.remote_anonymous(&self.url)?;
         let mut cb = git2::RemoteCallbacks::new();
-        cb.credentials(move |_url, _username, _allowed_types| {
-            git2::Cred::userpass_plaintext("spr", &self.auth_token)
+        cb.credentials(move |url, username, allowed_types| {
+            debug!(
+                "remote callback: url={}, username={:?}, allowed={:?}",
+                url, username, allowed_types
+            );
+            if allowed_types.is_ssh_custom()
+                || allowed_types.is_ssh_key()
+                || allowed_types.is_ssh_interactive()
+            {
+                git2::Cred::ssh_key_from_agent(username.unwrap())
+            } else {
+                git2::Cred::userpass_plaintext("spr", &self.auth_token)
+            }
         });
+
         let mut connection =
             remote.connect_auth(dir, Some(cb), None).wrap_err_with(|| {
                 format!("Connection to git remote failed, url: {}", &self.url)
