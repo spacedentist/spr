@@ -10,29 +10,29 @@ edition = "2024"
 exclude = [".github", ".gitignore"]
 
 [dependencies]
-bytes = "1.11.0"
-clap = { version = "^4.5.54", features = ["derive", "wrap_help"] }
+bytes = "1.12.1"
+clap = { version = "^4.6.7", features = ["derive", "wrap_help"] }
 color-eyre = "0.6.5"
-console = "^0.16.2"
+console = "^0.16.6"
 dialoguer = "^0.12.0"
-env_logger = "0.11.8"
-futures = "^0.3.31"
+env_logger = "0.11.11"
+futures = "^0.3.34"
 futures-lite = "^2.6.1"
 git2 = { version = "^0.21.0", default-features = false, features = ["https", "ssh"]}
 git2-ext = "^2.0.0"
 graphql_client = "^0.15.0"
-http = "1.4.0"
-http-body = "1.0.1"
+http = "1.5.0"
+http-body = "1.1.0"
 indoc = "^2.0.7"
-lazy-regex = "^3.5.1"
-log = "0.4.29"
+lazy-regex = "^3.6.1"
+log = "0.4.34"
 octocrab = { version = "^0.48.1", default-features = false, features = ["opentls", "default-client", "tokio"] }
-open = "5.3.3"
+open = "5.4.4"
 secrecy = { version = "0.10.3", default-features = false }
-serde = "^1.0.228"
+serde = "^1.0.229"
 serde_json = "^1.0"
-textwrap = "^0.16.2"
-tokio = { version = "^1.49.0", features = ["macros", "rt", "time"] }
+textwrap = "^0.16.4"
+tokio = { version = "^1.53.1", features = ["macros", "rt", "time"] }
 unicode-normalization = "^0.1.25"
 
 [lints.clippy]
