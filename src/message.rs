@@ -42,12 +42,22 @@ impl CommitMessage {
 
         // Extract body (everything between title and trailers)
         let body_lines = &lines[1..trailer_start];
-        let body = body_lines.join("\n").trim().to_string();
+        let mut body = body_lines.join("\n").trim().to_string();
 
-        // Parse trailers
+        // Parse trailers and extract any non-trailer lines
         let mut trailers = Vec::new();
+        let mut non_trailer_lines = Vec::new();
         if trailer_start < lines.len() {
-            trailers = Self::parse_trailers(&lines[trailer_start..]);
+            (trailers, non_trailer_lines) =
+                Self::parse_trailers(&lines[trailer_start..]);
+        }
+
+        // Append non-trailer lines from the trailer block to the body
+        if !non_trailer_lines.is_empty() {
+            if !body.is_empty() {
+                body.push_str("\n\n");
+            }
+            body.push_str(&non_trailer_lines.join("\n"));
         }
 
         // Handle backwards compatibility: look for old-style sections in body
@@ -109,10 +119,23 @@ impl CommitMessage {
         }
 
         let para_lines = &lines[last_para_start..last_para_end];
-        let trailer_like_count = para_lines
-            .iter()
-            .filter(|line| Self::is_trailer_line(line))
-            .count();
+
+        // Count trailer lines, including continuation lines (leading
+        // whitespace) that follow a trailer
+        let mut trailer_like_count = 0;
+        let mut in_trailer = false;
+        for line in para_lines {
+            if Self::is_trailer_line(line) {
+                in_trailer = true;
+            } else if !(in_trailer
+                && (line.starts_with(' ') || line.starts_with('\t')))
+            {
+                in_trailer = false;
+            }
+            if in_trailer {
+                trailer_like_count += 1;
+            }
+        }
 
         // If most lines look like trailers, treat it as a trailer block
         if trailer_like_count > 0 && trailer_like_count * 2 >= para_lines.len()
@@ -129,19 +152,37 @@ impl CommitMessage {
     }
 
     /// Parse trailer lines into key-value pairs.
-    fn parse_trailers(lines: &[&str]) -> Vec<(String, String)> {
+    /// Returns (trailers, non_trailer_lines) where non_trailer_lines should be
+    /// appended to the body.
+    /// Supports multi-line trailers (RFC 822 style continuation lines).
+    fn parse_trailers(lines: &[&str]) -> (Vec<(String, String)>, Vec<String>) {
         let mut trailers = Vec::new();
+        let mut non_trailer_lines = Vec::new();
         let regex = lazy_regex::regex!(r"^([A-Za-z0-9][\w-]*)\s*:\s*(.*)$");
 
         for line in lines {
             if let Some(caps) = regex.captures(line) {
+                // New trailer line
                 let key = caps.get(1).unwrap().as_str().to_string();
                 let value = caps.get(2).unwrap().as_str().trim().to_string();
                 trailers.push((key, value));
+            } else if line.starts_with(' ') || line.starts_with('\t') {
+                // Continuation line (folded line in RFC 822 style)
+                if let Some(last_trailer) = trailers.last_mut() {
+                    // Append to the previous trailer's value
+                    last_trailer.1.push(' ');
+                    last_trailer.1.push_str(line.trim());
+                } else {
+                    // Continuation line with no previous trailer - treat as non-trailer
+                    non_trailer_lines.push(line.to_string());
+                }
+            } else if !line.trim().is_empty() {
+                // Non-empty, non-trailer line - should be moved to body
+                non_trailer_lines.push(line.to_string());
             }
         }
 
-        trailers
+        (trailers, non_trailer_lines)
     }
 
     /// Extract legacy-style sections from body for backwards compatibility.
@@ -298,7 +339,15 @@ impl fmt::Display for CommitMessage {
         if !self.trailers.is_empty() {
             write!(f, "\n\n")?;
             for (key, value) in &self.trailers {
-                writeln!(f, "{}: {}", key, value)?;
+                // Unfold multi-line values: split by newlines, trim each line,
+                // filter empty lines, and join with single space
+                let unfolded_value = value
+                    .lines()
+                    .map(|line| line.trim())
+                    .filter(|line| !line.is_empty())
+                    .collect::<Vec<_>>()
+                    .join(" ");
+                writeln!(f, "{}: {}", key, unfolded_value)?;
             }
         }
 
@@ -407,5 +456,121 @@ mod tests {
         assert_eq!(msg.get_trailer("Pull-request"), Some("url"));
         assert_eq!(msg.get_trailer("pull-request"), Some("url"));
         assert_eq!(msg.get_trailer("PULL-REQUEST"), Some("url"));
+    }
+
+    #[test]
+    fn test_non_trailer_lines_moved_to_body() {
+        let msg = CommitMessage::parse(
+            "Title\n\nBody text\n\nSigned-off-by: Alice\nSome random note\nReviewed-by: Bob",
+        );
+        assert_eq!(msg.title(), "Title");
+        assert_eq!(msg.body(), "Body text\n\nSome random note");
+        assert_eq!(msg.trailers().len(), 2);
+        assert_eq!(msg.get_trailer("Signed-off-by"), Some("Alice"));
+        assert_eq!(msg.get_trailer("Reviewed-by"), Some("Bob"));
+
+        // When serialized, it should produce clean format
+        let serialized = msg.to_string();
+        assert_eq!(
+            serialized,
+            "Title\n\nBody text\n\nSome random note\n\nSigned-off-by: Alice\nReviewed-by: Bob\n"
+        );
+    }
+
+    #[test]
+    fn test_multiline_trailers() {
+        // Multi-line trailer using RFC 822 style continuation (leading whitespace)
+        let msg = CommitMessage::parse(
+            "Title\n\nBody\n\nSigned-off-by: Some Person\n <with-a-long-email@example.com>\nReviewed-by: Bob",
+        );
+        assert_eq!(msg.title(), "Title");
+        assert_eq!(msg.body(), "Body");
+        assert_eq!(msg.trailers().len(), 2);
+        assert_eq!(
+            msg.get_trailer("Signed-off-by"),
+            Some("Some Person <with-a-long-email@example.com>")
+        );
+        assert_eq!(msg.get_trailer("Reviewed-by"), Some("Bob"));
+
+        // When serialized, it becomes single-line (we don't preserve multi-line format)
+        let serialized = msg.to_string();
+        assert!(serialized.contains(
+            "Signed-off-by: Some Person <with-a-long-email@example.com>\n"
+        ));
+    }
+
+    #[test]
+    fn test_trailer_with_multiple_continuation_lines() {
+        let msg = CommitMessage::parse(
+            "Title\n\nBody\n\nSigned-off-by: Some Person\n <a@example.com>\n (on behalf of Org)",
+        );
+        assert_eq!(msg.body(), "Body");
+        assert_eq!(
+            msg.get_trailer("Signed-off-by"),
+            Some("Some Person <a@example.com> (on behalf of Org)")
+        );
+    }
+
+    #[test]
+    fn test_indented_lines_without_trailer_are_body() {
+        let msg = CommitMessage::parse(
+            "Title\n\nBody\n\nSome-key: value\nplain text\n indented\n indented",
+        );
+        assert_eq!(
+            msg.body(),
+            "Body\n\nSome-key: value\nplain text\n indented\n indented"
+        );
+        assert!(msg.trailers().is_empty());
+    }
+
+    #[test]
+    fn test_trailer_value_with_newlines_gets_unfolded() {
+        let mut msg =
+            CommitMessage::new("Title".to_string(), "Body".to_string());
+        msg.set_trailer("Foo".to_string(), "line1\nline2\nline3".to_string());
+
+        // The value should be stored as-is
+        assert_eq!(msg.get_trailer("Foo"), Some("line1\nline2\nline3"));
+
+        // But when serialized, newlines should be replaced with spaces
+        let serialized = msg.to_string();
+        assert!(serialized.contains("Foo: line1 line2 line3\n"));
+        assert!(!serialized.contains("Foo: line1\nline2"));
+
+        // When re-parsed, the unfolded value should be preserved
+        let reparsed = CommitMessage::parse(&serialized);
+        assert_eq!(reparsed.get_trailer("Foo"), Some("line1 line2 line3"));
+    }
+
+    #[test]
+    fn test_trailer_value_whitespace_normalization() {
+        let mut msg =
+            CommitMessage::new("Title".to_string(), "Body".to_string());
+
+        // Various whitespace scenarios
+        msg.set_trailer(
+            "A".to_string(),
+            "  leading and trailing  ".to_string(),
+        );
+        msg.set_trailer("B".to_string(), "line1  \n  line2".to_string());
+        msg.set_trailer("C".to_string(), "line1\n\n\nline2".to_string()); // multiple blank lines
+        msg.set_trailer(
+            "D".to_string(),
+            "  word1   word2  \n  word3  ".to_string(),
+        );
+
+        let serialized = msg.to_string();
+
+        // Leading/trailing whitespace trimmed
+        assert!(serialized.contains("A: leading and trailing\n"));
+
+        // Lines trimmed and joined with single space
+        assert!(serialized.contains("B: line1 line2\n"));
+
+        // Empty lines filtered out
+        assert!(serialized.contains("C: line1 line2\n"));
+
+        // Multiple spaces within a line preserved, but line boundaries normalized
+        assert!(serialized.contains("D: word1   word2 word3\n"));
     }
 }
