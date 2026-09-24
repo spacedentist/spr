@@ -20,7 +20,7 @@ futures = "^0.3.34"
 futures-lite = "^2.6.1"
 git2 = { version = "^0.21.0", default-features = false, features = ["https", "ssh"]}
 git2-ext = "^2.0.0"
-graphql_client = "^0.15.0"
+graphql_client = "^0.16.0"
 http = "1.5.0"
 http-body = "1.1.0"
 indoc = "^2.0.7"
