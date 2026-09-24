@@ -128,6 +128,11 @@ pub async fn spr() -> Result<()> {
         .ok()
         .unwrap_or(false);
 
+    let merge_method = match git_config.get_string("spr.mergeMethod") {
+        Ok(value) => value.parse()?,
+        Err(_) => spr::config::MergeMethod::Squash,
+    };
+
     let github_auth_token = match cli.github_auth_token {
         Some(v) => Ok(v),
         None => git_config.get_string("spr.githubAuthToken"),
@@ -140,6 +145,7 @@ pub async fn spr() -> Result<()> {
         branch_prefix,
         github_auth_token.clone(),
         require_approval,
+        merge_method,
     );
     debug!("config: {:?}", config);
 

@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### Improvements
+
+- new config option `spr.mergeMethod` (`squash` or `merge`), used by `spr land`
+
 ## [1.3.7] - 2025-08-25
 
 ### Improvements

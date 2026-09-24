@@ -3,6 +3,7 @@ use indoc::formatdoc;
 use std::time::Duration;
 
 use crate::{
+    config::MergeMethod,
     git_remote::PushSpec,
     github::{PullRequestState, PullRequestUpdate, ReviewStatus},
     output::{output, write_commit_title},
@@ -68,13 +69,27 @@ pub async fn land(
         bail!("This Pull Request has not been approved on GitHub.");
     }
 
+    let base_is_master = pull_request.base.is_master_branch();
+
+    if config.merge_method == MergeMethod::Merge
+        && config.is_spr_base_branch(&pull_request.base)
+    {
+        // Merging this Pull Request with a merge commit would bring the
+        // commits on the base branch that spr created into the history of the
+        // master branch.
+        bail!(
+            "This Pull Request uses a base branch created by spr, which does \
+             not work with merge method '{}'.",
+            config.merge_method,
+        );
+    }
+
     output("🛫", "Getting started...")?;
 
     // Fetch current master from GitHub.
     let current_master =
         gh.remote().fetch_branch(config.master_ref.branch_name())?;
 
-    let base_is_master = pull_request.base.is_master_branch();
     let index = git.cherrypick(prepared_commit.oid, current_master)?;
 
     if index.has_conflicts() {
@@ -268,7 +283,14 @@ pub async fn land(
             octocrab::instance()
                 .pulls(&config.owner, &config.repo)
                 .merge(pull_request_number)
-                .method(octocrab::params::pulls::MergeMethod::Squash)
+                .method(match config.merge_method {
+                    MergeMethod::Squash => {
+                        octocrab::params::pulls::MergeMethod::Squash
+                    }
+                    MergeMethod::Merge => {
+                        octocrab::params::pulls::MergeMethod::Merge
+                    }
+                })
                 .title(pull_request.title)
                 .message(pull_request.message.to_github_body_for_merging())
                 .sha(format!("{}", pr_head_oid))

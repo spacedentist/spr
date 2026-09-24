@@ -1,4 +1,4 @@
-use color_eyre::eyre::Result;
+use color_eyre::eyre::{Result, bail};
 
 use crate::github::GitHubBranch;
 
@@ -10,6 +10,43 @@ pub struct Config {
     pub branch_prefix: String,
     pub auth_token: String,
     pub require_approval: bool,
+    pub merge_method: MergeMethod,
+}
+
+/// How Pull Requests get merged into the master branch in this repository.
+///
+/// This is used by `spr land`, but also tells spr what the repository's
+/// convention is, as Pull Requests may also be merged in the GitHub UI.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum MergeMethod {
+    /// Squash all commits of the Pull Request into one commit on master
+    Squash,
+    /// Merge the Pull Request branch into master with a merge commit
+    Merge,
+}
+
+impl std::str::FromStr for MergeMethod {
+    type Err = color_eyre::eyre::Report;
+
+    fn from_str(s: &str) -> Result<Self> {
+        match s.to_lowercase().as_str() {
+            "squash" => Ok(MergeMethod::Squash),
+            "merge" => Ok(MergeMethod::Merge),
+            _ => bail!(
+                "Merge method must be either 'squash' or 'merge', but given \
+                 value was '{s}'"
+            ),
+        }
+    }
+}
+
+impl std::fmt::Display for MergeMethod {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(match self {
+            MergeMethod::Squash => "squash",
+            MergeMethod::Merge => "merge",
+        })
+    }
 }
 
 impl Config {
@@ -20,6 +57,7 @@ impl Config {
         branch_prefix: String,
         auth_token: String,
         require_approval: bool,
+        merge_method: MergeMethod,
     ) -> Self {
         let master_ref =
             GitHubBranch::new_from_branch_name(&master_branch, &master_branch);
@@ -30,6 +68,7 @@ impl Config {
             branch_prefix,
             auth_token,
             require_approval,
+            merge_method,
         }
     }
 
@@ -73,6 +112,21 @@ impl Config {
         GitHubBranch::new_from_ref(ghref, self.master_ref.branch_name())
     }
 
+    /// Whether the given branch is a base branch that spr created for a Pull
+    /// Request, i.e. a synthetic branch reflecting the changes the Pull
+    /// Request's commit is based on.
+    ///
+    /// Base branch names are the branch prefix, followed by the master branch
+    /// name, a dot, and a slug of the commit title. Pull Request branch names
+    /// never contain a dot after the prefix, as slugs don't contain dots.
+    pub fn is_spr_base_branch(&self, branch: &GitHubBranch) -> bool {
+        branch
+            .branch_name()
+            .strip_prefix(&self.branch_prefix)
+            .and_then(|rest| rest.strip_prefix(self.master_ref.branch_name()))
+            .is_some_and(|rest| rest.starts_with('.'))
+    }
+
     pub fn new_github_branch(&self, branch_name: &str) -> GitHubBranch {
         GitHubBranch::new_from_branch_name(
             branch_name,
@@ -94,6 +148,7 @@ mod tests {
             "spr/foo/".into(),
             "xyz".into(),
             false,
+            MergeMethod::Squash,
         )
     }
 
@@ -166,5 +221,33 @@ mod tests {
             ),
             Some(123)
         );
+    }
+
+    #[test]
+    fn test_parse_merge_method() {
+        assert_eq!(
+            "squash".parse::<MergeMethod>().unwrap(),
+            MergeMethod::Squash
+        );
+        assert_eq!("Merge".parse::<MergeMethod>().unwrap(), MergeMethod::Merge);
+        assert!("rebase".parse::<MergeMethod>().is_err());
+        assert!("".parse::<MergeMethod>().is_err());
+    }
+
+    #[test]
+    fn test_is_spr_base_branch() {
+        let config = config_factory();
+
+        let is_base = |name: &str| {
+            config.is_spr_base_branch(&config.new_github_branch(name))
+        };
+
+        assert!(is_base("spr/foo/master.fix-the-bug"));
+        assert!(is_base("spr/foo/master.fix-the-bug-1"));
+        assert!(!is_base("spr/foo/fix-the-bug"));
+        assert!(!is_base("spr/foo/masterful-change"));
+        assert!(!is_base("spr/bar/master.fix-the-bug"));
+        assert!(!is_base("master"));
+        assert!(!is_base("release-1.0"));
     }
 }
