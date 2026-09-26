@@ -11,6 +11,10 @@ on:
       - "book.toml"
       - "docs/**"
 
+env:
+  MDBOOK_VERSION: 0.5.4
+  MDBOOK_MERMAID_VERSION: 0.17.1
+
 jobs:
   mdbook:
     runs-on: ubuntu-latest
@@ -25,11 +29,13 @@ jobs:
           path: |
             ~/.cargo/bin/mdbook
             ~/.cargo/bin/mdbook-mermaid
-          key: ${{ runner.os }}-mdbook
+          key: ${{ runner.os }}-mdbook-${{ env.MDBOOK_VERSION }}-mermaid-${{ env.MDBOOK_MERMAID_VERSION }}
 
       - name: Install mdBook
         if: steps.cache-mdbook.outputs.cache-hit != 'true'
-        run: cargo install mdbook mdbook-mermaid
+        run: |
+          cargo install mdbook --version "$MDBOOK_VERSION" --locked
+          cargo install mdbook-mermaid --version "$MDBOOK_MERMAID_VERSION" --locked
 
       - name: Run mdBook
         run: |
