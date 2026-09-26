@@ -36,10 +36,10 @@
             const path_to_root = "";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "searchindex-6118b068.js";
+            window.path_to_searchindex_js = "searchindex-499ce7fb.js";
         </script>
         <!-- Start loading toc.js asap -->
-        <script src="toc-b25c6c21.js"></script>
+        <script src="toc-ab90c969.js"></script>
     </head>
     <body>
     <div id="mdbook-help-container">
@@ -284,6 +284,7 @@
 <li>
 <p>Run <code>spr diff</code>. If you changed the commit message in the previous step, you will need to add the flag <code>--update-message</code>; see <a href="#format-and-update-commit-messages">this guide</a> for more detail.</p>
 <p>This will update the PR with the new version of your HEAD commit. spr will prompt you for a short message that describes what you changed. You can also pass the update message on the command line using the <code>--message</code>/<code>-m</code> flag of <code>spr diff</code>.</p>
+<p>If you want to see first what <code>spr diff</code> would do, run <code>spr diff --dry-run</code>: it shows what it would change, without changing anything.</p>
 </li>
 </ol>
 </li>
@@ -800,6 +801,102 @@ it will update the local <code>main</code> branch and delete the transient branc
 <p>When <code>spr land</code> lands a stack with merge commits, GitHub creates a single merge commit on master for all the pull requests it lands at once.</p>
 <h2 id="changing-the-stack"><a class="header" href="#changing-the-stack">Changing the stack</a></h2>
 <p>GitHub doesn’t allow changing the base of a pull request that is part of a stack. When a commit’s parent changes (e.g. you reordered commits, dropped one, or it’s now directly based on master), <code>spr diff</code> dissolves the stack before changing the base of the pull request, and in the <code>github-stack</code> mode creates a new stack at the end.</p>
+<div style="break-before: page; page-break-before: always;"></div>
+<h1 id="plumbing-commands"><a class="header" href="#plumbing-commands">Plumbing Commands</a></h1>
+<p>Like Git, spr has two kinds of commands. The <strong>porcelain</strong> commands (<code>spr diff</code>, <code>spr land</code>, …) do everything for you: they look at your local commits, talk to GitHub, push branches and update pull requests. The <strong>plumbing</strong> commands expose the building blocks the porcelain uses, for your own scripts, for example to use spr’s way of constructing pull requests with another forge.</p>
+<blockquote>
+<p><strong>Experimental:</strong> the plumbing commands are new, and their interface may still change.</p>
+</blockquote>
+<h2 id="principles"><a class="header" href="#principles">Principles</a></h2>
+<ul>
+<li>Plumbing commands only work on Git objects. They don’t move any refs (branches, <code>HEAD</code>), don’t push or fetch, and don’t talk to GitHub. Fetch before, and push afterwards.</li>
+<li>They don’t need spr to be configured: they work in any Git repository, without <code>spr init</code>.</li>
+<li>They know nothing about pull request numbers or trailers in commit messages beyond passing the <code>Pull-request</code> trailer through in <code>spr plumbing stack</code>. Rewrite commit messages however you like, e.g. with <code>git interpret-trailers</code>.</li>
+<li>Commits and trees can be given in any form Git understands: commit hashes, branch names, <code>HEAD~2</code>, and for trees also <code>&lt;commit&gt;:</code> (the tree of a commit).</li>
+<li>Output is plain text by default (object IDs, one per line), or JSON with <code>--json</code>.</li>
+</ul>
+<h3 id="exit-status"><a class="header" href="#exit-status">Exit status</a></h3>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>status</th><th>kind</th><th>meaning</th></tr>
+</thead>
+<tbody>
+<tr><td>0</td><td></td><td>success</td></tr>
+<tr><td>1</td><td><code>error</code></td><td>any other error</td></tr>
+<tr><td>2</td><td>(command-specific)</td><td><code>base-outdated</code>, <code>merge-commit</code> or <code>mismatch</code>, see the commands below</td></tr>
+<tr><td>3</td><td><code>message-required</code></td><td><code>commit-pr</code> would create a head commit, but no message was given with <code>-m</code></td></tr>
+<tr><td>4</td><td><code>conflict</code></td><td>a change can’t be applied without conflicts</td></tr>
+</tbody>
+</table>
+</div>
+<p>Errors are printed to stderr. With <code>--json</code>, an error object is printed to stdout as well, so scripts parsing stdout always get JSON:</p>
+<pre><code class="language-json">{ "error": { "kind": "base-outdated", "message": "…" } }
+</code></pre>
+<h2 id="spr-plumbing-commit-pr"><a class="header" href="#spr-plumbing-commit-pr"><code>spr plumbing commit-pr</code></a></h2>
+<p>Creates the commits that make a pull request reflect a local commit, and prints the new head and base commit of the pull request (each is the input commit if it didn’t need changing).</p>
+<pre><code>spr plumbing commit-pr --base &lt;commit&gt; --target &lt;commit&gt; [--head &lt;commit&gt;]
+                       (--local &lt;commit&gt; | --tree &lt;tree&gt; --base-tree &lt;tree&gt;)
+                       [--cherry-pick] [--fixed-base]
+                       [-m &lt;message&gt;] [--base-message &lt;message&gt;]
+                       [--author-from &lt;commit&gt;] [--plan] [--json]
+</code></pre>
+<ul>
+<li><code>--head</code>: the current head of the pull request branch. Leave it out for a new pull request: the head then starts off at <code>--base</code>.</li>
+<li><code>--base</code>: the commit the pull request is currently based on.</li>
+<li><code>--target</code>: the commit on the target branch (e.g. <code>main</code>) the change is based on. The base must contain it.</li>
+<li><code>--local &lt;commit&gt;</code>: the local commit. A shorthand for <code>--tree &lt;commit&gt;: --base-tree &lt;commit&gt;~:</code>: the head of the pull request should have the tree of the local commit, and its base the tree of the local commit’s parent.</li>
+<li><code>--cherry-pick</code>: apply the change (from the base tree to the tree) onto <code>--target</code> instead. The base tree becomes the target’s tree. Fails with <code>conflict</code> if the change doesn’t apply cleanly.</li>
+<li><code>--fixed-base</code>: don’t add commits to the base. If the base doesn’t have the base tree, or doesn’t contain the target, fail with <code>base-outdated</code>.</li>
+</ul>
+<p>What happens:</p>
+<ul>
+<li>If the base doesn’t have the base tree or doesn’t contain the target (and <code>--fixed-base</code> isn’t given), a new base commit is created on top of the base, with the base tree. If the target isn’t contained in the base yet, it’s merged in as a second parent.</li>
+<li>If the head doesn’t contain the (new) base, or doesn’t have the tree, a new head commit is created on top of the head, with the tree, merging in the base if necessary.</li>
+</ul>
+<p><code>-m</code> gives the message of a new head commit, which is required if one is created. The new commits credit the author of <code>--local</code> (or <code>--author-from</code>), or the current user.</p>
+<p><code>--plan</code> doesn’t create anything, but prints the commits that would be created, with their parents (<code>new-base</code> stands for the new base commit):</p>
+<pre><code>new-base &lt;parent&gt; [&lt;parent&gt;]
+new-head &lt;parent&gt; [&lt;parent&gt;]
+</code></pre>
+<p>With <code>--json</code>, the output is <code>{"head": …, "base": …, "head_created": …, "base_created": …}</code>, or with <code>--plan</code>, <code>{"new_base_parents": …, "new_head_parents": …, "merges": …, "tree": …, "base_tree": …}</code>.</p>
+<p>This is how <code>spr diff</code> uses it in its <a href="#choose-a-merge-method-and-stacking-mode">stacking modes</a>:</p>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>situation</th><th><code>--base</code></th><th><code>--fixed-base</code></th></tr>
+</thead>
+<tbody>
+<tr><td>commit directly on the target, or <code>--cherry-pick</code></td><td>the target commit</td><td>yes</td></tr>
+<tr><td>synthetic base branch (<code>base-branches</code>)</td><td>merge base of the PR head and the base branch</td><td>no</td></tr>
+<tr><td>chained PRs (<code>chain</code>, <code>github-stack</code>)</td><td>the head of the parent commit’s PR</td><td>yes</td></tr>
+</tbody>
+</table>
+</div>
+<h2 id="spr-plumbing-stack"><a class="header" href="#spr-plumbing-stack"><code>spr plumbing stack</code></a></h2>
+<p>Lists the commits between the target and a commit (default: <code>HEAD</code>), from bottom to top: each commit, its parent, and its <code>Pull-request</code> trailer (or <code>-</code>).</p>
+<pre><code>spr plumbing stack --target &lt;commit&gt; [&lt;commit&gt;] [--json]
+</code></pre>
+<p>With <code>--json</code>, it prints an array of objects with the fields <code>commit</code>, <code>parent</code>, <code>title</code>, <code>pull_request</code> and <code>trailers</code>. Fails with <code>merge-commit</code> if there are merge commits in the range, which spr can’t handle.</p>
+<h2 id="spr-plumbing-land-check"><a class="header" href="#spr-plumbing-land-check"><code>spr plumbing land-check</code></a></h2>
+<p>Checks that merging a pull request into the target gives the same tree as applying the local commits to it, and prints that tree. That’s the check <code>spr land</code> does before landing, to make sure it lands exactly the changes of the local commits, which reviewers have seen.</p>
+<pre><code>spr plumbing land-check --target &lt;commit&gt; --pr-head &lt;commit&gt; --local &lt;commit&gt;
+                        [--since &lt;commit&gt;] [--json]
+</code></pre>
+<p>The changes of <code>&lt;since&gt;..&lt;local&gt;</code> are applied (default: <code>&lt;local&gt;</code>’s parent, i.e. just <code>&lt;local&gt;</code>). Fails with <code>mismatch</code> if the trees differ, or with <code>conflict</code> if either can’t be done without conflicts.</p>
+<h2 id="example"><a class="header" href="#example">Example</a></h2>
+<p>Updating the pull requests of a stack on another forge could look like this:</p>
+<pre><code class="language-sh">git fetch origin
+target=$(git rev-parse origin/main)
+
+spr plumbing stack --target "$target" | while read commit parent pr; do
+    # Look up the head and base of the pull request `$pr` on your forge
+    # ($pr_head, $pr_base, $branch), then:
+    { read head; read base; } &lt; &lt;(spr plumbing commit-pr --target "$target" \
+        --head "$pr_head" --base "$pr_base" --local "$commit" -m "Update")
+    git push origin "$head:refs/heads/$branch"
+done
+</code></pre>
 
                     </main>
 
