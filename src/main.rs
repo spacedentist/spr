@@ -28,8 +28,9 @@ pub struct Cli {
     #[clap(long)]
     github_repository: Option<String>,
 
-    /// The name of the centrally shared branch into which the pull requests are merged
-    /// spr.githubMasterBranch)
+    /// The name of the centrally shared branch into which the pull requests
+    /// are merged (if not given taken from git config spr.githubMasterBranch,
+    /// defaulting to 'master')
     #[clap(long)]
     github_master_branch: Option<String>,
 
@@ -121,10 +122,21 @@ pub async fn spr() -> Result<()> {
 
     let git_config = repo.config()?;
 
-    let github_repository = match cli.github_repository {
-        Some(v) => Ok(v),
-        None => git_config.get_string("spr.githubRepository"),
-    }?;
+    // A required setting: given on the command line, or in the Git config
+    let required = |value: Option<String>, key: &str| -> Result<String> {
+        match value {
+            Some(value) => Ok(value),
+            None => git_config.get_string(key).map_err(|_| {
+                eyre!(
+                    "{key} is not configured. Run `spr init` to set up spr \
+                     in this repository."
+                )
+            }),
+        }
+    };
+
+    let github_repository =
+        required(cli.github_repository, "spr.githubRepository")?;
 
     let github_master_branch = match cli.github_master_branch {
         Some(v) => Ok::<String, git2::Error>(v),
@@ -133,10 +145,7 @@ pub async fn spr() -> Result<()> {
             .or_else(|_| Ok("master".to_string())),
     }?;
 
-    let branch_prefix = match cli.branch_prefix {
-        Some(v) => Ok(v),
-        None => git_config.get_string("spr.branchPrefix"),
-    }?;
+    let branch_prefix = required(cli.branch_prefix, "spr.branchPrefix")?;
 
     let (github_owner, github_repo) = {
         let captures = lazy_regex::regex!(r#"^([\w\-\.]+)/([\w\-\.]+)$"#)
@@ -168,10 +177,8 @@ pub async fn spr() -> Result<()> {
         Err(_) => spr::config::StackingMode::default_for(merge_method),
     };
 
-    let github_auth_token = match cli.github_auth_token {
-        Some(v) => Ok(v),
-        None => git_config.get_string("spr.githubAuthToken"),
-    }?;
+    let github_auth_token =
+        required(cli.github_auth_token, "spr.githubAuthToken")?;
 
     let config = spr::config::Config::new(
         github_owner,
