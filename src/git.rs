@@ -176,7 +176,32 @@ impl Git {
             );
         }
 
-        let new_oid = new_parent_oid;
+        self.move_head(new_parent_oid, "spr rebased")
+    }
+
+    /// Drop the given commits, which have been landed, from the current
+    /// branch, by moving it to `landed_oid`, the commit on master that
+    /// contains them. The commits must be the top commits of the branch.
+    pub fn drop_landed_commits(
+        &self,
+        commits: &[PreparedCommit],
+        landed_oid: Oid,
+    ) -> Result<()> {
+        // Let hooks know that the local commits were rewritten into the
+        // landed commit, as a rebase would (see `rebase_commits`).
+        let rewrites: Vec<_> = commits
+            .iter()
+            .map(|prepared_commit| (prepared_commit.oid, landed_oid))
+            .collect();
+        self.hooks()
+            .run_post_rewrite_rebase(self.repo.as_ref(), &rewrites);
+
+        self.move_head(landed_oid, "spr landed")
+    }
+
+    /// Check out the given commit and point the current branch (or HEAD, if
+    /// detached) at it.
+    fn move_head(&self, new_oid: Oid, reflog_message: &str) -> Result<()> {
         let new_commit = self.repo.find_commit(new_oid)?;
 
         // Get and resolve the HEAD reference. This will be either a reference
@@ -203,7 +228,7 @@ impl Git {
         // Update the reference. The reference may be a branch or "HEAD", if
         // detached. Either way, whatever we are on gets update to point to the
         // new commit.
-        reference.set_target(new_oid, "spr rebased")?;
+        reference.set_target(new_oid, reflog_message)?;
 
         Ok(())
     }

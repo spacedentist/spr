@@ -648,10 +648,14 @@ async fn land_stack(
                     .context("git fetch failed".to_string());
             }
         }
-        git.rebase_commits(prepared_commits, new_parent_oid)
+        // All local commits up to the current one have landed, and we checked
+        // above that the result is the same as the local commits applied to
+        // master. So we can simply move the local branch to the result.
+        // (Rebasing the local commits one by one could have conflicts, e.g.
+        // if several of them change the same lines.)
+        git.drop_landed_commits(prepared_commits, new_parent_oid)
             .context(
-                "The automatic rebase failed - please rebase manually!"
-                    .to_string(),
+                "Updating the local branch failed - please rebase manually!",
             )?;
     }
 
