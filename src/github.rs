@@ -5,7 +5,7 @@ use serde::Deserialize;
 use crate::{
     git::PreparedCommit, git_remote::GitRemote, message::CommitMessage,
 };
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeSet, HashMap};
 
 #[derive(Clone)]
 pub struct GitHub {
@@ -311,7 +311,9 @@ impl GitHub {
             _ => None,
         };
 
-        let requested_reviewers: Vec<String> = pr.review_requests
+        // Sorted, so the resulting trailers don't change between runs of spr
+        // (which would rewrite local commits for no reason).
+        let requested_reviewers: BTreeSet<String> = pr.review_requests
             .iter()
             .flat_map(|x| &x.nodes)
             .flatten()
@@ -326,39 +328,26 @@ impl GitHub {
               }
             })
             .chain(reviewers.keys().cloned())
-            .collect::<HashSet<String>>() // de-duplicate
-            .into_iter()
             .collect();
 
-        let reviewers_str =
-            requested_reviewers.iter().fold(String::new(), |out, slug| {
-                if out.is_empty() {
-                    slug.to_string()
-                } else {
-                    format!("{}, {}", out, slug)
-                }
-            });
-        if !reviewers_str.is_empty() {
-            message.set_trailer("Reviewers".to_string(), reviewers_str);
+        if !requested_reviewers.is_empty() {
+            message.set_trailer(
+                "Reviewers".to_string(),
+                requested_reviewers
+                    .into_iter()
+                    .collect::<Vec<_>>()
+                    .join(", "),
+            );
         }
 
         if review_status == Some(ReviewStatus::Approved) {
-            let reviewed_by = reviewers
+            let mut reviewed_by: Vec<&str> = reviewers
                 .iter()
-                .filter_map(|(k, v)| {
-                    if v == &ReviewStatus::Approved {
-                        Some(k)
-                    } else {
-                        None
-                    }
-                })
-                .fold(String::new(), |out, slug| {
-                    if out.is_empty() {
-                        slug.to_string()
-                    } else {
-                        format!("{}, {}", out, slug)
-                    }
-                });
+                .filter(|(_, status)| **status == ReviewStatus::Approved)
+                .map(|(login, _)| login.as_str())
+                .collect();
+            reviewed_by.sort();
+            let reviewed_by = reviewed_by.join(", ");
             if !reviewed_by.is_empty() {
                 message.set_trailer("Reviewed-by".to_string(), reviewed_by);
             }
