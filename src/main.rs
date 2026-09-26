@@ -111,7 +111,7 @@ pub async fn spr() -> Result<()> {
             let repo = git2::Repository::discover(std::env::current_dir()?)?;
             return commands::plumbing::plumbing(
                 opts,
-                &spr::git::Git::new(repo),
+                &spr::git::Git::new(repo)?,
             );
         }
         command => command,
@@ -185,7 +185,7 @@ pub async fn spr() -> Result<()> {
     )?;
     debug!("config: {:?}", config);
 
-    let git = spr::git::Git::new(repo);
+    let git = spr::git::Git::new(repo)?;
 
     octocrab::initialise(
         octocrab::Octocrab::builder()

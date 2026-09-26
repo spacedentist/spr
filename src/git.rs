@@ -20,14 +20,14 @@ pub struct Git {
 }
 
 impl Git {
-    pub fn new(repo: git2::Repository) -> Self {
-        Self {
-            hooks: std::sync::Arc::new(
-                git2_ext::hooks::Hooks::with_repo(&repo).unwrap(),
-            ),
+    pub fn new(repo: git2::Repository) -> Result<Self> {
+        let hooks = git2_ext::hooks::Hooks::with_repo(&repo)
+            .wrap_err("Reading the Git hooks configuration failed")?;
+        Ok(Self {
+            hooks: std::sync::Arc::new(hooks),
             #[allow(clippy::arc_with_non_send_sync)]
             repo: std::sync::Arc::new(repo),
-        }
+        })
     }
 
     pub fn repo(&self) -> &std::sync::Arc<git2::Repository> {

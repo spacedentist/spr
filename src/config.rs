@@ -179,7 +179,7 @@ impl Config {
         let regex = lazy_regex::regex!(r#"^\s*#?\s*(\d+)\s*$"#);
         let m = regex.captures(text);
         if let Some(caps) = m {
-            return Some(caps.get(1).unwrap().as_str().parse().unwrap());
+            return caps.get(1).unwrap().as_str().parse().ok();
         }
 
         let regex = lazy_regex::regex!(
@@ -190,7 +190,7 @@ impl Config {
             && self.owner == caps.get(1).unwrap().as_str()
             && self.repo == caps.get(2).unwrap().as_str()
         {
-            return Some(caps.get(3).unwrap().as_str().parse().unwrap());
+            return caps.get(3).unwrap().as_str().parse().ok();
         }
 
         None
@@ -272,6 +272,22 @@ mod tests {
         assert_eq!(gh.parse_pull_request_field("   123 "), Some(123));
         assert_eq!(gh.parse_pull_request_field("#123"), Some(123));
         assert_eq!(gh.parse_pull_request_field(" # 123"), Some(123));
+    }
+
+    #[test]
+    fn test_parse_pull_request_field_too_large() {
+        let gh = config_factory();
+
+        assert_eq!(
+            gh.parse_pull_request_field("123456789012345678901234567890"),
+            None
+        );
+        assert_eq!(
+            gh.parse_pull_request_field(
+                "https://github.com/acme/codez/pull/123456789012345678901234567890"
+            ),
+            None
+        );
     }
 
     #[test]

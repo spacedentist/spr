@@ -30,7 +30,7 @@ impl TestRepo {
         }
         TestRepo {
             _dir: dir,
-            git: Git::new(repo),
+            git: Git::new(repo).unwrap(),
             counter: Default::default(),
         }
     }
