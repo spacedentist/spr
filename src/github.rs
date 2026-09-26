@@ -1,22 +1,11 @@
-/*
- * Copyright (c) Radical HQ Limited
- *
- * This source code is licensed under the MIT license found in the
- * LICENSE file in the root directory of this source tree.
- */
-
 use color_eyre::eyre::{Error, Result, WrapErr as _, eyre};
 use graphql_client::{GraphQLQuery, Response};
 use serde::Deserialize;
 
 use crate::{
-    git::PreparedCommit,
-    git_remote::GitRemote,
-    message::{
-        MessageSection, MessageSectionsMap, build_github_body, parse_message,
-    },
+    git::PreparedCommit, git_remote::GitRemote, message::CommitMessage,
 };
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeSet, HashMap};
 
 #[derive(Clone)]
 pub struct GitHub {
@@ -31,7 +20,7 @@ pub struct PullRequest {
     pub state: PullRequestState,
     pub title: String,
     pub body: Option<String>,
-    pub sections: MessageSectionsMap,
+    pub message: CommitMessage,
     pub base: GitHubBranch,
     pub head: GitHubBranch,
     pub base_oid: git2::Oid,
@@ -71,14 +60,14 @@ impl PullRequestUpdate {
     pub fn update_message(
         &mut self,
         pull_request: &PullRequest,
-        message: &MessageSectionsMap,
+        message: &CommitMessage,
     ) {
-        let title = message.get(&MessageSection::Title);
-        if title.is_some() && title != Some(&pull_request.title) {
-            self.title = title.cloned();
+        let title = message.title();
+        if !title.is_empty() && title != pull_request.title {
+            self.title = Some(title.to_string());
         }
 
-        let body = build_github_body(message);
+        let body = message.to_github_body();
         if pull_request.body.as_ref() != Some(&body) {
             self.body = Some(body);
         }
@@ -104,6 +93,62 @@ pub struct UserWithName {
     pub name: Option<String>,
     #[serde(default)]
     pub is_collaborator: bool,
+}
+
+/// The version of the GitHub REST API that the stacked pull requests APIs
+/// (stacks and asynchronous merging) require.
+const STACKS_API_VERSION: &str = "2026-03-10";
+
+/// A stack of Pull Requests on GitHub (stacked pull requests feature)
+#[derive(Debug, Deserialize)]
+pub struct PullRequestStack {
+    pub number: u64,
+    pub open: bool,
+    /// The Pull Requests in the stack, from bottom to top
+    pub pull_requests: Vec<PullRequestStackEntry>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct PullRequestStackEntry {
+    pub number: u64,
+    pub state: String,
+}
+
+impl PullRequestStack {
+    /// The numbers of the Pull Requests in this stack that are still open,
+    /// from bottom to top. (Merged Pull Requests remain part of a stack.)
+    pub fn open_pull_requests(&self) -> Vec<u64> {
+        self.pull_requests
+            .iter()
+            .filter(|pr| pr.state == "open")
+            .map(|pr| pr.number)
+            .collect()
+    }
+}
+
+/// Status of an asynchronous merge request
+#[derive(Debug, Deserialize)]
+pub struct AsyncMergeStatus {
+    /// One of `pending`, `merged`, `enqueued` and `failed`
+    pub status: String,
+    pub details: AsyncMergeDetails,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct AsyncMergeDetails {
+    pub message: Option<String>,
+    pub uuid: Option<String>,
+    /// The resulting commit, once merged
+    pub sha: Option<String>,
+}
+
+/// The branches and state of a Pull Request, as far as needed for stacking
+#[derive(Debug, Clone)]
+pub struct PullRequestRefs {
+    pub number: u64,
+    pub open: bool,
+    pub head: String,
+    pub base: String,
 }
 
 #[derive(Debug, Clone)]
@@ -139,10 +184,7 @@ impl GitHub {
     ) -> Self {
         let git_remote = GitRemote::new(
             git.repo().clone(),
-            format!(
-                "https://github.com/{}/{}.git",
-                &config.owner, &config.repo,
-            ),
+            format!("https://github.com/{}/{}.git", config.owner, config.repo),
             auth_token,
         );
         Self {
@@ -231,20 +273,17 @@ impl GitHub {
             eyre!("{} not found on GitHub", &head.ref_on_github)
         })?;
 
-        let mut sections = parse_message(&pr.body, MessageSection::Summary);
-
         let title = pr.title.trim().to_string();
-        sections.insert(
-            MessageSection::Title,
-            if title.is_empty() {
-                String::from("(untitled)")
-            } else {
-                title
-            },
-        );
+        let title = if title.is_empty() {
+            String::from("(untitled)")
+        } else {
+            title
+        };
 
-        sections.insert(
-            MessageSection::PullRequest,
+        let mut message = CommitMessage::new(title, pr.body.clone());
+
+        message.set_trailer(
+            "Pull-request".to_string(),
             config.pull_request_url(number),
         );
 
@@ -272,7 +311,9 @@ impl GitHub {
             _ => None,
         };
 
-        let requested_reviewers: Vec<String> = pr.review_requests
+        // Sorted, so the resulting trailers don't change between runs of spr
+        // (which would rewrite local commits for no reason).
+        let requested_reviewers: BTreeSet<String> = pr.review_requests
             .iter()
             .flat_map(|x| &x.nodes)
             .flatten()
@@ -287,41 +328,29 @@ impl GitHub {
               }
             })
             .chain(reviewers.keys().cloned())
-            .collect::<HashSet<String>>() // de-duplicate
-            .into_iter()
             .collect();
 
-        sections.insert(
-            MessageSection::Reviewers,
-            requested_reviewers.iter().fold(String::new(), |out, slug| {
-                if out.is_empty() {
-                    slug.to_string()
-                } else {
-                    format!("{}, {}", out, slug)
-                }
-            }),
-        );
+        if !requested_reviewers.is_empty() {
+            message.set_trailer(
+                "Reviewers".to_string(),
+                requested_reviewers
+                    .into_iter()
+                    .collect::<Vec<_>>()
+                    .join(", "),
+            );
+        }
 
         if review_status == Some(ReviewStatus::Approved) {
-            sections.insert(
-                MessageSection::ReviewedBy,
-                reviewers
-                    .iter()
-                    .filter_map(|(k, v)| {
-                        if v == &ReviewStatus::Approved {
-                            Some(k)
-                        } else {
-                            None
-                        }
-                    })
-                    .fold(String::new(), |out, slug| {
-                        if out.is_empty() {
-                            slug.to_string()
-                        } else {
-                            format!("{}, {}", out, slug)
-                        }
-                    }),
-            );
+            let mut reviewed_by: Vec<&str> = reviewers
+                .iter()
+                .filter(|(_, status)| **status == ReviewStatus::Approved)
+                .map(|(login, _)| login.as_str())
+                .collect();
+            reviewed_by.sort();
+            let reviewed_by = reviewed_by.join(", ");
+            if !reviewed_by.is_empty() {
+                message.set_trailer("Reviewed-by".to_string(), reviewed_by);
+            }
         }
 
         Ok::<_, Error>(PullRequest {
@@ -334,7 +363,7 @@ impl GitHub {
             },
             title: pr.title,
             body: Some(pr.body),
-            sections,
+            message,
             base,
             head,
             base_oid,
@@ -349,21 +378,22 @@ impl GitHub {
 
     pub async fn create_pull_request(
         &self,
-        message: &MessageSectionsMap,
+        message: &CommitMessage,
         base_ref_name: String,
         head_ref_name: String,
         draft: bool,
     ) -> Result<u64> {
+        let title = message.title();
+        let title = if title.is_empty() {
+            "(untitled)"
+        } else {
+            title
+        };
+
         let number = octocrab::instance()
             .pulls(self.config.owner.clone(), self.config.repo.clone())
-            .create(
-                message
-                    .get(&MessageSection::Title)
-                    .unwrap_or(&String::new()),
-                head_ref_name,
-                base_ref_name,
-            )
-            .body(build_github_body(message))
+            .create(title, head_ref_name, base_ref_name)
+            .body(message.to_github_body())
             .draft(Some(draft))
             .send()
             .await?
@@ -408,6 +438,228 @@ impl GitHub {
             .await?;
 
         Ok(())
+    }
+
+    /// Change the base of all open Pull Requests that are currently based on
+    /// `from_branch` to `to_branch`. Returns the numbers of the Pull Requests
+    /// that were changed.
+    ///
+    /// This must be done before deleting a branch that other Pull Requests
+    /// are based on, because GitHub closes Pull Requests whose base branch
+    /// gets deleted.
+    pub async fn retarget_pull_requests(
+        &self,
+        from_branch: &GitHubBranch,
+        to_branch: &GitHubBranch,
+    ) -> Result<Vec<u64>> {
+        let pulls = octocrab::instance()
+            .pulls(self.config.owner.clone(), self.config.repo.clone())
+            .list()
+            .state(octocrab::params::State::Open)
+            .base(from_branch.branch_name())
+            .per_page(100)
+            .send()
+            .await?;
+        let pulls = octocrab::instance().all_pages(pulls).await?;
+
+        let mut numbers = Vec::new();
+        for pull in pulls {
+            let result = self
+                .update_pull_request(
+                    pull.number,
+                    PullRequestUpdate {
+                        base: Some(to_branch.branch_name().to_string()),
+                        ..Default::default()
+                    },
+                )
+                .await;
+
+            if let Err(error) = result {
+                // GitHub itself changes the base of Pull Requests whose base
+                // branch gets deleted after merging (if the repository is set
+                // up to delete branches after merging), so the Pull Request
+                // may already have been changed in the meantime. Then GitHub
+                // refuses our update.
+                let current_base = octocrab::instance()
+                    .pulls(self.config.owner.clone(), self.config.repo.clone())
+                    .get(pull.number)
+                    .await
+                    .map(|pull| pull.base.ref_field);
+                if current_base.ok().as_deref() != Some(to_branch.branch_name())
+                {
+                    return Err(error.wrap_err(format!(
+                        "Changing the base of Pull Request #{} failed",
+                        pull.number
+                    )));
+                }
+            }
+
+            numbers.push(pull.number);
+        }
+
+        Ok(numbers)
+    }
+
+    /// Send a request to one of the stacked pull requests APIs, which
+    /// require a newer API version than octocrab uses. Returns the parsed
+    /// response, or `None` if the response has no body.
+    async fn stacks_api_request<R, B>(
+        &self,
+        method: http::Method,
+        path: &str,
+        body: Option<&B>,
+    ) -> Result<Option<R>>
+    where
+        R: serde::de::DeserializeOwned,
+        B: serde::Serialize + ?Sized,
+    {
+        let octocrab = octocrab::instance();
+        let uri = format!(
+            "/repos/{}/{}/{}",
+            self.config.owner, self.config.repo, path
+        );
+        let mut request = octocrab.build_request(
+            http::request::Builder::new().method(method).uri(uri),
+            body,
+        )?;
+        // `build_request` adds octocrab's default API version header, which
+        // we replace.
+        request.headers_mut().insert(
+            "x-github-api-version",
+            http::HeaderValue::from_static(STACKS_API_VERSION),
+        );
+        let response = octocrab.execute(request).await?;
+        let response = octocrab::map_github_error(response).await?;
+        let text = octocrab.body_to_string(response).await?;
+
+        if text.trim().is_empty() {
+            Ok(None)
+        } else {
+            Ok(Some(serde_json::from_str(&text)?))
+        }
+    }
+
+    /// Find the open stack on GitHub that a Pull Request belongs to.
+    pub async fn find_pull_request_stack(
+        &self,
+        number: u64,
+    ) -> Result<Option<PullRequestStack>> {
+        let stacks: Vec<PullRequestStack> = self
+            .stacks_api_request(
+                http::Method::GET,
+                &format!("stacks?pull_request={number}"),
+                None::<&()>,
+            )
+            .await?
+            .unwrap_or_default();
+
+        Ok(stacks.into_iter().find(|stack| stack.open))
+    }
+
+    /// Create a stack on GitHub from the given Pull Requests, bottom to top.
+    pub async fn create_pull_request_stack(
+        &self,
+        numbers: &[u64],
+    ) -> Result<PullRequestStack> {
+        self.stacks_api_request(
+            http::Method::POST,
+            "stacks",
+            Some(&serde_json::json!({ "pull_requests": numbers })),
+        )
+        .await?
+        .ok_or_else(|| eyre!("Creating a Pull Request stack failed"))
+    }
+
+    /// Add the given Pull Requests on top of a stack on GitHub.
+    pub async fn add_to_pull_request_stack(
+        &self,
+        stack_number: u64,
+        numbers: &[u64],
+    ) -> Result<()> {
+        self.stacks_api_request::<serde_json::Value, _>(
+            http::Method::POST,
+            &format!("stacks/{stack_number}/add"),
+            Some(&serde_json::json!({ "pull_requests": numbers })),
+        )
+        .await?;
+        Ok(())
+    }
+
+    /// Remove all Pull Requests that are not merged yet from a stack on
+    /// GitHub, which dissolves it.
+    pub async fn unstack_pull_request_stack(
+        &self,
+        stack_number: u64,
+    ) -> Result<()> {
+        self.stacks_api_request::<serde_json::Value, _>(
+            http::Method::POST,
+            &format!("stacks/{stack_number}/unstack"),
+            None::<&()>,
+        )
+        .await?;
+        Ok(())
+    }
+
+    /// Request merging a Pull Request asynchronously. This is required for
+    /// Pull Requests in a stack on GitHub, and merges all Pull Requests below
+    /// it in the stack, too.
+    pub async fn merge_pull_request_async(
+        &self,
+        number: u64,
+        head_oid: git2::Oid,
+        merge_method: crate::config::MergeMethod,
+        commit_title: &str,
+        commit_message: &str,
+    ) -> Result<AsyncMergeStatus> {
+        self.stacks_api_request(
+            http::Method::PUT,
+            &format!("pulls/{number}/merge-async"),
+            Some(&serde_json::json!({
+                "sha": head_oid.to_string(),
+                "merge_method": merge_method.to_string(),
+                "commit_title": commit_title,
+                "commit_message": commit_message,
+            })),
+        )
+        .await?
+        .ok_or_else(|| {
+            eyre!("Requesting merge of Pull Request #{number} failed")
+        })
+    }
+
+    /// Get the status of an asynchronous merge request.
+    pub async fn get_async_merge_status(
+        &self,
+        number: u64,
+        uuid: &str,
+    ) -> Result<AsyncMergeStatus> {
+        self.stacks_api_request(
+            http::Method::GET,
+            &format!("pulls/{number}/merge-async/{uuid}"),
+            None::<&()>,
+        )
+        .await?
+        .ok_or_else(|| {
+            eyre!("Getting merge status of Pull Request #{number} failed")
+        })
+    }
+
+    /// Get the head and base branch names and the state of a Pull Request.
+    pub async fn get_pull_request_refs(
+        &self,
+        number: u64,
+    ) -> Result<PullRequestRefs> {
+        let pull = octocrab::instance()
+            .pulls(self.config.owner.clone(), self.config.repo.clone())
+            .get(number)
+            .await?;
+
+        Ok(PullRequestRefs {
+            number,
+            open: pull.state == Some(octocrab::models::IssueState::Open),
+            head: pull.head.ref_field,
+            base: pull.base.ref_field,
+        })
     }
 
     pub async fn get_pull_request_mergeability(

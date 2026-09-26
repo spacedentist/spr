@@ -1,10 +1,3 @@
-/*
- * Copyright (c) Radical HQ Limited
- *
- * This source code is licensed under the MIT license found in the
- * LICENSE file in the root directory of this source tree.
- */
-
 //! A command-line tool for submitting and updating GitHub Pull Requests from
 //! local Git commits that may be amended and rebased. Pull Requests can be
 //! stacked to allow for a series of code reviews of interdependent code.
@@ -14,7 +7,7 @@ use color_eyre::eyre::{Error, Result, eyre};
 use log::debug;
 use spr::commands;
 
-#[derive(Parser, Debug)]
+#[derive(Parser)]
 #[clap(
     name = "spr",
     version,
@@ -35,8 +28,9 @@ pub struct Cli {
     #[clap(long)]
     github_repository: Option<String>,
 
-    /// The name of the centrally shared branch into which the pull requests are merged
-    /// spr.githubMasterBranch)
+    /// The name of the centrally shared branch into which the pull requests
+    /// are merged (if not given taken from git config spr.githubMasterBranch,
+    /// defaulting to 'master')
     #[clap(long)]
     github_master_branch: Option<String>,
 
@@ -48,6 +42,23 @@ pub struct Cli {
 
     #[clap(subcommand)]
     command: Commands,
+}
+
+// Not derived, so the auth token doesn't end up in debug output (logs).
+impl std::fmt::Debug for Cli {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Cli")
+            .field("cd", &self.cd)
+            .field(
+                "github_auth_token",
+                &self.github_auth_token.as_ref().map(|_| "[redacted]"),
+            )
+            .field("github_repository", &self.github_repository)
+            .field("github_master_branch", &self.github_master_branch)
+            .field("branch_prefix", &self.branch_prefix)
+            .field("command", &self.command)
+            .finish()
+    }
 }
 
 #[derive(Subcommand, Debug)]
@@ -77,6 +88,10 @@ enum Commands {
 
     /// Close a Pull request
     Close(commands::close::CloseOptions),
+
+    /// Low-level commands for scripts, working on Git objects only
+    /// (experimental)
+    Plumbing(commands::plumbing::PlumbingOptions),
 }
 
 pub async fn spr() -> Result<()> {
@@ -86,22 +101,42 @@ pub async fn spr() -> Result<()> {
     if let Some(path) = &cli.cd
         && let Err(err) = std::env::set_current_dir(path)
     {
-        eprintln!("Could not change directory to {:?}", &path);
+        eprintln!("Could not change directory to {:?}", path);
         return Err(err.into());
     }
 
-    if let Commands::Init = cli.command {
-        return commands::init::init().await;
-    }
+    // Commands that don't need spr to be configured
+    let command = match cli.command {
+        Commands::Init => return commands::init::init().await,
+        Commands::Plumbing(opts) => {
+            let repo = git2::Repository::discover(std::env::current_dir()?)?;
+            return commands::plumbing::plumbing(
+                opts,
+                &spr::git::Git::new(repo)?,
+            );
+        }
+        command => command,
+    };
 
     let repo = git2::Repository::discover(std::env::current_dir()?)?;
 
     let git_config = repo.config()?;
 
-    let github_repository = match cli.github_repository {
-        Some(v) => Ok(v),
-        None => git_config.get_string("spr.githubRepository"),
-    }?;
+    // A required setting: given on the command line, or in the Git config
+    let required = |value: Option<String>, key: &str| -> Result<String> {
+        match value {
+            Some(value) => Ok(value),
+            None => git_config.get_string(key).map_err(|_| {
+                eyre!(
+                    "{key} is not configured. Run `spr init` to set up spr \
+                     in this repository."
+                )
+            }),
+        }
+    };
+
+    let github_repository =
+        required(cli.github_repository, "spr.githubRepository")?;
 
     let github_master_branch = match cli.github_master_branch {
         Some(v) => Ok::<String, git2::Error>(v),
@@ -110,10 +145,7 @@ pub async fn spr() -> Result<()> {
             .or_else(|_| Ok("master".to_string())),
     }?;
 
-    let branch_prefix = match cli.branch_prefix {
-        Some(v) => Ok(v),
-        None => git_config.get_string("spr.branchPrefix"),
-    }?;
+    let branch_prefix = required(cli.branch_prefix, "spr.branchPrefix")?;
 
     let (github_owner, github_repo) = {
         let captures = lazy_regex::regex!(r#"^([\w\-\.]+)/([\w\-\.]+)$"#)
@@ -134,19 +166,23 @@ pub async fn spr() -> Result<()> {
         .get_bool("spr.requireApproval")
         .ok()
         .unwrap_or(false);
-    let require_test_plan = git_config
-        .get_bool("spr.requireTestPlan")
-        .ok()
-        .unwrap_or(true);
     let use_commit_title_for_initial_commit = git_config
         .get_bool("spr.useCommitTitleForInitialCommit")
         .ok()
         .unwrap_or(true);
 
-    let github_auth_token = match cli.github_auth_token {
-        Some(v) => Ok(v),
-        None => git_config.get_string("spr.githubAuthToken"),
-    }?;
+    let merge_method = match git_config.get_string("spr.mergeMethod") {
+        Ok(value) => value.parse()?,
+        Err(_) => spr::config::MergeMethod::Squash,
+    };
+
+    let stacking_mode = match git_config.get_string("spr.stackingMode") {
+        Ok(value) => value.parse()?,
+        Err(_) => spr::config::StackingMode::default_for(merge_method),
+    };
+
+    let github_auth_token =
+        required(cli.github_auth_token, "spr.githubAuthToken")?;
 
     let config = spr::config::Config::new(
         github_owner,
@@ -155,12 +191,13 @@ pub async fn spr() -> Result<()> {
         branch_prefix,
         github_auth_token.clone(),
         require_approval,
-        require_test_plan,
+        merge_method,
+        stacking_mode,
         use_commit_title_for_initial_commit,
-    );
+    )?;
     debug!("config: {:?}", config);
 
-    let git = spr::git::Git::new(repo);
+    let git = spr::git::Git::new(repo)?;
 
     octocrab::initialise(
         octocrab::Octocrab::builder()
@@ -174,7 +211,7 @@ pub async fn spr() -> Result<()> {
         github_auth_token,
     );
 
-    match cli.command {
+    match command {
         Commands::Diff(opts) => {
             commands::diff::diff(opts, &git, &mut gh, &config).await?
         }
@@ -197,7 +234,7 @@ pub async fn spr() -> Result<()> {
 
         // The following commands are executed above and return from this
         // function before it reaches this match.
-        Commands::Init => (),
+        Commands::Init | Commands::Plumbing(_) => (),
     };
 
     Ok::<_, Error>(())

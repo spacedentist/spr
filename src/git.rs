@@ -1,19 +1,7 @@
-/*
- * Copyright (c) Radical HQ Limited
- *
- * This source code is licensed under the MIT license found in the
- * LICENSE file in the root directory of this source tree.
- */
-
 use color_eyre::eyre::{Error, Result, WrapErr as _, bail, eyre};
 use std::collections::{HashSet, VecDeque};
 
-use crate::{
-    config::Config,
-    message::{
-        MessageSection, MessageSectionsMap, build_commit_message, parse_message,
-    },
-};
+use crate::{config::Config, message::CommitMessage};
 use git2::Oid;
 
 #[derive(Debug)]
@@ -21,7 +9,7 @@ pub struct PreparedCommit {
     pub oid: Oid,
     pub short_id: String,
     pub parent_oid: Oid,
-    pub message: MessageSectionsMap,
+    pub message: CommitMessage,
     pub pull_request_number: Option<u64>,
 }
 
@@ -32,14 +20,14 @@ pub struct Git {
 }
 
 impl Git {
-    pub fn new(repo: git2::Repository) -> Self {
-        Self {
-            hooks: std::sync::Arc::new(
-                git2_ext::hooks::Hooks::with_repo(&repo).unwrap(),
-            ),
+    pub fn new(repo: git2::Repository) -> Result<Self> {
+        let hooks = git2_ext::hooks::Hooks::with_repo(&repo)
+            .wrap_err("Reading the Git hooks configuration failed")?;
+        Ok(Self {
+            hooks: std::sync::Arc::new(hooks),
             #[allow(clippy::arc_with_non_send_sync)]
             repo: std::sync::Arc::new(repo),
-        }
+        })
     }
 
     pub fn repo(&self) -> &std::sync::Arc<git2::Repository> {
@@ -51,10 +39,20 @@ impl Git {
     }
 
     pub fn get_commit_oids(&self, master_oid: Oid) -> Result<Vec<Oid>> {
+        self.get_commit_oids_between(master_oid, self.head()?)
+    }
+
+    /// The commits reachable from `head` but not from `target`, from bottom
+    /// to top.
+    pub fn get_commit_oids_between(
+        &self,
+        target: Oid,
+        head: Oid,
+    ) -> Result<Vec<Oid>> {
         let mut walk = self.repo.revwalk()?;
         walk.set_sorting(git2::Sort::TOPOLOGICAL.union(git2::Sort::REVERSE))?;
-        walk.push_head()?;
-        walk.hide(master_oid)?;
+        walk.push(head)?;
+        walk.hide(target)?;
 
         Ok(walk.collect::<std::result::Result<Vec<Oid>, _>>()?)
     }
@@ -83,13 +81,17 @@ impl Git {
         let mut updating = false;
         let mut message: String;
         let first_parent = commits[0].parent_oid;
-        let hooks = self.hooks();
+        // The commits end at the current HEAD. We only move the branch if it
+        // still points there when we're done: the user might have made
+        // commits while spr was running (e.g. waiting at a prompt).
+        let expected_head = commits[commits.len() - 1].oid;
+        let mut rewrites = Vec::new();
 
         for prepared_commit in commits.iter_mut() {
             let commit = self.repo.find_commit(prepared_commit.oid)?;
             if limit != Some(0) {
-                message = build_commit_message(&prepared_commit.message);
-                if Some(&message[..]) != commit.message() {
+                message = prepared_commit.message.to_string();
+                if Some(&message[..]) != commit.message().ok() {
                     updating = true;
                 }
             } else {
@@ -112,10 +114,7 @@ impl Git {
                         .repo
                         .find_commit(parent_oid.unwrap_or(first_parent))?],
                 )?;
-                hooks.run_post_rewrite_rebase(
-                    self.repo.as_ref(),
-                    &[(prepared_commit.oid, new_oid)],
-                );
+                rewrites.push((prepared_commit.oid, new_oid));
                 prepared_commit.oid = new_oid;
                 parent_oid = Some(new_oid);
             } else {
@@ -124,10 +123,28 @@ impl Git {
         }
 
         if updating && let Some(oid) = parent_oid {
+            let reference = self.repo.find_reference("HEAD")?.resolve()?;
+            let name = reference.name()?.to_string();
             self.repo
-                .find_reference("HEAD")?
-                .resolve()?
-                .set_target(oid, "spr updated commit messages")?;
+                .reference_matching(
+                    &name,
+                    oid,
+                    true,
+                    expected_head,
+                    "spr updated commit messages",
+                )
+                .map_err(|_| {
+                    eyre!(
+                        "The current branch was changed while spr was \
+                         running, so spr did not update the local commit \
+                         messages (e.g. with links to new Pull Requests). The \
+                         updated commits end at {oid}. To put your new \
+                         commits on top of them, run:\n  \
+                         git rebase --onto {oid} {expected_head}"
+                    )
+                })?;
+            self.hooks()
+                .run_post_rewrite_rebase(self.repo.as_ref(), &rewrites);
         }
 
         Ok(())
@@ -188,7 +205,32 @@ impl Git {
             );
         }
 
-        let new_oid = new_parent_oid;
+        self.move_head(new_parent_oid, "spr rebased")
+    }
+
+    /// Drop the given commits, which have been landed, from the current
+    /// branch, by moving it to `landed_oid`, the commit on master that
+    /// contains them. The commits must be the top commits of the branch.
+    pub fn drop_landed_commits(
+        &self,
+        commits: &[PreparedCommit],
+        landed_oid: Oid,
+    ) -> Result<()> {
+        // Let hooks know that the local commits were rewritten into the
+        // landed commit, as a rebase would (see `rebase_commits`).
+        let rewrites: Vec<_> = commits
+            .iter()
+            .map(|prepared_commit| (prepared_commit.oid, landed_oid))
+            .collect();
+        self.hooks()
+            .run_post_rewrite_rebase(self.repo.as_ref(), &rewrites);
+
+        self.move_head(landed_oid, "spr landed")
+    }
+
+    /// Check out the given commit and point the current branch (or HEAD, if
+    /// detached) at it.
+    fn move_head(&self, new_oid: Oid, reflog_message: &str) -> Result<()> {
         let new_commit = self.repo.find_commit(new_oid)?;
 
         // Get and resolve the HEAD reference. This will be either a reference
@@ -215,7 +257,7 @@ impl Git {
         // Update the reference. The reference may be a branch or "HEAD", if
         // detached. Either way, whatever we are on gets update to point to the
         // new commit.
-        reference.set_target(new_oid, "spr rebased")?;
+        reference.set_target(new_oid, reflog_message)?;
 
         Ok(())
     }
@@ -229,6 +271,13 @@ impl Git {
             .ok_or_else(|| eyre!("Cannot resolve HEAD"))?;
 
         Ok(oid)
+    }
+
+    /// Whether `ancestor` is the same commit as `commit`, or one of its
+    /// ancestors
+    pub fn is_ancestor(&self, ancestor: Oid, commit: Oid) -> Result<bool> {
+        Ok(ancestor == commit
+            || self.repo.graph_descendant_of(commit, ancestor)?)
     }
 
     pub fn resolve_reference(&self, reference: &str) -> Result<Oid> {
@@ -251,26 +300,26 @@ impl Git {
 
         let parent_oid = commit.parent_id(0)?;
 
-        let message =
+        let message_text =
             String::from_utf8_lossy(commit.message_bytes()).into_owned();
 
         let short_id =
             commit.as_object().short_id()?.as_str().unwrap().to_string();
         drop(commit);
 
-        let mut message = parse_message(&message, MessageSection::Title);
+        let mut message = CommitMessage::parse(&message_text);
 
         let pull_request_number = message
-            .get(&MessageSection::PullRequest)
+            .get_trailer("Pull-request")
             .and_then(|text| config.parse_pull_request_field(text));
 
         if let Some(number) = pull_request_number {
-            message.insert(
-                MessageSection::PullRequest,
+            message.set_trailer(
+                "Pull-request".to_string(),
                 config.pull_request_url(number),
             );
         } else {
-            message.remove(&MessageSection::PullRequest);
+            message.remove_trailer("Pull-request");
         }
 
         Ok(PreparedCommit {
@@ -308,19 +357,6 @@ impl Git {
             }
             count += 1;
         }
-    }
-
-    pub fn cherrypick(&self, oid: Oid, base_oid: Oid) -> Result<git2::Index> {
-        let commit = self.repo.find_commit(oid)?;
-        let base_commit = self.repo.find_commit(base_oid)?;
-
-        Ok(self
-            .repo
-            .cherrypick_commit(&commit, &base_commit, 0, None)?)
-    }
-
-    pub fn write_index(&self, mut index: git2::Index) -> Result<Oid> {
-        Ok(index.write_tree_to(self.repo.as_ref())?)
     }
 
     pub fn get_tree_oid_for_commit(&self, oid: Oid) -> Result<Oid> {
@@ -371,14 +407,19 @@ impl Git {
         Ok(None)
     }
 
+    /// Create a commit with the given message, tree and parents. The author
+    /// is the author of `original_commit_oid` (with the current time), or,
+    /// if not given, the current user, like the committer.
     pub fn create_derived_commit(
         &self,
-        original_commit_oid: Oid,
+        original_commit_oid: Option<Oid>,
         message: &str,
         tree_oid: Oid,
         parent_oids: &[Oid],
     ) -> Result<Oid> {
-        let original_commit = self.repo.find_commit(original_commit_oid)?;
+        let original_commit = original_commit_oid
+            .map(|oid| self.repo.find_commit(oid))
+            .transpose()?;
         let tree = self.repo.find_tree(tree_oid)?;
         let parents = parent_oids
             .iter()
@@ -393,8 +434,9 @@ impl Git {
         // obtained (no user configured), then take the user/email from the
         // existing commit but make a new signature which has a timestamp of
         // now.
-        let committer = self.repo.signature().or_else(|_| {
-            git2::Signature::now(
+        let committer = match (self.repo.signature(), &original_commit) {
+            (Ok(signature), _) => signature,
+            (Err(_), Some(original_commit)) => git2::Signature::now(
                 String::from_utf8_lossy(
                     original_commit.committer().name_bytes(),
                 )
@@ -403,18 +445,22 @@ impl Git {
                     original_commit.committer().email_bytes(),
                 )
                 .as_ref(),
-            )
-        })?;
+            )?,
+            (Err(error), None) => return Err(error.into()),
+        };
 
         // The author signature should reference the same user as the original
         // commit, but we set the timestamp to now, so this commit shows up in
         // GitHub's timeline in the right place.
-        let author = git2::Signature::now(
-            String::from_utf8_lossy(original_commit.author().name_bytes())
-                .as_ref(),
-            String::from_utf8_lossy(original_commit.author().email_bytes())
-                .as_ref(),
-        )?;
+        let author = match &original_commit {
+            Some(original_commit) => git2::Signature::now(
+                String::from_utf8_lossy(original_commit.author().name_bytes())
+                    .as_ref(),
+                String::from_utf8_lossy(original_commit.author().email_bytes())
+                    .as_ref(),
+            )?,
+            None => committer.clone(),
+        };
 
         let oid = self.repo.commit(
             None,
@@ -438,5 +484,91 @@ impl Git {
                 "There are uncommitted changes. Stash or amend them first"
             ))
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::test_utils::TestRepo;
+
+    /// A repository with branch `main` checked out, pointing at commit a on
+    /// top of m1. Returns the repo, m1 and a.
+    fn repo_with_branch() -> (TestRepo, Oid, Oid) {
+        let r = TestRepo::new();
+        let m1 = r.commit("m1", &[]);
+        let a = r.commit("a", &[m1]);
+        let repo = r.git.repo();
+        repo.reference("refs/heads/main", a, true, "test").unwrap();
+        repo.set_head("refs/heads/main").unwrap();
+        (r, m1, a)
+    }
+
+    fn prepared_commit(
+        oid: Oid,
+        parent_oid: Oid,
+        message: &str,
+    ) -> PreparedCommit {
+        PreparedCommit {
+            oid,
+            short_id: oid.to_string()[..7].to_string(),
+            parent_oid,
+            message: CommitMessage::parse(message),
+            pull_request_number: None,
+        }
+    }
+
+    #[test]
+    fn test_rewrite_commit_messages() {
+        let (r, m1, a) = repo_with_branch();
+        let mut commits = [prepared_commit(a, m1, "A\n\nNew message")];
+
+        r.git.rewrite_commit_messages(&mut commits, None).unwrap();
+
+        let head = r.git.head().unwrap();
+        assert_ne!(head, a);
+        assert_eq!(head, commits[0].oid);
+        assert_eq!(r.message_of(head), "A\n\nNew message");
+        assert_eq!(r.parents_of(head), vec![m1]);
+    }
+
+    #[test]
+    fn test_rewrite_commit_messages_branch_changed() {
+        let (r, m1, a) = repo_with_branch();
+        let mut commits = [prepared_commit(a, m1, "A\n\nNew message")];
+
+        // Meanwhile, the user commits b on top of a
+        let b = r.commit("b", &[a]);
+        r.git
+            .repo()
+            .reference("refs/heads/main", b, true, "test")
+            .unwrap();
+
+        let error = r.git.rewrite_commit_messages(&mut commits, None);
+
+        assert!(error.is_err());
+        assert!(
+            format!("{:#}", error.unwrap_err()).contains("git rebase --onto")
+        );
+        // The branch still points at b
+        assert_eq!(r.git.head().unwrap(), b);
+    }
+
+    #[test]
+    fn test_rewrite_commit_messages_detached_head() {
+        let (r, m1, a) = repo_with_branch();
+        r.git.repo().set_head_detached(a).unwrap();
+        let mut commits = [prepared_commit(a, m1, "A\n\nNew message")];
+
+        r.git.rewrite_commit_messages(&mut commits, None).unwrap();
+
+        let repo = r.git.repo();
+        assert!(repo.head_detached().unwrap());
+        assert_eq!(r.git.head().unwrap(), commits[0].oid);
+        // The branch is left alone
+        assert_eq!(
+            repo.find_reference("refs/heads/main").unwrap().target(),
+            Some(a)
+        );
     }
 }

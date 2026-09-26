@@ -12,7 +12,7 @@ This is the workflow for creating multiple PRs at the same time. This example on
 
 2. Make another change and commit it on top of commit A. We'll call this commit B.
 
-3. Run `spr diff --all`. This is equivalent to calling `spr diff` on each commit starting from `HEAD` and going to back to the first commit that is part of upstream `main`. Thus, it will create a PR for each of commits A and B.
+3. Run `spr diff --all`. This is equivalent to calling `spr diff` on each commit of your local branch that isn't on upstream `main` yet, starting with the bottom one and going up to `HEAD`. Thus, it will create a PR for each of commits A and B.
 
 4. Suppose you need to update commit A in response to review feedback. You would:
 
@@ -37,7 +37,7 @@ This is the workflow for creating multiple PRs at the same time. This example on
 
       This will (1) amend your latest commit into commit A, discarding the throwaway message and using commit A's message for the combined result; (2) run `spr diff` on the combined result; and (3) put commit B on top of the combined result.
 
-5. You must land commit A before commit B. (See [the next section](#cherry-picking) for what to do if you want to be able to land B first.) To land commit A, you would:
+5. You must land commit A before commit B. (See [the next section](#cherry-picking) for what to do if you want to be able to land B first. With the `github-stack` [stacking mode](#stacking-modes), running `spr land` on B lands A and B together.) To land commit A, you would:
 
    1. Run `git rebase --interactive`. The editor will start with this:
 
@@ -77,7 +77,7 @@ There are a few possible variations to note:
 
 In the above example, you would not be able to land commit B before landing commit A, even if they were totally independent of each other.
 
-First, some behind-the-scenes explanation. When you create the PR for commit B, `spr diff` will create a PR whose base branch is not `main`, but rather a synthetic branch that contains the difference between `main` and B's parent. This is so that the PR for B only shows the changes in B itself, rather than the entire difference between `main` and B.
+First, some behind-the-scenes explanation. When you create the PR for commit B, `spr diff` will create a PR whose base branch is not `main`, so that the PR for B only shows the changes in B itself, rather than the entire difference between `main` and B. Depending on the [stacking mode](#stacking-modes), that base is a synthetic branch that contains the difference between `main` and B's parent, or the PR branch of commit A.
 
 When you run `spr land`, it checks that each of these two operations would produce _exactly the same tree_:
 
@@ -86,19 +86,33 @@ When you run `spr land`, it checks that each of these two operations would produ
 
 If those operations wouldn't result in the same tree, `spr land` fails. This is to prevent you from landing a commit whose contents aren't the same as what reviewers have seen.
 
-In the above example, then, the PR for commit B has a synthetic base branch that contains the changes in commit A. Thus, if you tried to land B before A, `spr land`'s "merge PR vs. cherry-pick" check would fail.
+In the above example, then, the PR for commit B is based on the changes in commit A. Thus, if you tried to land B before A, `spr land`'s "merge PR vs. cherry-pick" check would fail.
 
 If you want to be able to land commit B before A, do this:
 
 1. Make commit A on top of `main` as before, and run `spr diff`.
 
-2. Make commit B on top of A as before, and run `spr diff --cherry-pick`. The flag causes `spr diff` to create the PR as if B were cherry-picked onto upstream `main`, rather than creating the synthetic base branch. (This step will fail if B does not cherry-pick cleanly onto upstream `main`, which would imply that A and B are not truly independent.)
+2. Make commit B on top of A as before, and run `spr diff --cherry-pick`. The flag causes `spr diff` to create the PR as if B were cherry-picked onto upstream `main`, targeting `main` directly. (This step will fail if B does not cherry-pick cleanly onto upstream `main`, which would imply that A and B are not truly independent.)
 
 3. Once B is ready to land, you can do one of two things:
 
    - Run `spr land --cherry-pick`. (By default, `spr land` refuses to land a commit whose parent is not on upstream `main`; the flag makes it skip that check.)
 
    - Do an interactive rebase that puts B directly on top of upstream `main`, then runs `spr land`, then puts A on top of B.
+
+## Stacking modes
+
+The `spr.stackingMode` setting determines how the PRs of stacked commits are set up. [Choose a Merge Method and Stacking Mode](./stacking-modes.md) explains the options and their trade-offs; [How it works - Stacked PRs](../reference/how-it-works-stacks.md) describes what happens behind the scenes. In day-to-day use, these are the differences:
+
+- **`base-branches`** (the default with squash-merging): each PR of a stacked commit targets a synthetic base branch. Don't merge such PRs in the GitHub UI, as that would merge them into their base branch; use `spr land`. Once the commits below have landed and you have rebased your local branch, `spr diff` changes the PR to target `main` directly.
+
+- **`chain`** (the default with merge commits): each PR of a stacked commit targets the PR branch of its parent commit. The PR of the parent commit must be up to date before you can run `spr diff` on a commit; `spr diff --all` updates the whole stack from the bottom up, so this is taken care of. `spr land` lands the bottom PR, and the PRs stacked on it are changed to target `main`.
+
+- **`github-stack`**: like `chain`, and the PRs are linked as a stack on GitHub. `spr diff` creates and updates the stack. `spr land` lands the PR of the current commit together with all PRs below it, so to land a whole stack, run `spr land` on its top commit.
+
+Reordering commits in a stack works in all modes. But spr never rewrites PR branches, so in the `chain` and `github-stack` modes, a PR branch that once had another PR's changes merged in keeps them in its history, even though they are no longer part of its changes. With merge commits, those commits end up in the history of `main` (their changes don't).
+
+You can switch between the stacking modes at any time. `spr diff` changes existing PRs over to the configured mode as it updates them.
 
 ## Rebasing the whole stack
 

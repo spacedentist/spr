@@ -1,16 +1,6 @@
-/*
- * Copyright (c) Radical HQ Limited
- *
- * This source code is licensed under the MIT license found in the
- * LICENSE file in the root directory of this source tree.
- */
+use color_eyre::eyre::{Result, bail};
 
-use color_eyre::eyre::Result;
-
-use crate::{
-    message::{MessageSection, build_commit_message},
-    output::output,
-};
+use crate::output::output;
 
 #[derive(Debug, clap::Parser)]
 pub struct PatchOptions {
@@ -33,16 +23,15 @@ pub async fn patch(
     config: &crate::config::Config,
 ) -> Result<()> {
     let pr = gh.clone().get_pull_request(opts.pull_request).await?;
+    let title = pr.message.title();
+    let title_display = if title.is_empty() {
+        "(no title)"
+    } else {
+        title
+    };
     output(
         "#️⃣ ",
-        &format!(
-            "Pull Request #{}: {}",
-            pr.number,
-            pr.sections
-                .get(&MessageSection::Title)
-                .map(|s| &s[..])
-                .unwrap_or("(no title)")
-        ),
+        &format!("Pull Request #{}: {}", pr.number, title_display),
     )?;
 
     let branch_name = if let Some(name) = opts.branch_name {
@@ -50,6 +39,16 @@ pub async fn patch(
     } else {
         git.get_pr_patch_branch_name(pr.number)?
     };
+
+    // Never overwrite an existing branch. (Without --branch-name, the name is
+    // chosen so that it doesn't exist.)
+    if git
+        .repo()
+        .find_branch(&branch_name, git2::BranchType::Local)
+        .is_ok()
+    {
+        bail!("Branch {branch_name} already exists");
+    }
 
     let patch_branch_oid = if let Some(oid) = pr.merge_commit {
         output("❗", "Pull Request has been merged")?;
@@ -93,7 +92,7 @@ pub async fn patch(
                 // that represents the contents of the PR.
 
                 pr_master_oid = git.create_derived_commit(
-                    pr_base_oid,
+                    Some(pr_base_oid),
                     &format!("[𝘀𝗽𝗿] Base of Pull Request #{}", pr.number),
                     pr_base_tree,
                     &[pr_master_oid],
@@ -105,8 +104,8 @@ pub async fn patch(
         // master commit, or, if the PR can't be based on master directly, on
         // the commit we created above to prepare the base of this commit.
         git.create_derived_commit(
-            pr.head_oid,
-            &build_commit_message(&pr.sections),
+            Some(pr.head_oid),
+            &pr.message.to_string(),
             git.get_tree_oid_for_commit(pr.head_oid)?,
             &[pr_master_oid],
         )?
@@ -116,9 +115,9 @@ pub async fn patch(
     let patch_branch_commit = repo.find_commit(patch_branch_oid)?;
 
     // Create the new branch, now that we know the commit it shall point to
-    repo.branch(&branch_name, &patch_branch_commit, true)?;
+    repo.branch(&branch_name, &patch_branch_commit, false)?;
 
-    output("🌱", &format!("Created new branch: {}", &branch_name))?;
+    output("🌱", &format!("Created new branch: {}", branch_name))?;
 
     if !opts.no_checkout {
         // Check out the new branch

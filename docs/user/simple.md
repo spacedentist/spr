@@ -16,6 +16,8 @@ This section details the process of putting a single commit up for review, and l
 
       This will update the PR with the new version of your HEAD commit. spr will prompt you for a short message that describes what you changed. You can also pass the update message on the command line using the `--message`/`-m` flag of `spr diff`.
 
+      If you want to see first what `spr diff` would do, run `spr diff --dry-run`: it shows what it would change, without changing anything.
+
 5. Once your PR is approved, run `spr land` to push it upstream.
 
 The above instructions have you committing directly to your local `main`. Doing so will keep things simpler when you have multiple reviews in flight. However, spr does not require that you commit directly to `main`. You can make branches if you prefer. `spr land` will always push your commit to upstream `main`, regardless of which local branch it was on. Note that `spr land` won't delete your feature branch.
@@ -25,6 +27,8 @@ The above instructions have you committing directly to your local `main`. Doing 
 When you run `spr diff` to update an existing PR, your update will be added to the PR as a new commit, so that reviewers can see exactly what changed. The new commit's message will be what you entered in step 4.3 of the instructions above.
 
 The individual commits that you see in the PR are solely for the benefit of reviewers; they will not be reflected in the commit history when the PR is landed. The commit that eventually lands on upstream `main` will always be a single commit, whose message is the title and description from the PR.
+
+(That's with the default merge method, squash-merging. If your repository is set up to merge PRs with merge commits (`spr.mergeMethod` is `merge`), `spr land` does that, and the commits of the PR become part of the history of `main`. See [Choose a Merge Method and Stacking Mode](./stacking-modes.md).)
 
 ## Updating before landing
 

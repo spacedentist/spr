@@ -1,7 +1,6 @@
 [book]
 authors = ["Sven Over"]
 language = "en"
-multilingual = false
 src = "docs"
 title = "spr Documentation"
 
@@ -12,7 +11,7 @@ build-dir = "book"
 git-repository-url = "https://github.com/spacedentist/spr"
 edit-url-template = "https://github.com/spacedentist/spr/edit/master/{path}"
 site-url = "/spr/"
-curly-quotes = true
+smart-punctuation = true
 additional-js = ["mermaid.min.js", "mermaid-init.js"]
 
 [preprocessor]

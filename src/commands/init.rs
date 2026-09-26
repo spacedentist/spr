@@ -1,10 +1,3 @@
-/*
- * Copyright (c) Radical HQ Limited
- *
- * This source code is licensed under the MIT license found in the
- * LICENSE file in the root directory of this source tree.
- */
-
 use color_eyre::eyre::{Result, WrapErr, bail};
 use indoc::formatdoc;
 use lazy_regex::regex;
@@ -29,7 +22,7 @@ pub async fn init() -> Result<()> {
     let github_auth_token = config
         .get_string("spr.githubAuthToken")
         .ok()
-        .and_then(|value| if value.is_empty() { None } else { Some(value) });
+        .filter(|value| !value.is_empty());
 
     let scopes = if let Some(token) = github_auth_token.as_deref() {
         let response: AuthScopes = octocrab::OctocrabBuilder::new()
@@ -125,12 +118,12 @@ pub async fn init() -> Result<()> {
     let github_repo = config
         .get_string("spr.githubRepository")
         .ok()
-        .and_then(|value| if value.is_empty() { None } else { Some(value) })
+        .filter(|value| !value.is_empty())
         .or_else(|| {
             // We can provide a default value in case the remote "origin" is pointing to github.com
             repo.find_remote("origin")
                 .ok()
-                .and_then(|remote| remote.url().map(String::from))
+                .and_then(|remote| remote.url().ok().map(String::from))
                 .and_then(|url| {
                     regex.captures(&url).and_then(|caps| {
                         caps.get(1).map(|m| m.as_str().to_string())
@@ -149,7 +142,7 @@ pub async fn init() -> Result<()> {
 
     let github_repo_info = octocrab
         .get::<octocrab::models::Repository, _, _>(
-            format!("/repos/{}", &github_repo),
+            format!("/repos/{}", github_repo),
             None::<&()>,
         )
         .await
@@ -171,8 +164,8 @@ pub async fn init() -> Result<()> {
     let branch_prefix = config
         .get_string("spr.branchPrefix")
         .ok()
-        .and_then(|value| if value.is_empty() { None } else { Some(value) })
-        .unwrap_or_else(|| format!("spr/{}/", &github_user.login));
+        .filter(|value| !value.is_empty())
+        .unwrap_or_else(|| format!("spr/{}/", github_user.login));
 
     output(
         "❓",
@@ -244,41 +237,31 @@ struct AuthScopes {
 }
 
 impl FromResponse for AuthScopes {
-    fn from_response<'async_trait, B>(
+    async fn from_response<B>(
         response: http::Response<B>,
-    ) -> std::pin::Pin<
-        Box<
-            dyn std::future::Future<Output = octocrab::Result<Self>>
-                + std::marker::Send
-                + 'async_trait,
-        >,
-    >
+    ) -> octocrab::Result<Self>
     where
         B: http_body::Body<Data = bytes::Bytes, Error = octocrab::Error> + Send,
-        B: 'async_trait,
-        Self: 'async_trait,
     {
-        Box::pin(async move {
-            let scopes = response
-                .headers()
-                .get("x-oauth-scopes")
-                .map(|v| v.to_str())
-                .transpose()
-                .map_err(|err| octocrab::Error::Other {
-                    source: Box::new(err),
-                    backtrace: std::backtrace::Backtrace::capture(),
-                })?
-                .map(|value| {
-                    value
-                        .split(',')
-                        .map(str::trim)
-                        .filter(|x| !x.is_empty())
-                        .map(String::from)
-                        .collect::<Vec<_>>()
-                })
-                .unwrap_or_default();
-            Ok(AuthScopes { scopes })
-        })
+        let scopes = response
+            .headers()
+            .get("x-oauth-scopes")
+            .map(|v| v.to_str())
+            .transpose()
+            .map_err(|err| octocrab::Error::Other {
+                source: Box::new(err),
+                backtrace: std::backtrace::Backtrace::capture(),
+            })?
+            .map(|value| {
+                value
+                    .split(',')
+                    .map(str::trim)
+                    .filter(|x| !x.is_empty())
+                    .map(String::from)
+                    .collect::<Vec<_>>()
+            })
+            .unwrap_or_default();
+        Ok(AuthScopes { scopes })
     }
 }
 

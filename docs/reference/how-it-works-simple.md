@@ -105,7 +105,7 @@ gitGraph
 
 Once you're ready to merge the PR,
 you would use `spr land` to merge the PR.
-This will perform a squash merge on GitHub for the PR.
+This will perform a squash merge on GitHub for the PR (or merge it with a merge commit, if `spr.mergeMethod` is `merge`).
 Once the branch has been merged on GitHub,
 it will update the local `main` branch and delete the transient branch:
 
