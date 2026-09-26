@@ -8,6 +8,8 @@
   on Git objects only and don't need spr to be configured:
   - `spr plumbing commit-pr` creates the commits that make a pull request
     reflect a local commit
+  - `spr plumbing stack` lists the local commits between the target and a
+    commit, with their `Pull-request` trailers
 
 - new config option `spr.mergeMethod` (`squash` or `merge`), used by `spr land`
 - new config option `spr.stackingMode` (`base-branches` or `chain`): with

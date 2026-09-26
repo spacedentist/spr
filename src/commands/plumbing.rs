@@ -10,6 +10,7 @@ use serde_json::json;
 
 use crate::{
     git::Git,
+    message::CommitMessage,
     pr_commits::{
         self, BaseOutdated, CommitInfo, Conflict, Parent, PullRequestCommits,
     },
@@ -26,14 +27,34 @@ enum PlumbingCommand {
     /// Create the commits that make a Pull Request reflect a local commit.
     /// Prints the new head and base commit of the Pull Request.
     CommitPr(CommitPrOptions),
+
+    /// List the commits between the target and a commit (default: HEAD),
+    /// from bottom to top: commit, parent, and Pull-request trailer (or -)
+    Stack(StackOptions),
 }
 
 impl PlumbingCommand {
     fn json(&self) -> bool {
         match self {
             PlumbingCommand::CommitPr(opts) => opts.json,
+            PlumbingCommand::Stack(opts) => opts.json,
         }
     }
+}
+
+#[derive(Debug, clap::Parser)]
+pub struct StackOptions {
+    /// The commit on the target branch the stack is based on
+    #[clap(long)]
+    target: String,
+
+    /// The top commit of the stack
+    #[clap(default_value = "HEAD")]
+    commit: String,
+
+    /// Output JSON, including the title and all trailers of each commit
+    #[clap(long)]
+    json: bool,
 }
 
 #[derive(Debug, clap::Parser)]
@@ -150,6 +171,7 @@ pub fn plumbing(opts: PlumbingOptions, git: &Git) -> Result<()> {
 fn run(command: PlumbingCommand, git: &Git, out: &mut dyn Write) -> Result<()> {
     match command {
         PlumbingCommand::CommitPr(opts) => commit_pr(opts, git, out),
+        PlumbingCommand::Stack(opts) => stack(opts, git, out),
     }
 }
 
@@ -317,6 +339,56 @@ fn commit_pr(
     } else {
         writeln!(out, "{}", result.head)?;
         writeln!(out, "{}", result.base)?;
+    }
+
+    Ok(())
+}
+
+fn stack(opts: StackOptions, git: &Git, out: &mut dyn Write) -> Result<()> {
+    let target = find_commit(git, &opts.target)?;
+    let head = find_commit(git, &opts.commit)?;
+
+    let mut entries = Vec::new();
+    for oid in git.get_commit_oids_between(target, head)? {
+        let commit = git.repo().find_commit(oid)?;
+        if commit.parent_count() != 1 {
+            return Err(PlumbingError {
+                kind: "merge-commit",
+                exit_code: 2,
+                message: format!(
+                    "{oid} is a merge commit, which spr can't handle"
+                ),
+            }
+            .into());
+        }
+        let message = CommitMessage::parse(&String::from_utf8_lossy(
+            commit.message_bytes(),
+        ));
+        entries.push((oid, commit.parent_id(0)?, message));
+    }
+
+    if opts.json {
+        let entries: Vec<_> = entries
+            .iter()
+            .map(|(oid, parent, message)| {
+                json!({
+                    "commit": oid.to_string(),
+                    "parent": parent.to_string(),
+                    "title": message.title(),
+                    "pull_request": message.get_trailer("Pull-request"),
+                    "trailers": message.trailers(),
+                })
+            })
+            .collect();
+        writeln!(out, "{}", serde_json::Value::Array(entries))?;
+    } else {
+        for (oid, parent, message) in &entries {
+            writeln!(
+                out,
+                "{oid} {parent} {}",
+                message.get_trailer("Pull-request").unwrap_or("-")
+            )?;
+        }
     }
 
     Ok(())
@@ -584,5 +656,99 @@ mod tests {
         let head: Oid = json["head"].as_str().unwrap().parse().unwrap();
         let head = r.git.repo().find_commit(head).unwrap();
         assert_eq!(head.author().name(), Ok("Test"));
+    }
+
+    /// A commit with the given message and a tree with the message as
+    /// content
+    fn commit_with_message(r: &TestRepo, message: &str, parent: Oid) -> Oid {
+        let repo = r.git.repo();
+        let tree = repo.find_tree(r.tree(message)).unwrap();
+        let signature = repo.signature().unwrap();
+        repo.commit(
+            None,
+            &signature,
+            &signature,
+            message,
+            &tree,
+            &[&repo.find_commit(parent).unwrap()],
+        )
+        .unwrap()
+    }
+
+    #[test]
+    fn test_stack() {
+        let r = TestRepo::new();
+        let m1 = r.commit("m1", &[]);
+        let a = commit_with_message(
+            &r,
+            "A\n\nPull-request: https://github.com/o/r/pull/1\n",
+            m1,
+        );
+        let b = commit_with_message(&r, "B\n\nNo pull request yet.\n", a);
+
+        let output = plumbing(
+            &r,
+            &["stack", "--target", &m1.to_string(), &b.to_string()],
+        )
+        .unwrap();
+        assert_eq!(
+            lines(&output),
+            vec![
+                format!("{a} {m1} https://github.com/o/r/pull/1"),
+                format!("{b} {a} -"),
+            ]
+        );
+
+        let output = plumbing(
+            &r,
+            &[
+                "stack",
+                "--target",
+                &m1.to_string(),
+                &b.to_string(),
+                "--json",
+            ],
+        )
+        .unwrap();
+        let json: serde_json::Value = serde_json::from_str(&output).unwrap();
+        assert_eq!(json[0]["title"], json!("A"));
+        assert_eq!(
+            json[0]["pull_request"],
+            json!("https://github.com/o/r/pull/1")
+        );
+        assert_eq!(
+            json[0]["trailers"],
+            json!([["Pull-request", "https://github.com/o/r/pull/1"]])
+        );
+        assert_eq!(json[1]["pull_request"], json!(null));
+    }
+
+    #[test]
+    fn test_stack_empty() {
+        let r = TestRepo::new();
+        let m1 = r.commit("m1", &[]);
+
+        let output = plumbing(
+            &r,
+            &["stack", "--target", &m1.to_string(), &m1.to_string()],
+        )
+        .unwrap();
+        assert_eq!(output, "");
+    }
+
+    #[test]
+    fn test_stack_merge_commit() {
+        let r = TestRepo::new();
+        let m1 = r.commit("m1", &[]);
+        let a = r.commit("a", &[m1]);
+        let b = r.commit("b", &[m1]);
+        let merge = r.commit("merge", &[a, b]);
+
+        let error = plumbing(
+            &r,
+            &["stack", "--target", &m1.to_string(), &merge.to_string()],
+        )
+        .unwrap_err();
+        assert_eq!(classify(&error), ("merge-commit", 2));
     }
 }

@@ -39,10 +39,20 @@ impl Git {
     }
 
     pub fn get_commit_oids(&self, master_oid: Oid) -> Result<Vec<Oid>> {
+        self.get_commit_oids_between(master_oid, self.head()?)
+    }
+
+    /// The commits reachable from `head` but not from `target`, from bottom
+    /// to top.
+    pub fn get_commit_oids_between(
+        &self,
+        target: Oid,
+        head: Oid,
+    ) -> Result<Vec<Oid>> {
         let mut walk = self.repo.revwalk()?;
         walk.set_sorting(git2::Sort::TOPOLOGICAL.union(git2::Sort::REVERSE))?;
-        walk.push_head()?;
-        walk.hide(master_oid)?;
+        walk.push(head)?;
+        walk.hide(target)?;
 
         Ok(walk.collect::<std::result::Result<Vec<Oid>, _>>()?)
     }
