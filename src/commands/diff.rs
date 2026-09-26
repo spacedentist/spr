@@ -299,6 +299,15 @@ pub async fn diff(
     result
 }
 
+/// Whether an error is GitHub reporting that something doesn't exist
+fn is_not_found(error: &Error) -> bool {
+    matches!(
+        error.downcast_ref::<octocrab::Error>(),
+        Some(octocrab::Error::GitHub { source, .. })
+            if source.status_code == http::StatusCode::NOT_FOUND
+    )
+}
+
 /// Report what `spr diff` would do for a commit, for --dry-run
 #[allow(clippy::too_many_arguments)]
 fn describe_dry_run(
@@ -622,36 +631,56 @@ async fn diff_impl(
         for reviewer in reviewers {
             // Teams are indicated with a leading #
             if let Some(slug) = reviewer.strip_prefix('#') {
-                if let Ok(team) =
-                    GitHub::get_github_team((&config.owner).into(), slug.into())
-                        .await
+                match GitHub::get_github_team(
+                    (&config.owner).into(),
+                    slug.into(),
+                )
+                .await
                 {
-                    requested_reviewers
-                        .team_reviewers
-                        .push(team.slug.to_string());
-
-                    checked_reviewers.push(reviewer);
-                } else {
-                    bail!(
-                        "Reviewers field contains unknown team '{}'",
-                        reviewer,
-                    );
-                }
-            } else if let Ok(user) =
-                GitHub::get_github_user(reviewer.clone()).await
-            {
-                requested_reviewers.reviewers.push(user.login);
-                if let Some(name) = user.name {
-                    checked_reviewers.push(format!(
-                        "{} ({})",
-                        reviewer.clone(),
-                        remove_all_parens(&name)
-                    ));
-                } else {
-                    checked_reviewers.push(reviewer);
+                    Ok(team) => {
+                        requested_reviewers
+                            .team_reviewers
+                            .push(team.slug.to_string());
+                        checked_reviewers.push(reviewer);
+                    }
+                    Err(error) if is_not_found(&error) => {
+                        bail!(
+                            "Reviewers field contains unknown team '{}'",
+                            reviewer,
+                        );
+                    }
+                    Err(error) => {
+                        return Err(error.wrap_err(format!(
+                            "Looking up team '{reviewer}' failed"
+                        )));
+                    }
                 }
             } else {
-                bail!("Reviewers field contains unknown user '{}'", reviewer);
+                match GitHub::get_github_user(reviewer.clone()).await {
+                    Ok(user) => {
+                        requested_reviewers.reviewers.push(user.login);
+                        if let Some(name) = user.name {
+                            checked_reviewers.push(format!(
+                                "{} ({})",
+                                reviewer.clone(),
+                                remove_all_parens(&name)
+                            ));
+                        } else {
+                            checked_reviewers.push(reviewer);
+                        }
+                    }
+                    Err(error) if is_not_found(&error) => {
+                        bail!(
+                            "Reviewers field contains unknown user '{}'",
+                            reviewer
+                        );
+                    }
+                    Err(error) => {
+                        return Err(error.wrap_err(format!(
+                            "Looking up user '{reviewer}' failed"
+                        )));
+                    }
+                }
             }
         }
 
