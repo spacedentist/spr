@@ -219,6 +219,13 @@ impl Git {
         Ok(oid)
     }
 
+    /// Whether `ancestor` is the same commit as `commit`, or one of its
+    /// ancestors
+    pub fn is_ancestor(&self, ancestor: Oid, commit: Oid) -> Result<bool> {
+        Ok(ancestor == commit
+            || self.repo.graph_descendant_of(commit, ancestor)?)
+    }
+
     pub fn resolve_reference(&self, reference: &str) -> Result<Oid> {
         let result =
             self.repo.find_reference(reference)?.peel_to_commit()?.id();

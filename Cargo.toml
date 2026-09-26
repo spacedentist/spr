@@ -45,3 +45,6 @@ unicode-normalization = "^0.1.25"
 
 [lints.clippy]
 used-underscore-binding = "deny"
+
+[dev-dependencies]
+tempfile = "^3.27.0"
