@@ -12,7 +12,7 @@ Every time you run `spr diff`, it projects the current state of each commit onto
 
 ## Stacking modes
 
-A commit that is directly based on the master branch gets a pull request that targets the master branch. For a commit that is stacked on other commits, there are three options (the `spr.stackingMode` config option):
+A commit that is directly based on the master branch gets a pull request that targets the master branch. For a commit that is stacked on other commits, there are three options (the `spr.stackingMode` config option). [Choose a Merge Method and Stacking Mode](../user/stacking-modes.md) explains the motivation behind them and their trade-offs.
 
 - **`base-branches`**: `spr` creates a synthetic base branch for the pull request, which contains the changes of all commits below. The pull request targets that base branch, so it only shows the changes of its own commit. Changes to the commits below appear on the base branch as commits titled "[𝘀𝗽𝗿] changes introduced through rebase". This keeps pull request timelines readable when pull requests are squash-merged, but doesn't work with merge commits: the synthetic commits would end up in the history of the master branch.
 

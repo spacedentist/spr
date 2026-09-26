@@ -22,7 +22,7 @@ In spr's workflow, you send out individual commits for review, not entire branch
 
    Similarly, you can rebase onto newer upstream `main` and run `spr diff` to reflect any resulting changes to your commit.
 
-4. Once reviewers have approved, run `spr land`. This will put your commit on top of the latest `main` and push it upstream.
+4. Once reviewers have approved, run `spr land`. This will squash-merge the PR, so your change lands on top of the latest upstream `main` as a single commit.
 
 In practice, you're likely to have more complex situations: multiple commits being reviewed, and possibly in-review commits that depend on others. You may need to make updates to any of these commits, or land them in any order.
 
@@ -34,6 +34,8 @@ spr can handle all of that, without requiring any particular way of organizing y
 ## Rationale
 
 The reason to use spr is that it allows you to use whatever local branching scheme you want, instead of being forced to create a branch for every review. In particular, you can commit everything directly on your local `main`. This greatly simplifies rebasing: rather than rebasing every review branch individually, you can simply rebase your local `main` onto upstream `main`.
+
+Nor do you need your whole team to adopt spr. To your colleagues, the PRs that spr creates are ordinary GitHub PRs, which they review as usual. If your team merges PRs with merge commits rather than squash-merging them, spr can do that, too (see [Choose a Merge Method and Stacking Mode](./user/stacking-modes.md)).
 
 You can make branches locally if you want, and it's not uncommon for spr users to do so. You could even make a branch for every review if you don't want to use the stacked-PR workflow. It doesn't matter to spr.
 
@@ -50,5 +52,7 @@ What follows from those principles is the idea that **commits, not branches, sho
 If the commit is the unit of code review, then, why should the code review tool require that you make branches? spr's answer is: it shouldn't.
 
 Following the one-commit-per-change principle maintains the invariant that checking out any commit on `main` gives you a codebase that has been reviewed _in that state_, and that builds and passes tests, etc. This makes it easy to revert changes, and to bisect.
+
+This closes the circle: a change is one commit on your local branch while you work on it, amending and rebasing it as needed. spr turns it into a PR, where each update becomes an additional commit, so reviewers can see what changed. And when it lands, it's squash-merged into one commit on `main` again.
 
 [^master]: Git's default branch name is `master`, but GitHub's is now `main`, so we'll use `main` throughout this documentation.

@@ -26,6 +26,8 @@ When you run `spr diff` to update an existing PR, your update will be added to t
 
 The individual commits that you see in the PR are solely for the benefit of reviewers; they will not be reflected in the commit history when the PR is landed. The commit that eventually lands on upstream `main` will always be a single commit, whose message is the title and description from the PR.
 
+(That's with the default merge method, squash-merging. If your repository is set up to merge PRs with merge commits (`spr.mergeMethod` is `merge`), `spr land` does that, and the commits of the PR become part of the history of `main`. See [Choose a Merge Method and Stacking Mode](./stacking-modes.md).)
+
 ## Updating before landing
 
 If you amend your local commit before landing, you must run `spr diff` to update the PR before landing, or else `spr land` will fail.
