@@ -253,41 +253,6 @@ mod tests {
         .unwrap()
     }
 
-    fn config_factory_with_use_commit_title(
-        use_commit_title_for_initial_commit: bool,
-    ) -> Config {
-        crate::config::Config::new(
-            "acme".into(),
-            "codez".into(),
-            "master".into(),
-            "spr/foo/".into(),
-            "xyz".into(),
-            false,
-            MergeMethod::Squash,
-            StackingMode::BaseBranches,
-            use_commit_title_for_initial_commit,
-        )
-        .unwrap()
-    }
-
-    #[test]
-    fn test_use_commit_title_for_initial_commit_default() {
-        let config = config_factory();
-        assert!(config.use_commit_title_for_initial_commit);
-    }
-
-    #[test]
-    fn test_use_commit_title_for_initial_commit_enabled() {
-        let config = config_factory_with_use_commit_title(true);
-        assert!(config.use_commit_title_for_initial_commit);
-    }
-
-    #[test]
-    fn test_use_commit_title_for_initial_commit_disabled() {
-        let config = config_factory_with_use_commit_title(false);
-        assert!(!config.use_commit_title_for_initial_commit);
-    }
-
     #[test]
     fn test_pull_request_url() {
         let gh = config_factory();

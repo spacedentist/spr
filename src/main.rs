@@ -169,7 +169,7 @@ pub async fn spr() -> Result<()> {
     let use_commit_title_for_initial_commit = git_config
         .get_bool("spr.useCommitTitleForInitialCommit")
         .ok()
-        .unwrap_or(true);
+        .unwrap_or(false);
 
     let merge_method = match git_config.get_string("spr.mergeMethod") {
         Ok(value) => value.parse()?,

@@ -13,7 +13,7 @@ spr uses the following Git configuration values:
 | `requireApproval`                |                                   | If true, `spr land` will refuse to land a pull request that is not accepted                                      | `false`                                             | not set                                                |
 | `mergeMethod`                    |                                   | How pull requests are merged: `squash` or `merge`[^merge]                                                        | `squash`                                            | not set                                                |
 | `stackingMode`                   |                                   | How pull requests of stacked commits are set up: `base-branches`, `chain` or `github-stack`[^stacking]           | `base-branches` with `squash`, `chain` with `merge` | not set                                                |
-| `useCommitTitleForInitialCommit` |                                   | If true, uses the actual commit title for the initial PR commit message. If false, uses `[𝘀𝗽𝗿] initial version`. | true                                                |
+| `useCommitTitleForInitialCommit` |                                   | If true, uses the actual commit title for the initial PR commit message. If false, uses `[𝘀𝗽𝗿] initial version`. | `false`                                             | not set                                                |
 
 - The config keys are all in the `spr` section; for example, `spr.githubAuthToken`.
 
