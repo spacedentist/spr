@@ -13,7 +13,7 @@ use crate::{
     },
     output::{output, write_commit_title},
     pr_commits::{
-        self, BaseOutdated, CommitInfo, Conflict, PullRequestCommits,
+        self, BaseOutdated, CommitInfo, Conflict, Plan, PullRequestCommits,
     },
     utils::{parse_name_list, remove_all_parens, slugify},
 };
@@ -49,6 +49,11 @@ pub struct DiffOptions {
     /// on any intermediate changes between the master branch and this commit.
     #[clap(long)]
     cherry_pick: bool,
+
+    /// Show what would be done, without creating commits, pushing, or
+    /// changing anything on GitHub or in the local repository
+    #[clap(long)]
+    dry_run: bool,
 }
 
 fn get_oids(refs: &str, repo: &git2::Repository) -> Result<HashSet<Oid>> {
@@ -213,6 +218,17 @@ pub async fn diff(
                         }
                     }
                 }
+                None if opts.dry_run => {
+                    // In a dry run, we don't create the parent commit's Pull
+                    // Request, so we can't tell much about this one.
+                    output(
+                        "🔍",
+                        "Would create a Pull Request stacked on the new Pull \
+                         Request of the parent commit",
+                    )?;
+                    parent_pull_request_number = None;
+                    continue;
+                }
                 None => {
                     result = Err(eyre!(
                         "The parent commit does not have a Pull Request. Run \
@@ -247,6 +263,10 @@ pub async fn diff(
         parent_pull_request_number = prepared_commit.pull_request_number;
     }
 
+    if opts.dry_run {
+        return result;
+    }
+
     // This updates the commit message in the local Git repository (if it was
     // changed by the implementation)
     git.rewrite_commit_messages(prepared_commits.as_mut_slice(), None)?;
@@ -260,6 +280,106 @@ pub async fn diff(
     }
 
     result
+}
+
+/// Report what `spr diff` would do for a commit, for --dry-run
+#[allow(clippy::too_many_arguments)]
+fn describe_dry_run(
+    opts: &DiffOptions,
+    config: &crate::config::Config,
+    message: &crate::message::CommitMessage,
+    pull_request: Option<&PullRequest>,
+    pull_request_branch: &GitHubBranch,
+    base_branch: Option<&GitHubBranch>,
+    plan: &Plan,
+    needs_new_base_branch: bool,
+    keeps_base: bool,
+    stacked_on: Option<u64>,
+) -> Result<()> {
+    let base_name = base_branch
+        .unwrap_or(&config.master_ref)
+        .branch_name()
+        .to_string();
+    let base_description = match stacked_on {
+        Some(number) => format!("{base_name} (Pull Request #{number})"),
+        None => base_name,
+    };
+
+    if let Some(base_branch) = base_branch {
+        if needs_new_base_branch {
+            output(
+                "🔍",
+                &format!(
+                    "Would create base branch {}",
+                    base_branch.branch_name()
+                ),
+            )?;
+        } else if plan.new_base_parents.is_some() {
+            output(
+                "🔍",
+                &format!(
+                    "Would add a commit to base branch {}",
+                    base_branch.branch_name()
+                ),
+            )?;
+        }
+    }
+
+    let Some(pull_request) = pull_request else {
+        output(
+            "🔍",
+            &format!(
+                "Would create a Pull Request from branch {} into {}",
+                pull_request_branch.branch_name(),
+                base_description,
+            ),
+        )?;
+        return Ok(());
+    };
+
+    if plan.is_empty() && !needs_new_base_branch {
+        output("🔍", "No update necessary")?;
+    } else if plan.new_head_parents.is_some() {
+        output(
+            "🔍",
+            &format!(
+                "Would add a commit to {}{}",
+                pull_request_branch.branch_name(),
+                if plan.merges {
+                    ", merging in the new base"
+                } else {
+                    ""
+                },
+            ),
+        )?;
+    }
+
+    if !keeps_base {
+        output(
+            "🔍",
+            &format!(
+                "Would change the base of Pull Request #{} to {}",
+                pull_request.number, base_description
+            ),
+        )?;
+    }
+
+    if opts.update_message {
+        let mut updates: PullRequestUpdate = Default::default();
+        updates.update_message(pull_request, message);
+        if !updates.is_empty() {
+            output(
+                "🔍",
+                &format!(
+                    "Would update the title and description of Pull Request \
+                     #{}",
+                    pull_request.number
+                ),
+            )?;
+        }
+    }
+
+    Ok(())
 }
 
 /// GitHub refuses to change the base of a Pull Request that is part of a
@@ -605,6 +725,34 @@ async fn diff_impl(
     };
     let plan = match commits.plan(git) {
         Err(error) if error.downcast_ref::<BaseOutdated>().is_some() => {
+            if let Some(ref stack_on) = stack_on
+                && opts.dry_run
+            {
+                if opts.all || opts.refs.is_some() {
+                    // In a real run, the parent commit's Pull Request would
+                    // (probably) have been updated first.
+                    output(
+                        "🔍",
+                        &format!(
+                            "Would be updated once the Pull Request of the \
+                             parent commit (#{}) is up to date",
+                            stack_on.number
+                        ),
+                    )?;
+                } else {
+                    output(
+                        "🔍",
+                        &format!(
+                            "Would fail: the Pull Request of the parent \
+                             commit (#{}) is not up to date. Run `spr diff` \
+                             on the parent commit first, or use \
+                             `spr diff --all`.",
+                            stack_on.number
+                        ),
+                    )?;
+                }
+                return Ok(());
+            }
             if let Some(ref stack_on) = stack_on {
                 bail!(
                     "The Pull Request of the parent commit (#{}) is not up to \
@@ -647,6 +795,21 @@ async fn diff_impl(
             }
             None => pr.base.is_master_branch(),
         });
+
+    if opts.dry_run {
+        return describe_dry_run(
+            opts,
+            config,
+            message,
+            pull_request.as_ref(),
+            &pull_request_branch,
+            base_branch.as_ref(),
+            &plan,
+            needs_new_base_branch,
+            keeps_base,
+            stack_on.as_ref().map(|pr| pr.number),
+        );
+    }
 
     // At this point we can check if we can exit early because no update to the
     // existing Pull Request branch is necessary

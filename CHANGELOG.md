@@ -4,6 +4,8 @@
 
 ### Improvements
 
+- `spr diff --dry-run` shows what `spr diff` would do, without changing
+  anything
 - new experimental `spr plumbing` commands for use in scripts, which work
   on Git objects only and don't need spr to be configured:
   - `spr plumbing commit-pr` creates the commits that make a pull request
