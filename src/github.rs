@@ -184,10 +184,7 @@ impl GitHub {
     ) -> Self {
         let git_remote = GitRemote::new(
             git.repo().clone(),
-            format!(
-                "https://github.com/{}/{}.git",
-                &config.owner, &config.repo,
-            ),
+            format!("https://github.com/{}/{}.git", config.owner, config.repo),
             auth_token,
         );
         Self {

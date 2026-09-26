@@ -107,7 +107,7 @@ pub async fn patch(
     // Create the new branch, now that we know the commit it shall point to
     repo.branch(&branch_name, &patch_branch_commit, true)?;
 
-    output("🌱", &format!("Created new branch: {}", &branch_name))?;
+    output("🌱", &format!("Created new branch: {}", branch_name))?;
 
     if !opts.no_checkout {
         // Check out the new branch

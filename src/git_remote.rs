@@ -50,14 +50,14 @@ impl GitRemote {
 
         let mut connection =
             remote.connect_auth(dir, Some(cb), None).wrap_err_with(|| {
-                format!("Connection to git remote failed, url: {}", &self.url)
+                format!("Connection to git remote failed, url: {}", self.url)
             })?;
-        log::trace!("Connected to remote {} ({:?})", &self.url, dir);
+        log::trace!("Connected to remote {} ({:?})", self.url, dir);
 
         let result = func(&mut connection)?;
 
         connection.remote().disconnect()?;
-        log::trace!("Disconnected from remote {}", &self.url);
+        log::trace!("Disconnected from remote {}", self.url);
 
         Ok(result)
     }
@@ -114,7 +114,7 @@ impl GitRemote {
             if !fetch_oids.is_empty() {
                 let fetch_oids =
                     fetch_oids.iter().map(Oid::to_string).collect::<Vec<_>>();
-                debug!("fetching oids: {:?}", &fetch_oids);
+                debug!("fetching oids: {:?}", fetch_oids);
 
                 let mut fetch_options = git2::FetchOptions::new();
                 fetch_options.update_fetchhead(false);
@@ -147,7 +147,7 @@ impl GitRemote {
             cbs.push_update_reference(|ref_name, msg| {
                 if let Some(msg) = msg {
                     let error = format!("Push {} rejected: {}", ref_name, msg);
-                    warn!("{}", &error);
+                    warn!("{}", error);
                     Err(git2::Error::from_str(&error))
                 } else {
                     trace!("Pushed {}", ref_name);
@@ -157,7 +157,7 @@ impl GitRemote {
             let mut po = PushOptions::new();
             po.remote_callbacks(cbs);
 
-            debug!("Push specs: {:?}", &push_specs);
+            debug!("Push specs: {:?}", push_specs);
             connection
                 .remote()
                 .push(push_specs.as_slice(), Some(&mut po))?;

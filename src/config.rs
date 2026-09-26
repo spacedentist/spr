@@ -150,8 +150,8 @@ impl Config {
     pub fn pull_request_url(&self, number: u64) -> String {
         format!(
             "https://github.com/{owner}/{repo}/pull/{number}",
-            owner = &self.owner,
-            repo = &self.repo
+            owner = self.owner,
+            repo = self.repo
         )
     }
 
