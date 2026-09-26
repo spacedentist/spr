@@ -437,8 +437,16 @@ pub async fn land(
         });
     }
 
-    if !push_specs.is_empty() {
-        gh.remote().push_to_remote(&push_specs)?;
+    // GitHub may have deleted the branches already, if the repository is set
+    // up to do that after merging. The Pull Request has landed anyway, so
+    // this is not an error.
+    if !push_specs.is_empty()
+        && let Err(error) = gh.remote().push_to_remote(&push_specs)
+    {
+        output(
+            "⚠️",
+            &format!("Could not delete Pull Request branches: {error:#}"),
+        )?;
     }
 
     Ok(())
