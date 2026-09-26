@@ -3,6 +3,7 @@ pub mod config;
 pub mod git;
 pub mod git_remote;
 pub mod github;
+pub mod land_check;
 pub mod message;
 pub mod output;
 pub mod pr_commits;

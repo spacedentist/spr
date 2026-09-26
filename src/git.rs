@@ -340,19 +340,6 @@ impl Git {
         }
     }
 
-    pub fn cherrypick(&self, oid: Oid, base_oid: Oid) -> Result<git2::Index> {
-        let commit = self.repo.find_commit(oid)?;
-        let base_commit = self.repo.find_commit(base_oid)?;
-
-        Ok(self
-            .repo
-            .cherrypick_commit(&commit, &base_commit, 0, None)?)
-    }
-
-    pub fn write_index(&self, mut index: git2::Index) -> Result<Oid> {
-        Ok(index.write_tree_to(self.repo.as_ref())?)
-    }
-
     pub fn get_tree_oid_for_commit(&self, oid: Oid) -> Result<Oid> {
         let tree_oid = self.repo.find_commit(oid)?.tree_id();
 

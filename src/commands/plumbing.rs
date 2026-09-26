@@ -10,6 +10,7 @@ use serde_json::json;
 
 use crate::{
     git::Git,
+    land_check::{self, LandCheck},
     message::CommitMessage,
     pr_commits::{
         self, BaseOutdated, CommitInfo, Conflict, Parent, PullRequestCommits,
@@ -31,6 +32,10 @@ enum PlumbingCommand {
     /// List the commits between the target and a commit (default: HEAD),
     /// from bottom to top: commit, parent, and Pull-request trailer (or -)
     Stack(StackOptions),
+
+    /// Check that merging a Pull Request into the target gives the same
+    /// tree as applying the local commits to it. Prints that tree.
+    LandCheck(LandCheckOptions),
 }
 
 impl PlumbingCommand {
@@ -38,8 +43,34 @@ impl PlumbingCommand {
         match self {
             PlumbingCommand::CommitPr(opts) => opts.json,
             PlumbingCommand::Stack(opts) => opts.json,
+            PlumbingCommand::LandCheck(opts) => opts.json,
         }
     }
+}
+
+#[derive(Debug, clap::Parser)]
+pub struct LandCheckOptions {
+    /// The commit on the target branch the Pull Request would be merged into
+    #[clap(long)]
+    target: String,
+
+    /// The head of the Pull Request
+    #[clap(long)]
+    pr_head: String,
+
+    /// The (top) local commit
+    #[clap(long)]
+    local: String,
+
+    /// The commit the local commits are based on: the changes of
+    /// <since>..<local> are applied to the target [default: parent of
+    /// --local]
+    #[clap(long)]
+    since: Option<String>,
+
+    /// Output JSON
+    #[clap(long)]
+    json: bool,
 }
 
 #[derive(Debug, clap::Parser)]
@@ -172,6 +203,7 @@ fn run(command: PlumbingCommand, git: &Git, out: &mut dyn Write) -> Result<()> {
     match command {
         PlumbingCommand::CommitPr(opts) => commit_pr(opts, git, out),
         PlumbingCommand::Stack(opts) => stack(opts, git, out),
+        PlumbingCommand::LandCheck(opts) => land_check(opts, git, out),
     }
 }
 
@@ -392,6 +424,62 @@ fn stack(opts: StackOptions, git: &Git, out: &mut dyn Write) -> Result<()> {
     }
 
     Ok(())
+}
+
+fn land_check(
+    opts: LandCheckOptions,
+    git: &Git,
+    out: &mut dyn Write,
+) -> Result<()> {
+    let target = find_commit(git, &opts.target)?;
+    let pr_head = find_commit(git, &opts.pr_head)?;
+    let local = find_commit(git, &opts.local)?;
+    let since = match opts.since.as_deref() {
+        Some(spec) => find_commit(git, spec)?,
+        None => git
+            .repo()
+            .find_commit(local)?
+            .parent_id(0)
+            .map_err(|_| eyre!("'{}' has no parent commit", opts.local))?,
+    };
+
+    let conflict = |message: &str| PlumbingError {
+        kind: "conflict",
+        exit_code: 4,
+        message: message.to_string(),
+    };
+
+    match land_check::land_check(git, target, pr_head, local, since)? {
+        LandCheck::Ok(tree) => {
+            if opts.json {
+                writeln!(out, "{}", json!({ "tree": tree.to_string() }))?;
+            } else {
+                writeln!(out, "{tree}")?;
+            }
+            Ok(())
+        }
+        LandCheck::LocalConflict => Err(conflict(
+            "the local commits can't be applied to the target without \
+             conflicts",
+        )
+        .into()),
+        LandCheck::MergeConflict => Err(conflict(
+            "merging the Pull Request into the target has conflicts",
+        )
+        .into()),
+        LandCheck::Mismatch {
+            local_tree,
+            merge_tree,
+        } => Err(PlumbingError {
+            kind: "mismatch",
+            exit_code: 2,
+            message: format!(
+                "merging the Pull Request gives tree {merge_tree}, applying \
+                 the local commits gives tree {local_tree}"
+            ),
+        }
+        .into()),
+    }
 }
 
 #[cfg(test)]
@@ -750,5 +838,41 @@ mod tests {
         )
         .unwrap_err();
         assert_eq!(classify(&error), ("merge-commit", 2));
+    }
+
+    #[test]
+    fn test_land_check() {
+        let r = TestRepo::new();
+        let m1 = r.commit_tree(r.tree_with(&[("x", "1")]), &[]);
+        let m2 = r.commit_tree(r.tree_with(&[("x", "2")]), &[m1]);
+        let b = r.commit_tree(r.tree_with(&[("x", "1"), ("y", "b")]), &[m1]);
+        let pr_head = r.commit_tree(r.tree_of(b), &[m1]);
+        let args = |pr_head: Oid| {
+            vec![
+                "land-check".to_string(),
+                "--target".to_string(),
+                m2.to_string(),
+                "--pr-head".to_string(),
+                pr_head.to_string(),
+                "--local".to_string(),
+                b.to_string(),
+            ]
+        };
+        let run = |args: Vec<String>| {
+            let args: Vec<&str> = args.iter().map(String::as_str).collect();
+            plumbing(&r, &args)
+        };
+
+        let output = run(args(pr_head)).unwrap();
+        assert_eq!(
+            lines(&output),
+            vec![r.tree_with(&[("x", "2"), ("y", "b")]).to_string()]
+        );
+
+        // The Pull Request doesn't reflect the local commit
+        let outdated =
+            r.commit_tree(r.tree_with(&[("x", "1"), ("y", "old")]), &[m1]);
+        let error = run(args(outdated)).unwrap_err();
+        assert_eq!(classify(&error), ("mismatch", 2));
     }
 }

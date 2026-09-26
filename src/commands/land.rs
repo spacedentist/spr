@@ -10,6 +10,7 @@ use crate::{
         PullRequest, PullRequestStack, PullRequestState, PullRequestUpdate,
         ReviewStatus,
     },
+    land_check::{LandCheck, land_check},
     output::{output, write_commit_title},
 };
 
@@ -106,48 +107,36 @@ pub async fn land(
     let current_master =
         gh.remote().fetch_branch(config.master_ref.branch_name())?;
 
-    let index = git.cherrypick(prepared_commit.oid, current_master)?;
-
-    if index.has_conflicts() {
-        return Err(Error::msg(formatdoc!(
-            "This commit cannot be applied on top of the '{master}' branch.
-             Please rebase this commit.{unlanded}",
-            master = &config.master_ref.branch_name(),
-            unlanded = if based_on_unlanded_commits {
-                " You may also have to land commits that this commit depends on first."
-            } else {
-                ""
-            },
-        )));
-    }
-
-    // This is the tree we are getting from cherrypicking the local commit
-    // on the selected base (master or stacked-on Pull Request).
-    let our_tree_oid = git.write_index(index)?;
-
-    // Now let's predict what merging the PR into the master branch would
-    // produce.
-    let merge_index = {
-        let repo = git.repo();
-        let current_master = repo.find_commit(current_master)?;
-        let pr_head = repo.find_commit(pull_request.head_oid)?;
-        repo.merge_commits(&current_master, &pr_head, None)
-    }?;
-
-    let merge_matches_cherrypick = if merge_index.has_conflicts() {
-        false
-    } else {
-        let merge_tree_oid = git.write_index(merge_index)?;
-        merge_tree_oid == our_tree_oid
+    // Check that merging the Pull Request into master gives the same result
+    // as cherry-picking the local commit onto it.
+    let our_tree_oid = match land_check(
+        git,
+        current_master,
+        pull_request.head_oid,
+        prepared_commit.oid,
+        prepared_commit.parent_oid,
+    )? {
+        LandCheck::Ok(tree) => tree,
+        LandCheck::LocalConflict => {
+            return Err(Error::msg(formatdoc!(
+                "This commit cannot be applied on top of the '{master}' branch.
+                 Please rebase this commit.{unlanded}",
+                master = &config.master_ref.branch_name(),
+                unlanded = if based_on_unlanded_commits {
+                    " You may also have to land commits that this commit depends on first."
+                } else {
+                    ""
+                },
+            )));
+        }
+        LandCheck::MergeConflict | LandCheck::Mismatch { .. } => {
+            return Err(Error::msg(formatdoc!(
+                "This commit has been updated and/or rebased since the pull \
+                 request was last updated. Please run `spr diff` to update the \
+                 pull request and then try `spr land` again!"
+            )));
+        }
     };
-
-    if !merge_matches_cherrypick {
-        return Err(Error::msg(formatdoc!(
-            "This commit has been updated and/or rebased since the pull \
-             request was last updated. Please run `spr diff` to update the \
-             pull request and then try `spr land` again!"
-        )));
-    }
 
     // Okay, we are confident now that the PR can be merged and the result of
     // that merge would be a master commit with the same tree as if we
@@ -531,39 +520,25 @@ async fn land_stack(
     // the Pull Requests of a stack one by one ends up with the same tree.)
     let current_master =
         gh.remote().fetch_branch(config.master_ref.branch_name())?;
-    {
-        let repo = git.repo();
-        let master_commit = repo.find_commit(current_master)?;
-        let local_index = repo.merge_trees(
-            &repo.find_commit(prepared_commits[0].parent_oid)?.tree()?,
-            &master_commit.tree()?,
-            &repo
-                .find_commit(prepared_commits[prepared_commits.len() - 1].oid)?
-                .tree()?,
-            None,
-        )?;
-        if local_index.has_conflicts() {
-            bail!(
-                "The local commits cannot be applied on top of the '{}' \
-                 branch. Please rebase them.",
-                config.master_ref.branch_name()
-            );
-        }
-        let merge_index = repo.merge_commits(
-            &master_commit,
-            &repo.find_commit(top.head_oid)?,
-            None,
-        )?;
-        if merge_index.has_conflicts()
-            || git.write_index(merge_index)? != git.write_index(local_index)?
-        {
-            bail!(
-                "Merging the Pull Requests would not give the same result as \
-                 the local commits. Please rebase your local branch on '{}', \
-                 run `spr diff --all` and then try `spr land` again!",
-                config.master_ref.branch_name()
-            );
-        }
+    match land_check(
+        git,
+        current_master,
+        top.head_oid,
+        prepared_commits[prepared_commits.len() - 1].oid,
+        prepared_commits[0].parent_oid,
+    )? {
+        LandCheck::Ok(_) => (),
+        LandCheck::LocalConflict => bail!(
+            "The local commits cannot be applied on top of the '{}' branch. \
+             Please rebase them.",
+            config.master_ref.branch_name()
+        ),
+        LandCheck::MergeConflict | LandCheck::Mismatch { .. } => bail!(
+            "Merging the Pull Requests would not give the same result as the \
+             local commits. Please rebase your local branch on '{}', run \
+             `spr diff --all` and then try `spr land` again!",
+            config.master_ref.branch_name()
+        ),
     }
 
     // Let GitHub merge the stack up to the top Pull Request

@@ -10,6 +10,8 @@
     reflect a local commit
   - `spr plumbing stack` lists the local commits between the target and a
     commit, with their `Pull-request` trailers
+  - `spr plumbing land-check` checks that merging a pull request gives the
+    same result as applying the local commits (the check `spr land` does)
 
 - new config option `spr.mergeMethod` (`squash` or `merge`), used by `spr land`
 - new config option `spr.stackingMode` (`base-branches` or `chain`): with
