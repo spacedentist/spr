@@ -391,14 +391,19 @@ impl Git {
         Ok(None)
     }
 
+    /// Create a commit with the given message, tree and parents. The author
+    /// is the author of `original_commit_oid` (with the current time), or,
+    /// if not given, the current user, like the committer.
     pub fn create_derived_commit(
         &self,
-        original_commit_oid: Oid,
+        original_commit_oid: Option<Oid>,
         message: &str,
         tree_oid: Oid,
         parent_oids: &[Oid],
     ) -> Result<Oid> {
-        let original_commit = self.repo.find_commit(original_commit_oid)?;
+        let original_commit = original_commit_oid
+            .map(|oid| self.repo.find_commit(oid))
+            .transpose()?;
         let tree = self.repo.find_tree(tree_oid)?;
         let parents = parent_oids
             .iter()
@@ -413,8 +418,9 @@ impl Git {
         // obtained (no user configured), then take the user/email from the
         // existing commit but make a new signature which has a timestamp of
         // now.
-        let committer = self.repo.signature().or_else(|_| {
-            git2::Signature::now(
+        let committer = match (self.repo.signature(), &original_commit) {
+            (Ok(signature), _) => signature,
+            (Err(_), Some(original_commit)) => git2::Signature::now(
                 String::from_utf8_lossy(
                     original_commit.committer().name_bytes(),
                 )
@@ -423,18 +429,22 @@ impl Git {
                     original_commit.committer().email_bytes(),
                 )
                 .as_ref(),
-            )
-        })?;
+            )?,
+            (Err(error), None) => return Err(error.into()),
+        };
 
         // The author signature should reference the same user as the original
         // commit, but we set the timestamp to now, so this commit shows up in
         // GitHub's timeline in the right place.
-        let author = git2::Signature::now(
-            String::from_utf8_lossy(original_commit.author().name_bytes())
-                .as_ref(),
-            String::from_utf8_lossy(original_commit.author().email_bytes())
-                .as_ref(),
-        )?;
+        let author = match &original_commit {
+            Some(original_commit) => git2::Signature::now(
+                String::from_utf8_lossy(original_commit.author().name_bytes())
+                    .as_ref(),
+                String::from_utf8_lossy(original_commit.author().email_bytes())
+                    .as_ref(),
+            )?,
+            None => committer.clone(),
+        };
 
         let oid = self.repo.commit(
             None,

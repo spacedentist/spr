@@ -209,7 +209,7 @@ pub async fn land(
             // Request branch that achieves that!
 
             pr_head_oid = git.create_derived_commit(
-                pr_head_oid,
+                Some(pr_head_oid),
                 &format!(
                     "[𝘀𝗽𝗿] landed version\n\nCreated using spr {}",
                     env!("CARGO_PKG_VERSION"),

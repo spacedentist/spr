@@ -82,7 +82,7 @@ pub async fn patch(
                 // that represents the contents of the PR.
 
                 pr_master_oid = git.create_derived_commit(
-                    pr_base_oid,
+                    Some(pr_base_oid),
                     &format!("[𝘀𝗽𝗿] Base of Pull Request #{}", pr.number),
                     pr_base_tree,
                     &[pr_master_oid],
@@ -94,7 +94,7 @@ pub async fn patch(
         // master commit, or, if the PR can't be based on master directly, on
         // the commit we created above to prepare the base of this commit.
         git.create_derived_commit(
-            pr.head_oid,
+            Some(pr.head_oid),
             &pr.message.to_string(),
             git.get_tree_oid_for_commit(pr.head_oid)?,
             &[pr_master_oid],

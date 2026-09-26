@@ -70,6 +70,10 @@ enum Commands {
 
     /// Close a Pull request
     Close(commands::close::CloseOptions),
+
+    /// Low-level commands for scripts, working on Git objects only
+    /// (experimental)
+    Plumbing(commands::plumbing::PlumbingOptions),
 }
 
 pub async fn spr() -> Result<()> {
@@ -83,9 +87,18 @@ pub async fn spr() -> Result<()> {
         return Err(err.into());
     }
 
-    if let Commands::Init = cli.command {
-        return commands::init::init().await;
-    }
+    // Commands that don't need spr to be configured
+    let command = match cli.command {
+        Commands::Init => return commands::init::init().await,
+        Commands::Plumbing(opts) => {
+            let repo = git2::Repository::discover(std::env::current_dir()?)?;
+            return commands::plumbing::plumbing(
+                opts,
+                &spr::git::Git::new(repo),
+            );
+        }
+        command => command,
+    };
 
     let repo = git2::Repository::discover(std::env::current_dir()?)?;
 
@@ -169,7 +182,7 @@ pub async fn spr() -> Result<()> {
         github_auth_token,
     );
 
-    match cli.command {
+    match command {
         Commands::Diff(opts) => {
             commands::diff::diff(opts, &git, &mut gh, &config).await?
         }
@@ -192,7 +205,7 @@ pub async fn spr() -> Result<()> {
 
         // The following commands are executed above and return from this
         // function before it reaches this match.
-        Commands::Init => (),
+        Commands::Init | Commands::Plumbing(_) => (),
     };
 
     Ok::<_, Error>(())

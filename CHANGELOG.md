@@ -4,6 +4,11 @@
 
 ### Improvements
 
+- new experimental `spr plumbing` commands for use in scripts, which work
+  on Git objects only and don't need spr to be configured:
+  - `spr plumbing commit-pr` creates the commits that make a pull request
+    reflect a local commit
+
 - new config option `spr.mergeMethod` (`squash` or `merge`), used by `spr land`
 - new config option `spr.stackingMode` (`base-branches` or `chain`): with
   `chain`, the pull requests of stacked commits target the pull request branch

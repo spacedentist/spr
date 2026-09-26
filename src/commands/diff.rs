@@ -12,7 +12,9 @@ use crate::{
         PullRequestStack, PullRequestState, PullRequestUpdate,
     },
     output::{output, write_commit_title},
-    pr_commits::{BaseOutdated, CommitInfo, PullRequestCommits},
+    pr_commits::{
+        self, BaseOutdated, CommitInfo, Conflict, PullRequestCommits,
+    },
     utils::{parse_name_list, remove_all_parens, slugify},
 };
 use git2::Oid;
@@ -401,40 +403,31 @@ async fn diff_impl(
     let directly_based_on_master = local_commit.parent_oid == master_base_oid;
 
     // Determine the trees the Pull Request branch and the base branch should
-    // have when we're done here.
-    let (new_head_tree, new_base_tree) = if !opts.cherry_pick
-        || directly_based_on_master
-    {
-        // Unless the user tells us to --cherry-pick, these should be the trees
-        // of the current commit and its parent.
-        // If the current commit is directly based on master (i.e.
-        // directly_based_on_master is true), then we can do this here even when
-        // the user tells us to --cherry-pick, because we would cherry pick the
-        // current commit onto its parent, which gives us the same tree as the
-        // current commit has, and the master base is the same as this commit's
-        // parent.
-        let head_tree = git.get_tree_oid_for_commit(local_commit.oid)?;
-        let base_tree = git.get_tree_oid_for_commit(local_commit.parent_oid)?;
-
-        (head_tree, base_tree)
-    } else {
-        // Cherry-pick the current commit onto master
-        let index = git.cherrypick(local_commit.oid, master_base_oid)?;
-
-        if index.has_conflicts() {
-            bail!(
-                "This commit cannot be cherry-picked on {master}.",
-                master = config.master_ref.branch_name(),
-            );
-        }
-
-        // This is the tree we are getting from cherrypicking the local commit
-        // on master.
-        let cherry_pick_tree = git.write_index(index)?;
-        let master_tree = git.get_tree_oid_for_commit(master_base_oid)?;
-
-        (cherry_pick_tree, master_tree)
-    };
+    // have when we're done here: the trees of the local commit and its
+    // parent. If the user tells us to --cherry-pick, the change of the local
+    // commit is applied to the master commit we're based on instead. (If the
+    // local commit is directly based on master, that makes no difference.)
+    let head_tree = git.get_tree_oid_for_commit(local_commit.oid)?;
+    let base_tree = git.get_tree_oid_for_commit(local_commit.parent_oid)?;
+    let (new_head_tree, new_base_tree) =
+        if opts.cherry_pick && !directly_based_on_master {
+            match pr_commits::cherry_pick(
+                git,
+                master_base_oid,
+                head_tree,
+                base_tree,
+            ) {
+                Err(error) if error.downcast_ref::<Conflict>().is_some() => {
+                    bail!(
+                        "This commit cannot be cherry-picked on {master}.",
+                        master = config.master_ref.branch_name(),
+                    );
+                }
+                trees => trees?,
+            }
+        } else {
+            (head_tree, base_tree)
+        };
 
     if let Some(number) = local_commit.pull_request_number {
         output(
@@ -765,11 +758,11 @@ async fn diff_impl(
         &plan,
         CommitInfo {
             message: &base_message,
-            author_from: local_commit.parent_oid,
+            author_from: Some(local_commit.parent_oid),
         },
         CommitInfo {
             message: &head_message,
-            author_from: local_commit.oid,
+            author_from: Some(local_commit.oid),
         },
     )?;
 

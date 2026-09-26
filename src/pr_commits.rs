@@ -81,6 +81,44 @@ impl std::fmt::Display for BaseOutdated {
 
 impl std::error::Error for BaseOutdated {}
 
+/// Applying a change caused conflicts.
+#[derive(Debug)]
+pub struct Conflict;
+
+impl std::fmt::Display for Conflict {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("applying the change causes conflicts")
+    }
+}
+
+impl std::error::Error for Conflict {}
+
+/// The trees for cherry-picking a change onto `target`: the change from
+/// `base_tree` to `head_tree` is applied to the tree of `target`. Returns
+/// the new head tree and base tree (the tree of `target`).
+///
+/// Fails with `Conflict` if the change can't be applied cleanly.
+pub fn cherry_pick(
+    git: &Git,
+    target: Oid,
+    head_tree: Oid,
+    base_tree: Oid,
+) -> Result<(Oid, Oid)> {
+    let repo = git.repo();
+    let target_tree = repo.find_commit(target)?.tree()?;
+    let mut index = repo.merge_trees(
+        &repo.find_tree(base_tree)?,
+        &target_tree,
+        &repo.find_tree(head_tree)?,
+        None,
+    )?;
+    if index.has_conflicts() {
+        return Err(Conflict.into());
+    }
+
+    Ok((index.write_tree_to(repo)?, target_tree.id()))
+}
+
 /// The resulting head and base of the Pull Request
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Commits {
@@ -89,11 +127,11 @@ pub struct Commits {
 }
 
 /// A commit to be created: its message, and the commit whose author it
-/// credits (see `Git::create_derived_commit`)
+/// credits, if any (see `Git::create_derived_commit`)
 #[derive(Debug, Clone, Copy)]
 pub struct CommitInfo<'a> {
     pub message: &'a str,
-    pub author_from: Oid,
+    pub author_from: Option<Oid>,
 }
 
 impl PullRequestCommits {
@@ -211,102 +249,27 @@ impl PullRequestCommits {
 mod tests {
     use super::*;
 
-    /// A temporary repository to build commit graphs in
-    struct TestRepo {
-        _dir: tempfile::TempDir,
-        git: Git,
-        /// Makes commit messages unique, so commits with the same tree and
-        /// parents are still different commits
-        counter: std::cell::Cell<usize>,
-    }
+    use crate::test_utils::TestRepo;
 
-    impl TestRepo {
-        fn new() -> Self {
-            let dir = tempfile::tempdir().unwrap();
-            let repo = git2::Repository::init(dir.path()).unwrap();
-            {
-                let mut config = repo.config().unwrap();
-                config.set_str("user.name", "Test").unwrap();
-                config.set_str("user.email", "test@example.com").unwrap();
-            }
-            TestRepo {
-                _dir: dir,
-                git: Git::new(repo),
-                counter: Default::default(),
-            }
-        }
-
-        /// A tree with a single file `file` with the given content
-        fn tree(&self, content: &str) -> Oid {
-            let repo = self.git.repo();
-            let blob = repo.blob(content.as_bytes()).unwrap();
-            let mut builder = repo.treebuilder(None).unwrap();
-            builder.insert("file", blob, 0o100644).unwrap();
-            builder.write().unwrap()
-        }
-
-        /// A commit with a tree (see `tree`) and the given parents
-        fn commit(&self, content: &str, parents: &[Oid]) -> Oid {
-            let repo = self.git.repo();
-            let tree = repo.find_tree(self.tree(content)).unwrap();
-            let parents: Vec<_> = parents
-                .iter()
-                .map(|oid| repo.find_commit(*oid).unwrap())
-                .collect();
-            let parents: Vec<_> = parents.iter().collect();
-            let signature = repo.signature().unwrap();
-            self.counter.set(self.counter.get() + 1);
-            repo.commit(
-                None,
-                &signature,
-                &signature,
-                &format!("{content} ({})", self.counter.get()),
-                &tree,
-                &parents,
-            )
-            .unwrap()
-        }
-
-        fn tree_of(&self, commit: Oid) -> Oid {
-            self.git.get_tree_oid_for_commit(commit).unwrap()
-        }
-
-        fn parents_of(&self, commit: Oid) -> Vec<Oid> {
-            self.git
-                .repo()
-                .find_commit(commit)
-                .unwrap()
-                .parent_ids()
-                .collect()
-        }
-
-        fn message_of(&self, commit: Oid) -> String {
-            self.git
-                .repo()
-                .find_commit(commit)
-                .unwrap()
-                .message()
-                .unwrap()
-                .to_string()
-        }
-
-        /// Plan and create, with messages "base" and "head"
-        fn run(&self, input: &PullRequestCommits) -> Result<(Plan, Commits)> {
-            let plan = input.plan(&self.git)?;
-            let commits = input.create(
-                &self.git,
-                &plan,
-                CommitInfo {
-                    message: "base",
-                    author_from: input.base,
-                },
-                CommitInfo {
-                    message: "head",
-                    author_from: input.head,
-                },
-            )?;
-            Ok((plan, commits))
-        }
+    /// Plan and create, with messages "base" and "head"
+    fn run(
+        r: &TestRepo,
+        input: &PullRequestCommits,
+    ) -> Result<(Plan, Commits)> {
+        let plan = input.plan(&r.git)?;
+        let commits = input.create(
+            &r.git,
+            &plan,
+            CommitInfo {
+                message: "base",
+                author_from: Some(input.base),
+            },
+            CommitInfo {
+                message: "head",
+                author_from: Some(input.head),
+            },
+        )?;
+        Ok((plan, commits))
     }
 
     // The following tests use a master branch with commits m1 and m2, and a
@@ -318,16 +281,18 @@ mod tests {
         let r = TestRepo::new();
         let m1 = r.commit("m1", &[]);
 
-        let (plan, commits) = r
-            .run(&PullRequestCommits {
+        let (plan, commits) = run(
+            &r,
+            &PullRequestCommits {
                 head: m1,
                 base: m1,
                 target: m1,
                 head_tree: r.tree("b"),
                 base_tree: r.tree("m1"),
                 may_update_base: false,
-            })
-            .unwrap();
+            },
+        )
+        .unwrap();
 
         assert!(!plan.merges);
         assert_eq!(commits.base, m1);
@@ -342,16 +307,18 @@ mod tests {
         let m1 = r.commit("m1", &[]);
         let head = r.commit("b", &[m1]);
 
-        let (plan, commits) = r
-            .run(&PullRequestCommits {
+        let (plan, commits) = run(
+            &r,
+            &PullRequestCommits {
                 head,
                 base: m1,
                 target: m1,
                 head_tree: r.tree("b amended"),
                 base_tree: r.tree("m1"),
                 may_update_base: false,
-            })
-            .unwrap();
+            },
+        )
+        .unwrap();
 
         assert!(!plan.merges);
         assert_eq!(commits.base, m1);
@@ -376,7 +343,7 @@ mod tests {
         let plan = input.plan(&r.git).unwrap();
 
         assert!(plan.is_empty());
-        let (_, commits) = r.run(&input).unwrap();
+        let (_, commits) = run(&r, &input).unwrap();
         assert_eq!(commits, Commits { head, base: m1 });
     }
 
@@ -389,16 +356,18 @@ mod tests {
 
         // The local commit is now based on m2. With base = target, the target
         // gets merged into the head directly.
-        let (plan, commits) = r
-            .run(&PullRequestCommits {
+        let (plan, commits) = run(
+            &r,
+            &PullRequestCommits {
                 head,
                 base: m2,
                 target: m2,
                 head_tree: r.tree("b on m2"),
                 base_tree: r.tree("m2"),
                 may_update_base: false,
-            })
-            .unwrap();
+            },
+        )
+        .unwrap();
 
         assert!(plan.merges);
         assert_eq!(plan.new_base_parents, None);
@@ -415,16 +384,18 @@ mod tests {
         // m2 has the same tree as m1 (e.g. a change that was reverted)
         let m2 = r.commit("m1", &[m1]);
 
-        let (plan, commits) = r
-            .run(&PullRequestCommits {
+        let (plan, commits) = run(
+            &r,
+            &PullRequestCommits {
                 head,
                 base: m2,
                 target: m2,
                 head_tree: r.tree("b"),
                 base_tree: r.tree("m1"),
                 may_update_base: false,
-            })
-            .unwrap();
+            },
+        )
+        .unwrap();
 
         // The head tree didn't change, but the target must be merged in.
         assert!(plan.merges);
@@ -436,16 +407,18 @@ mod tests {
         let r = TestRepo::new();
         let m1 = r.commit("m1", &[]);
 
-        let (plan, commits) = r
-            .run(&PullRequestCommits {
+        let (plan, commits) = run(
+            &r,
+            &PullRequestCommits {
                 head: m1,
                 base: m1,
                 target: m1,
                 head_tree: r.tree("b"),
                 base_tree: r.tree("a"),
                 may_update_base: true,
-            })
-            .unwrap();
+            },
+        )
+        .unwrap();
 
         assert_eq!(plan.new_base_parents, Some(vec![m1]));
         assert_eq!(r.parents_of(commits.base), vec![m1]);
@@ -463,16 +436,18 @@ mod tests {
         let base = r.commit("a", &[m1]);
         let head = r.commit("b", &[base]);
 
-        let (plan, commits) = r
-            .run(&PullRequestCommits {
+        let (plan, commits) = run(
+            &r,
+            &PullRequestCommits {
                 head,
                 base,
                 target: m1,
                 head_tree: r.tree("b on amended a"),
                 base_tree: r.tree("amended a"),
                 may_update_base: true,
-            })
-            .unwrap();
+            },
+        )
+        .unwrap();
 
         assert!(plan.merges);
         assert_eq!(r.parents_of(commits.base), vec![base]);
@@ -488,16 +463,18 @@ mod tests {
         let base = r.commit("a", &[m1]);
         let head = r.commit("b", &[base]);
 
-        let (_, commits) = r
-            .run(&PullRequestCommits {
+        let (_, commits) = run(
+            &r,
+            &PullRequestCommits {
                 head,
                 base,
                 target: m2,
                 head_tree: r.tree("b on m2"),
                 base_tree: r.tree("a on m2"),
                 may_update_base: true,
-            })
-            .unwrap();
+            },
+        )
+        .unwrap();
 
         // The new base commit merges in the new target.
         assert_eq!(r.parents_of(commits.base), vec![base, m2]);
@@ -511,16 +488,18 @@ mod tests {
         let base = r.commit("a", &[m1]);
         let head = r.commit("b", &[base]);
 
-        let (plan, commits) = r
-            .run(&PullRequestCommits {
+        let (plan, commits) = run(
+            &r,
+            &PullRequestCommits {
                 head,
                 base,
                 target: m1,
                 head_tree: r.tree("b amended"),
                 base_tree: r.tree("a"),
                 may_update_base: true,
-            })
-            .unwrap();
+            },
+        )
+        .unwrap();
 
         assert_eq!(plan.new_base_parents, None);
         assert_eq!(commits.base, base);
@@ -533,16 +512,18 @@ mod tests {
         let m1 = r.commit("m1", &[]);
         let parent_head = r.commit("a", &[m1]);
 
-        let (plan, commits) = r
-            .run(&PullRequestCommits {
+        let (plan, commits) = run(
+            &r,
+            &PullRequestCommits {
                 head: parent_head,
                 base: parent_head,
                 target: m1,
                 head_tree: r.tree("b"),
                 base_tree: r.tree("a"),
                 may_update_base: false,
-            })
-            .unwrap();
+            },
+        )
+        .unwrap();
 
         assert!(!plan.merges);
         assert_eq!(commits.base, parent_head);
@@ -557,16 +538,18 @@ mod tests {
         let head = r.commit("b", &[parent_head]);
         let new_parent_head = r.commit("amended a", &[parent_head]);
 
-        let (plan, commits) = r
-            .run(&PullRequestCommits {
+        let (plan, commits) = run(
+            &r,
+            &PullRequestCommits {
                 head,
                 base: new_parent_head,
                 target: m1,
                 head_tree: r.tree("b on amended a"),
                 base_tree: r.tree("amended a"),
                 may_update_base: false,
-            })
-            .unwrap();
+            },
+        )
+        .unwrap();
 
         assert!(plan.merges);
         assert_eq!(commits.base, new_parent_head);
@@ -615,16 +598,18 @@ mod tests {
         // With --cherry-pick, the Pull Request is based on the target, and
         // the head tree is the result of cherry-picking the local commit onto
         // it. The old base branch is left behind.
-        let (plan, commits) = r
-            .run(&PullRequestCommits {
+        let (plan, commits) = run(
+            &r,
+            &PullRequestCommits {
                 head,
                 base: m1,
                 target: m1,
                 head_tree: r.tree("b cherry-picked onto m1"),
                 base_tree: r.tree("m1"),
                 may_update_base: false,
-            })
-            .unwrap();
+            },
+        )
+        .unwrap();
 
         assert!(!plan.merges);
         assert_eq!(commits.base, m1);
@@ -641,16 +626,18 @@ mod tests {
         // a was squash-merged into master, and the local branch rebased
         let m2 = r.commit("a", &[m1]);
 
-        let (plan, commits) = r
-            .run(&PullRequestCommits {
+        let (plan, commits) = run(
+            &r,
+            &PullRequestCommits {
                 head,
                 base: m2,
                 target: m2,
                 head_tree: r.tree("b"),
                 base_tree: r.tree("a"),
                 may_update_base: false,
-            })
-            .unwrap();
+            },
+        )
+        .unwrap();
 
         // The new master commit is merged into the head directly; the base
         // branch isn't needed anymore.
@@ -693,11 +680,11 @@ mod tests {
                 &plan,
                 CommitInfo {
                     message: "base",
-                    author_from: m1,
+                    author_from: Some(m1),
                 },
                 CommitInfo {
                     message: "head",
-                    author_from: local,
+                    author_from: Some(local),
                 },
             )
             .unwrap();
@@ -705,5 +692,39 @@ mod tests {
         let head = repo.find_commit(commits.head).unwrap();
         assert_eq!(head.author().name(), Ok("Author"));
         assert_eq!(head.committer().name(), Ok("Test"));
+    }
+
+    #[test]
+    fn test_cherry_pick_trees() {
+        let r = TestRepo::new();
+        let m1 = r.commit_tree(r.tree_with(&[("x", "1"), ("y", "1")]), &[]);
+        let m2 = r.commit_tree(r.tree_with(&[("x", "2"), ("y", "1")]), &[m1]);
+        let a = r.commit_tree(r.tree_with(&[("x", "1"), ("y", "a")]), &[m1]);
+        let b = r.commit_tree(
+            r.tree_with(&[("x", "1"), ("y", "a"), ("z", "b")]),
+            &[a],
+        );
+
+        // Cherry-pick b (which adds z) onto m2, leaving out a's change.
+        let (head_tree, base_tree) =
+            cherry_pick(&r.git, m2, r.tree_of(b), r.tree_of(a)).unwrap();
+
+        assert_eq!(base_tree, r.tree_of(m2));
+        assert_eq!(
+            head_tree,
+            r.tree_with(&[("x", "2"), ("y", "1"), ("z", "b")])
+        );
+    }
+
+    #[test]
+    fn test_cherry_pick_conflict() {
+        let r = TestRepo::new();
+        let m1 = r.commit_tree(r.tree_with(&[("x", "1")]), &[]);
+        let m2 = r.commit_tree(r.tree_with(&[("x", "2")]), &[m1]);
+        let b = r.commit_tree(r.tree_with(&[("x", "b")]), &[m1]);
+
+        let error =
+            cherry_pick(&r.git, m2, r.tree_of(b), r.tree_of(m1)).unwrap_err();
+        assert!(error.downcast_ref::<Conflict>().is_some());
     }
 }
