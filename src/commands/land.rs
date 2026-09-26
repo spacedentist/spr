@@ -228,55 +228,60 @@ pub async fn land(
     // Check whether GitHub says this PR is mergeable. This happens in a
     // retry-loop because recent changes to the Pull Request can mean that
     // GitHub has not finished the mergeability check yet.
-    let mut attempts = 0;
-    let result = loop {
-        attempts += 1;
+    // All errors in here must end up in `result` (hence the async block),
+    // so that the change of the Pull Request's base above gets undone below.
+    let result: Result<()> = async {
+        let mut attempts = 0;
+        loop {
+            attempts += 1;
 
-        let mergeability = gh
-            .get_pull_request_mergeability(pull_request_number)
-            .await?;
+            let mergeability = gh
+                .get_pull_request_mergeability(pull_request_number)
+                .await?;
 
-        if mergeability.head_oid != pr_head_oid {
-            break Err(eyre!(
-                "The Pull Request seems to have been updated externally. Please try again!"
-            ));
-        }
-
-        if mergeability.base.is_master_branch()
-            && mergeability.mergeable.is_some()
-        {
-            if mergeability.mergeable != Some(true) {
-                break Err(Error::msg(formatdoc!(
-                    "GitHub concluded the Pull Request is not mergeable at \
-                    this point. Please rebase your changes and try again!"
-                )));
+            if mergeability.head_oid != pr_head_oid {
+                break Err(eyre!(
+                    "The Pull Request seems to have been updated externally. Please try again!"
+                ));
             }
 
-            if let Some(merge_commit) = mergeability.merge_commit {
-                gh.remote().fetch_from_remote(&[], &[merge_commit])?;
-
-                if git.get_tree_oid_for_commit(merge_commit)? != our_tree_oid {
-                    return Err(Error::msg(formatdoc!(
-                    "This commit has been updated and/or rebased since the pull
-                     request was last updated. Please run `spr diff` to update the pull
-                     request and then try `spr land` again!"
-                )));
+            if mergeability.base.is_master_branch()
+                && mergeability.mergeable.is_some()
+            {
+                if mergeability.mergeable != Some(true) {
+                    break Err(Error::msg(formatdoc!(
+                        "GitHub concluded the Pull Request is not mergeable at \
+                        this point. Please rebase your changes and try again!"
+                    )));
                 }
-            };
 
-            break Ok(());
+                if let Some(merge_commit) = mergeability.merge_commit {
+                    gh.remote().fetch_from_remote(&[], &[merge_commit])?;
+
+                    if git.get_tree_oid_for_commit(merge_commit)? != our_tree_oid {
+                        break Err(Error::msg(formatdoc!(
+                        "This commit has been updated and/or rebased since the pull
+                         request was last updated. Please run `spr diff` to update the pull
+                         request and then try `spr land` again!"
+                    )));
+                    }
+                };
+
+                break Ok(());
+            }
+
+            if attempts >= 10 {
+                // After ten failed attempts we give up.
+                break Err(eyre!(
+                    "GitHub Pull Request did not update. Please try again!"
+                ));
+            }
+
+            // Wait one second before retrying
+            tokio::time::sleep(Duration::from_secs(1)).await;
         }
-
-        if attempts >= 10 {
-            // After ten failed attempts we give up.
-            break Err(eyre!(
-                "GitHub Pull Request did not update. Please try again!"
-            ));
-        }
-
-        // Wait one second before retrying
-        tokio::time::sleep(Duration::from_secs(1)).await;
-    };
+    }
+    .await;
 
     let result = match result {
         Ok(()) => {
@@ -329,7 +334,7 @@ pub async fn land(
                         pull_request_number,
                         PullRequestUpdate {
                             base: Some(
-                                pull_request.base.on_github().to_string(),
+                                pull_request.base.branch_name().to_string(),
                             ),
                             ..Default::default()
                         },
