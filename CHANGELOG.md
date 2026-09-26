@@ -4,8 +4,33 @@
 
 ### Improvements
 
+- spr no longer uses the `git` command line tool: it fetches and pushes via
+  libgit2, using the GitHub token, from the repository's GitHub https URL
+  (#232)
+- support Git configurations that push via ssh, e.g. with `pushInsteadOf`
+  (@arichardson, #244)
+- commit messages: spr stores its metadata as git trailers (`Pull-request:`,
+  `Reviewers:`, `Reviewed-by:`); commit messages written by older versions
+  are still recognised, and converted when spr updates them
+- remove the "Test Plan" and "Summary" sections: the commit message body is
+  the pull request description
+- new config option `spr.mergeMethod` (`squash` or `merge`): how `spr land`
+  merges pull requests
+- new config option `spr.stackingMode`: how pull requests of stacked commits
+  are set up — with synthetic base branches (`base-branches`, the default
+  with squash-merging), chained on the parent commit's pull request (`chain`,
+  the default with merge commits), or chained and linked as a stack on
+  GitHub (`github-stack`, opt-in, using GitHub's stacked pull requests
+  preview; `spr land` then lands the current commit's pull request together
+  with all pull requests below it, #107)
+- `spr diff` changes a pull request that uses a synthetic base branch to
+  target the master branch once the commit is directly based on it (e.g.
+  after the pull request below was merged), or `--cherry-pick` is used, and
+  deletes the base branch (#251, #249)
+- `spr land` and `spr close` change the base of pull requests stacked on the
+  landed/closed pull request, instead of leaving them to be closed by GitHub
 - `spr diff --dry-run` shows what `spr diff` would do, without changing
-  anything
+  anything (#111)
 - new experimental `spr plumbing` commands for use in scripts, which work
   on Git objects only and don't need spr to be configured:
   - `spr plumbing commit-pr` creates the commits that make a pull request
@@ -14,16 +39,24 @@
     commit, with their `Pull-request` trailers
   - `spr plumbing land-check` checks that merging a pull request gives the
     same result as applying the local commits (the check `spr land` does)
+- logging, enabled via `RUST_LOG` (#236), and better error reporting (#242,
+  #243)
+- documentation: new pages on merge methods and stacking modes, on how
+  stacked pull requests work, and on the plumbing commands
 
-- new config option `spr.mergeMethod` (`squash` or `merge`), used by `spr land`
-- new config option `spr.stackingMode` (`base-branches` or `chain`): with
-  `chain`, the pull requests of stacked commits target the pull request branch
-  of the parent commit instead of a synthetic base branch
-- `spr land` and `spr close` change the base of pull requests stacked on the
-  landed/closed pull request, instead of leaving them to be closed by GitHub
-- new stacking mode `github-stack` (opt-in): chained pull requests are linked
-  as a stack on GitHub (stacked pull requests preview); `spr land` lands the
-  current commit's pull request together with all pull requests below it
+### Fixes
+
+- `spr land` no longer fails if GitHub has already deleted the landed
+  pull request's branch
+- fix a panic when ssh credentials are requested without a username
+- the documentation website is deployed again (it failed with mdbook 0.5)
+
+### Other
+
+- update dependencies (git2 0.21, octocrab 0.54, and others), move to the
+  2024 Rust edition
+- development: Nix shell with all tools, pre-commit hooks for formatting and
+  clippy, CI also checks formatting
 
 ## [1.3.7] - 2025-08-25
 
