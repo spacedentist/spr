@@ -1,4 +1,4 @@
-use color_eyre::eyre::Result;
+use color_eyre::eyre::{Result, bail};
 
 use crate::output::output;
 
@@ -39,6 +39,16 @@ pub async fn patch(
     } else {
         git.get_pr_patch_branch_name(pr.number)?
     };
+
+    // Never overwrite an existing branch. (Without --branch-name, the name is
+    // chosen so that it doesn't exist.)
+    if git
+        .repo()
+        .find_branch(&branch_name, git2::BranchType::Local)
+        .is_ok()
+    {
+        bail!("Branch {branch_name} already exists");
+    }
 
     let patch_branch_oid = if let Some(oid) = pr.merge_commit {
         output("❗", "Pull Request has been merged")?;
@@ -105,7 +115,7 @@ pub async fn patch(
     let patch_branch_commit = repo.find_commit(patch_branch_oid)?;
 
     // Create the new branch, now that we know the commit it shall point to
-    repo.branch(&branch_name, &patch_branch_commit, true)?;
+    repo.branch(&branch_name, &patch_branch_commit, false)?;
 
     output("🌱", &format!("Created new branch: {}", branch_name))?;
 
