@@ -1,3 +1,7 @@
+// This Source Code Form is subject to the terms of the Mozilla Public
+// License, v. 2.0. If a copy of the MPL was not distributed with this
+// file, You can obtain one at https://mozilla.org/MPL/2.0/.
+
 (() => {
     const darkThemes = ['ayu', 'navy', 'coal'];
     const lightThemes = ['light', 'rust'];
@@ -18,7 +22,7 @@
     // Simplest way to make mermaid re-render the diagrams in the new theme is via refreshing the page
 
     for (const darkTheme of darkThemes) {
-        document.getElementById(darkTheme).addEventListener('click', () => {
+        document.getElementById('mdbook-theme-' + darkTheme).addEventListener('click', () => {
             if (lastThemeWasLight) {
                 window.location.reload();
             }
@@ -26,7 +30,7 @@
     }
 
     for (const lightTheme of lightThemes) {
-        document.getElementById(lightTheme).addEventListener('click', () => {
+        document.getElementById('mdbook-theme-' + lightTheme).addEventListener('click', () => {
             if (!lastThemeWasLight) {
                 window.location.reload();
             }
