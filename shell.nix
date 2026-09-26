@@ -11,7 +11,17 @@
 }:
 pkgs.mkShell {
   packages = with pkgs; [
-    pkg-config
+    cargo
+    clippy
+    mdbook
+    mdbook-mermaid
+    nixfmt
     openssl
+    pkg-config
+    pre-commit
+    prettier
+    rustc
+    rustfmt
+    taplo
   ];
 }

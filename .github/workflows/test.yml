@@ -1,21 +1,34 @@
-on: push
-name: Test and lint
+name: "Lint, format, test"
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+
+permissions:
+  contents: read
 
 # Make sure CI fails on all warnings, including Clippy lints
 env:
   RUSTFLAGS: "-Dwarnings"
 
 jobs:
-  clippy_check:
-    name: cargo clippy
+  ci:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
-      - run: cargo clippy --all-targets --all-features
 
-  tests:
-    name: cargo test
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v5
-      - run: cargo test
+      - name: Linter
+        id: lint
+        if: "!cancelled()"
+        run: cargo clippy --all-targets --all-features
+
+      - name: Code formatter
+        id: format
+        if: "!cancelled()"
+        run: cargo fmt --check
+
+      - name: Tests
+        id: test
+        if: "!cancelled()"
+        run: cargo test --all-features

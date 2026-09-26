@@ -72,10 +72,10 @@ The downside is how GitHub achieves that last point: after merging a pull reques
 
 ## Choosing
 
-|                         | `base-branches`                                                          | `chain`                                                   | `github-stack`                                                           |
-| ----------------------- | ------------------------------------------------------------------------ | --------------------------------------------------------- | ------------------------------------------------------------------------ |
-| **`squash`**            | Default. Readable timelines, one commit per change on `main`. Land with `spr land` only. | Correct result, but cluttered timelines after landing.     | Readable timelines, stack shown on GitHub; GitHub force-pushes branches. |
-| **`merge`**             | Not allowed.                                                             | Default for `merge`. Clean timelines and history.          | Stack shown on GitHub; GitHub force-pushes branches.                     |
+|              | `base-branches`                                                                          | `chain`                                                | `github-stack`                                                           |
+| ------------ | ---------------------------------------------------------------------------------------- | ------------------------------------------------------ | ------------------------------------------------------------------------ |
+| **`squash`** | Default. Readable timelines, one commit per change on `main`. Land with `spr land` only. | Correct result, but cluttered timelines after landing. | Readable timelines, stack shown on GitHub; GitHub force-pushes branches. |
+| **`merge`**  | Not allowed.                                                                             | Default for `merge`. Clean timelines and history.      | Stack shown on GitHub; GitHub force-pushes branches.                     |
 
 - You want spr's original workflow: `squash` with `base-branches` (the defaults).
 - Your team uses merge commits: `merge`, which defaults to `chain`.
