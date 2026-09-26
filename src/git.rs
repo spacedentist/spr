@@ -81,7 +81,11 @@ impl Git {
         let mut updating = false;
         let mut message: String;
         let first_parent = commits[0].parent_oid;
-        let hooks = self.hooks();
+        // The commits end at the current HEAD. We only move the branch if it
+        // still points there when we're done: the user might have made
+        // commits while spr was running (e.g. waiting at a prompt).
+        let expected_head = commits[commits.len() - 1].oid;
+        let mut rewrites = Vec::new();
 
         for prepared_commit in commits.iter_mut() {
             let commit = self.repo.find_commit(prepared_commit.oid)?;
@@ -110,10 +114,7 @@ impl Git {
                         .repo
                         .find_commit(parent_oid.unwrap_or(first_parent))?],
                 )?;
-                hooks.run_post_rewrite_rebase(
-                    self.repo.as_ref(),
-                    &[(prepared_commit.oid, new_oid)],
-                );
+                rewrites.push((prepared_commit.oid, new_oid));
                 prepared_commit.oid = new_oid;
                 parent_oid = Some(new_oid);
             } else {
@@ -122,10 +123,28 @@ impl Git {
         }
 
         if updating && let Some(oid) = parent_oid {
+            let reference = self.repo.find_reference("HEAD")?.resolve()?;
+            let name = reference.name()?.to_string();
             self.repo
-                .find_reference("HEAD")?
-                .resolve()?
-                .set_target(oid, "spr updated commit messages")?;
+                .reference_matching(
+                    &name,
+                    oid,
+                    true,
+                    expected_head,
+                    "spr updated commit messages",
+                )
+                .map_err(|_| {
+                    eyre!(
+                        "The current branch was changed while spr was \
+                         running, so spr did not update the local commit \
+                         messages (e.g. with links to new Pull Requests). The \
+                         updated commits end at {oid}. To put your new \
+                         commits on top of them, run:\n  \
+                         git rebase --onto {oid} {expected_head}"
+                    )
+                })?;
+            self.hooks()
+                .run_post_rewrite_rebase(self.repo.as_ref(), &rewrites);
         }
 
         Ok(())
@@ -465,5 +484,91 @@ impl Git {
                 "There are uncommitted changes. Stash or amend them first"
             ))
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::test_utils::TestRepo;
+
+    /// A repository with branch `main` checked out, pointing at commit a on
+    /// top of m1. Returns the repo, m1 and a.
+    fn repo_with_branch() -> (TestRepo, Oid, Oid) {
+        let r = TestRepo::new();
+        let m1 = r.commit("m1", &[]);
+        let a = r.commit("a", &[m1]);
+        let repo = r.git.repo();
+        repo.reference("refs/heads/main", a, true, "test").unwrap();
+        repo.set_head("refs/heads/main").unwrap();
+        (r, m1, a)
+    }
+
+    fn prepared_commit(
+        oid: Oid,
+        parent_oid: Oid,
+        message: &str,
+    ) -> PreparedCommit {
+        PreparedCommit {
+            oid,
+            short_id: oid.to_string()[..7].to_string(),
+            parent_oid,
+            message: CommitMessage::parse(message),
+            pull_request_number: None,
+        }
+    }
+
+    #[test]
+    fn test_rewrite_commit_messages() {
+        let (r, m1, a) = repo_with_branch();
+        let mut commits = [prepared_commit(a, m1, "A\n\nNew message")];
+
+        r.git.rewrite_commit_messages(&mut commits, None).unwrap();
+
+        let head = r.git.head().unwrap();
+        assert_ne!(head, a);
+        assert_eq!(head, commits[0].oid);
+        assert_eq!(r.message_of(head), "A\n\nNew message");
+        assert_eq!(r.parents_of(head), vec![m1]);
+    }
+
+    #[test]
+    fn test_rewrite_commit_messages_branch_changed() {
+        let (r, m1, a) = repo_with_branch();
+        let mut commits = [prepared_commit(a, m1, "A\n\nNew message")];
+
+        // Meanwhile, the user commits b on top of a
+        let b = r.commit("b", &[a]);
+        r.git
+            .repo()
+            .reference("refs/heads/main", b, true, "test")
+            .unwrap();
+
+        let error = r.git.rewrite_commit_messages(&mut commits, None);
+
+        assert!(error.is_err());
+        assert!(
+            format!("{:#}", error.unwrap_err()).contains("git rebase --onto")
+        );
+        // The branch still points at b
+        assert_eq!(r.git.head().unwrap(), b);
+    }
+
+    #[test]
+    fn test_rewrite_commit_messages_detached_head() {
+        let (r, m1, a) = repo_with_branch();
+        r.git.repo().set_head_detached(a).unwrap();
+        let mut commits = [prepared_commit(a, m1, "A\n\nNew message")];
+
+        r.git.rewrite_commit_messages(&mut commits, None).unwrap();
+
+        let repo = r.git.repo();
+        assert!(repo.head_detached().unwrap());
+        assert_eq!(r.git.head().unwrap(), commits[0].oid);
+        // The branch is left alone
+        assert_eq!(
+            repo.find_reference("refs/heads/main").unwrap().target(),
+            Some(a)
+        );
     }
 }
