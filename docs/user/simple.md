@@ -16,6 +16,8 @@ This section details the process of putting a single commit up for review, and l
 
       This will update the PR with the new version of your HEAD commit. spr will prompt you for a short message that describes what you changed. You can also pass the update message on the command line using the `--message`/`-m` flag of `spr diff`.
 
+      If you want to see first what `spr diff` would do, run `spr diff --dry-run`: it shows what it would change, without changing anything.
+
 5. Once your PR is approved, run `spr land` to push it upstream.
 
 The above instructions have you committing directly to your local `main`. Doing so will keep things simpler when you have multiple reviews in flight. However, spr does not require that you commit directly to `main`. You can make branches if you prefer. `spr land` will always push your commit to upstream `main`, regardless of which local branch it was on. Note that `spr land` won't delete your feature branch.
