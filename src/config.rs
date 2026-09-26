@@ -2,7 +2,7 @@ use color_eyre::eyre::{Result, bail};
 
 use crate::github::GitHubBranch;
 
-#[derive(Clone, Debug)]
+#[derive(Clone)]
 pub struct Config {
     pub owner: String,
     pub repo: String,
@@ -12,6 +12,22 @@ pub struct Config {
     pub require_approval: bool,
     pub merge_method: MergeMethod,
     pub stacking_mode: StackingMode,
+}
+
+// Not derived, so the auth token doesn't end up in debug output (e.g. logs).
+impl std::fmt::Debug for Config {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Config")
+            .field("owner", &self.owner)
+            .field("repo", &self.repo)
+            .field("master_ref", &self.master_ref)
+            .field("branch_prefix", &self.branch_prefix)
+            .field("auth_token", &"[redacted]")
+            .field("require_approval", &self.require_approval)
+            .field("merge_method", &self.merge_method)
+            .field("stacking_mode", &self.stacking_mode)
+            .finish()
+    }
 }
 
 /// How Pull Requests get merged into the master branch in this repository.
@@ -383,5 +399,13 @@ mod tests {
         assert!(
             config(MergeMethod::Merge, StackingMode::BaseBranches).is_err()
         );
+    }
+
+    #[test]
+    fn test_debug_output_does_not_contain_auth_token() {
+        let config = config_factory();
+        let debug = format!("{config:?}");
+        assert!(!debug.contains("xyz"), "{debug}");
+        assert!(debug.contains("[redacted]"));
     }
 }

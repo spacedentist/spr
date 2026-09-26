@@ -7,7 +7,7 @@ use color_eyre::eyre::{Error, Result, eyre};
 use log::debug;
 use spr::commands;
 
-#[derive(Parser, Debug)]
+#[derive(Parser)]
 #[clap(
     name = "spr",
     version,
@@ -41,6 +41,23 @@ pub struct Cli {
 
     #[clap(subcommand)]
     command: Commands,
+}
+
+// Not derived, so the auth token doesn't end up in debug output (logs).
+impl std::fmt::Debug for Cli {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Cli")
+            .field("cd", &self.cd)
+            .field(
+                "github_auth_token",
+                &self.github_auth_token.as_ref().map(|_| "[redacted]"),
+            )
+            .field("github_repository", &self.github_repository)
+            .field("github_master_branch", &self.github_master_branch)
+            .field("branch_prefix", &self.branch_prefix)
+            .field("command", &self.command)
+            .finish()
+    }
 }
 
 #[derive(Subcommand, Debug)]
