@@ -46,8 +46,25 @@
 
 ### Fixes
 
+- `spr diff --all` no longer loses the links to newly created pull requests
+  if updating a later commit's pull request fails (the next run created
+  them again)
+- `spr diff` no longer drops commits made while it's running (e.g. while
+  waiting for an update message)
+- `spr amend` keeps trailers that only exist locally, e.g. `Signed-off-by`
+- `spr amend` no longer rewrites commits just because GitHub returned the
+  reviewers in a different order
+- when landing fails, `spr land` reliably changes the pull request's base
+  back to its base branch (#175)
 - `spr land` no longer fails if GitHub has already deleted the landed
   pull request's branch
+- `spr patch --branch-name` no longer overwrites an existing branch
+- errors looking up the reviewers of a new pull request are reported as
+  they are, rather than as "unknown user" (#147)
+- the GitHub auth token no longer appears in debug logs
+- spr no longer panics on pull request numbers that are too large, or if
+  the Git hooks configuration can't be read
+- missing configuration is reported with a hint to run `spr init`
 - fix a panic when ssh credentials are requested without a username
 - the documentation website is deployed again (it failed with mdbook 0.5)
 
