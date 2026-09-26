@@ -53,7 +53,9 @@ pub async fn amend(
         let pull_request = pull_requests.pop().flatten();
         if let Some(pull_request) = pull_request {
             let pull_request = pull_request.await??;
-            commit.message = pull_request.message;
+            commit
+                .message
+                .update_from_pull_request(&pull_request.message);
         }
         failure = commit.message.validate(config).is_err() || failure;
     }

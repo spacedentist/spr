@@ -272,6 +272,29 @@ impl CommitMessage {
         self.trailers.retain(|(k, _)| k.to_lowercase() != key_lower);
     }
 
+    /// Update this (local) commit message from the message of its Pull
+    /// Request on GitHub: take the title, the description, and the trailers
+    /// spr maintains based on the Pull Request (`Pull-request`, `Reviewers`,
+    /// `Reviewed-by`) from there. Other trailers (e.g. `Signed-off-by`) only
+    /// exist locally, and are kept.
+    pub fn update_from_pull_request(&mut self, pull_request: &CommitMessage) {
+        const PULL_REQUEST_TRAILERS: [&str; 3] =
+            ["pull-request", "reviewers", "reviewed-by"];
+        let is_pull_request_trailer = |key: &str| {
+            PULL_REQUEST_TRAILERS.contains(&key.to_lowercase().as_str())
+        };
+
+        self.title = pull_request.title.clone();
+        self.body = pull_request.body.clone();
+        self.trailers
+            .retain(|(key, _)| !is_pull_request_trailer(key));
+        for (key, value) in &pull_request.trailers {
+            if is_pull_request_trailer(key) {
+                self.set_trailer(key.clone(), value.clone());
+            }
+        }
+    }
+
     /// Get all trailers as a slice.
     pub fn trailers(&self) -> &[(String, String)] {
         &self.trailers
@@ -572,5 +595,66 @@ mod tests {
 
         // Multiple spaces within a line preserved, but line boundaries normalized
         assert!(serialized.contains("D: word1   word2 word3\n"));
+    }
+
+    #[test]
+    fn test_update_from_pull_request() {
+        let mut local = CommitMessage::parse(
+            "Old title\n\nOld body\n\n\
+             Signed-off-by: Alice <alice@example.com>\n\
+             Reviewers: bob\n\
+             Pull-request: https://github.com/o/r/pull/1\n\
+             Co-Authored-By: Carol <carol@example.com>",
+        );
+        let mut github =
+            CommitMessage::new("New title".into(), "New body".into());
+        github.set_trailer(
+            "Pull-request".into(),
+            "https://github.com/o/r/pull/1".into(),
+        );
+        github.set_trailer("Reviewers".into(), "bob, dave".into());
+        github.set_trailer("Reviewed-by".into(), "dave".into());
+
+        local.update_from_pull_request(&github);
+
+        assert_eq!(local.title(), "New title");
+        assert_eq!(local.body(), "New body");
+        // Local-only trailers are kept, spr's come from GitHub
+        assert_eq!(
+            local.get_trailer("Signed-off-by"),
+            Some("Alice <alice@example.com>")
+        );
+        assert_eq!(
+            local.get_trailer("Co-Authored-By"),
+            Some("Carol <carol@example.com>")
+        );
+        assert_eq!(local.get_trailer("Reviewers"), Some("bob, dave"));
+        assert_eq!(local.get_trailer("Reviewed-by"), Some("dave"));
+        assert_eq!(
+            local.get_trailer("Pull-request"),
+            Some("https://github.com/o/r/pull/1")
+        );
+    }
+
+    #[test]
+    fn test_update_from_pull_request_removes_stale_trailers() {
+        let mut local = CommitMessage::parse(
+            "Title\n\nBody\n\n\
+             Reviewers: bob\n\
+             Reviewed-by: bob\n\
+             Pull-request: https://github.com/o/r/pull/1",
+        );
+        // The Pull Request has no reviewers anymore, and isn't approved
+        let mut github = CommitMessage::new("Title".into(), "Body".into());
+        github.set_trailer(
+            "Pull-request".into(),
+            "https://github.com/o/r/pull/1".into(),
+        );
+
+        local.update_from_pull_request(&github);
+
+        assert_eq!(local.get_trailer("Reviewers"), None);
+        assert_eq!(local.get_trailer("Reviewed-by"), None);
+        assert!(local.get_trailer("Pull-request").is_some());
     }
 }
