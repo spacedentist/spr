@@ -193,13 +193,30 @@ pub async fn diff(
             continue;
         }
 
+        if let Err(error) = write_commit_title(prepared_commit) {
+            result = Err(error);
+            break;
+        }
+
+        // Errors must not return from this function directly (e.g. with `?`),
+        // but end the loop, so that the local commit messages still get
+        // updated below. Otherwise, Pull Requests created for earlier commits
+        // would not be recorded in their commit messages.
         let pull_request = if let Some(task) = pull_request_task {
-            Some(task.await??)
+            match task.await {
+                Ok(Ok(pull_request)) => Some(pull_request),
+                Ok(Err(error)) => {
+                    result = Err(error);
+                    break;
+                }
+                Err(error) => {
+                    result = Err(error.into());
+                    break;
+                }
+            }
         } else {
             None
         };
-
-        write_commit_title(prepared_commit)?;
 
         // In chain stacking mode, a commit that is not directly based on
         // master gets a Pull Request that is based on the parent commit's Pull
