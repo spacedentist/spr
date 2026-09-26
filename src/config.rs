@@ -10,6 +10,7 @@ pub struct Config {
     pub branch_prefix: String,
     pub auth_token: String,
     pub require_approval: bool,
+    pub use_commit_title_for_initial_commit: bool,
     pub merge_method: MergeMethod,
     pub stacking_mode: StackingMode,
 }
@@ -26,6 +27,10 @@ impl std::fmt::Debug for Config {
             .field("require_approval", &self.require_approval)
             .field("merge_method", &self.merge_method)
             .field("stacking_mode", &self.stacking_mode)
+            .field(
+                "use_commit_title_for_initial_commit",
+                &self.use_commit_title_for_initial_commit,
+            )
             .finish()
     }
 }
@@ -136,6 +141,7 @@ impl Config {
         require_approval: bool,
         merge_method: MergeMethod,
         stacking_mode: StackingMode,
+        use_commit_title_for_initial_commit: bool,
     ) -> Result<Self> {
         if merge_method == MergeMethod::Merge
             && stacking_mode == StackingMode::BaseBranches
@@ -160,6 +166,7 @@ impl Config {
             require_approval,
             merge_method,
             stacking_mode,
+            use_commit_title_for_initial_commit,
         })
     }
 
@@ -241,6 +248,7 @@ mod tests {
             false,
             MergeMethod::Squash,
             StackingMode::BaseBranches,
+            true,
         )
         .unwrap()
     }
@@ -402,6 +410,7 @@ mod tests {
                 false,
                 merge_method,
                 stacking_mode,
+                false,
             )
         };
 

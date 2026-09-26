@@ -23,6 +23,9 @@
   GitHub (`github-stack`, opt-in, using GitHub's stacked pull requests
   preview; `spr land` then lands the current commit's pull request together
   with all pull requests below it, #107)
+- new config option `spr.useCommitTitleForInitialCommit`: use the commit
+  title as the message of the first commit of a new pull request, instead
+  of "[𝘀𝗽𝗿] initial version" (@justinbaltazar, #189)
 - `spr diff` changes a pull request that uses a synthetic base branch to
   target the master branch once the commit is directly based on it (e.g.
   after the pull request below was merged), or `--cherry-pick` is used, and

@@ -308,6 +308,28 @@ fn is_not_found(error: &Error) -> bool {
     )
 }
 
+/// The message of a new commit on the Pull Request branch: the update
+/// message the user gave, or, for the first commit of a new Pull Request,
+/// the title of the local commit or "[𝘀𝗽𝗿] initial version", depending on
+/// the configuration.
+fn pull_request_commit_message(
+    update_message: Option<&str>,
+    title: &str,
+    config: &crate::config::Config,
+) -> String {
+    let message = update_message.unwrap_or(
+        if config.use_commit_title_for_initial_commit {
+            title
+        } else {
+            "[𝘀𝗽𝗿] initial version"
+        },
+    );
+    format!(
+        "{message}\n\nCreated using spr {}",
+        env!("CARGO_PKG_VERSION")
+    )
+}
+
 /// Report what `spr diff` would do for a commit, for --dry-run
 #[allow(clippy::too_many_arguments)]
 fn describe_dry_run(
@@ -955,12 +977,10 @@ async fn diff_impl(
         },
         env!("CARGO_PKG_VERSION"),
     );
-    let head_message = format!(
-        "{}\n\nCreated using spr {}",
-        github_commit_message
-            .as_deref()
-            .unwrap_or("[𝘀𝗽𝗿] initial version"),
-        env!("CARGO_PKG_VERSION"),
+    let head_message = pull_request_commit_message(
+        github_commit_message.as_deref(),
+        title,
+        config,
     );
     let new_commits = commits.create(
         git,
@@ -1161,4 +1181,59 @@ fn base_changed(
     }
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::config::{Config, MergeMethod, StackingMode};
+
+    fn config(use_commit_title_for_initial_commit: bool) -> Config {
+        Config::new(
+            "acme".into(),
+            "codez".into(),
+            "master".into(),
+            "spr/foo/".into(),
+            "xyz".into(),
+            false,
+            MergeMethod::Squash,
+            StackingMode::BaseBranches,
+            use_commit_title_for_initial_commit,
+        )
+        .unwrap()
+    }
+
+    fn created_using_spr() -> String {
+        format!("Created using spr {}", env!("CARGO_PKG_VERSION"))
+    }
+
+    #[test]
+    fn test_initial_commit_message() {
+        assert_eq!(
+            pull_request_commit_message(None, "Fix the bug", &config(false)),
+            format!("[𝘀𝗽𝗿] initial version\n\n{}", created_using_spr())
+        );
+    }
+
+    #[test]
+    fn test_initial_commit_message_with_commit_title() {
+        assert_eq!(
+            pull_request_commit_message(None, "Fix the bug", &config(true)),
+            format!("Fix the bug\n\n{}", created_using_spr())
+        );
+    }
+
+    #[test]
+    fn test_update_commit_message() {
+        for use_commit_title in [false, true] {
+            assert_eq!(
+                pull_request_commit_message(
+                    Some("Address review comments"),
+                    "Fix the bug",
+                    &config(use_commit_title),
+                ),
+                format!("Address review comments\n\n{}", created_using_spr())
+            );
+        }
+    }
 }
