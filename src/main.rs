@@ -166,6 +166,7 @@ pub async fn spr() -> Result<()> {
         .get_bool("spr.requireApproval")
         .ok()
         .unwrap_or(false);
+    let spr_ids = git_config.get_bool("spr.sprIds").unwrap_or(false);
     let use_commit_title_for_initial_commit = git_config
         .get_bool("spr.useCommitTitleForInitialCommit")
         .ok()
@@ -194,6 +195,7 @@ pub async fn spr() -> Result<()> {
         merge_method,
         stacking_mode,
         use_commit_title_for_initial_commit,
+        spr_ids,
     )?;
     debug!("config: {:?}", config);
 

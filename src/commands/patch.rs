@@ -14,6 +14,11 @@ pub struct PatchOptions {
     /// If given, create new branch but do not check out
     #[clap(long)]
     no_checkout: bool,
+
+    /// Give the new local commit an ID (`Spr-Id` trailer). (Always done if
+    /// `spr.sprIds` is set.)
+    #[clap(long)]
+    spr_id: bool,
 }
 
 pub async fn patch(
@@ -48,6 +53,13 @@ pub async fn patch(
         .is_ok()
     {
         bail!("Branch {branch_name} already exists");
+    }
+
+    // The message of the local commit we create: the Pull Request's, with a
+    // new ID if the user wants one
+    let mut message = pr.message.clone();
+    if config.spr_ids || opts.spr_id {
+        message.ensure_spr_id();
     }
 
     let patch_branch_oid = if let Some(oid) = pr.merge_commit {
@@ -105,7 +117,7 @@ pub async fn patch(
         // the commit we created above to prepare the base of this commit.
         git.create_derived_commit(
             Some(pr.head_oid),
-            &pr.message.to_string(),
+            &message.to_string(),
             git.get_tree_oid_for_commit(pr.head_oid)?,
             &[pr_master_oid],
         )?

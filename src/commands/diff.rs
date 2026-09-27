@@ -54,6 +54,11 @@ pub struct DiffOptions {
     /// changing anything on GitHub or in the local repository
     #[clap(long)]
     dry_run: bool,
+
+    /// Give the local commit an ID (`Spr-Id` trailer), if it doesn't have
+    /// one yet. (Always done if `spr.sprIds` is set.)
+    #[clap(long)]
+    spr_id: bool,
 }
 
 fn get_oids(refs: &str, repo: &git2::Repository) -> Result<HashSet<Oid>> {
@@ -606,6 +611,12 @@ async fn diff_impl(
                 config.pull_request_url(number)
             ),
         )?;
+    }
+
+    // Give the local commit an ID, if it doesn't have one yet and the user
+    // wants one
+    if config.spr_ids || opts.spr_id {
+        message.ensure_spr_id();
     }
 
     if local_commit.pull_request_number.is_none() || opts.update_message {
@@ -1199,6 +1210,7 @@ mod tests {
             MergeMethod::Squash,
             StackingMode::BaseBranches,
             use_commit_title_for_initial_commit,
+            true,
         )
         .unwrap()
     }

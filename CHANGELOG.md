@@ -23,6 +23,10 @@
   GitHub (`github-stack`, opt-in, using GitHub's stacked pull requests
   preview; `spr land` then lands the current commit's pull request together
   with all pull requests below it, #107)
+- local commits can have an ID, in a `Spr-Id` trailer (only in local
+  commit messages, not in pull requests or landed commits), added by
+  `spr diff --spr-id` and `spr patch --spr-id`, or always with the new
+  config option `spr.sprIds`
 - new config option `spr.useCommitTitleForInitialCommit`: use the commit
   title as the message of the first commit of a new pull request, instead
   of "[𝘀𝗽𝗿] initial version" (@justinbaltazar, #189)

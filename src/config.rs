@@ -13,6 +13,7 @@ pub struct Config {
     pub use_commit_title_for_initial_commit: bool,
     pub merge_method: MergeMethod,
     pub stacking_mode: StackingMode,
+    pub spr_ids: bool,
 }
 
 // Not derived, so the auth token doesn't end up in debug output (e.g. logs).
@@ -31,6 +32,7 @@ impl std::fmt::Debug for Config {
                 "use_commit_title_for_initial_commit",
                 &self.use_commit_title_for_initial_commit,
             )
+            .field("spr_ids", &self.spr_ids)
             .finish()
     }
 }
@@ -142,6 +144,7 @@ impl Config {
         merge_method: MergeMethod,
         stacking_mode: StackingMode,
         use_commit_title_for_initial_commit: bool,
+        spr_ids: bool,
     ) -> Result<Self> {
         if merge_method == MergeMethod::Merge
             && stacking_mode == StackingMode::BaseBranches
@@ -167,6 +170,7 @@ impl Config {
             merge_method,
             stacking_mode,
             use_commit_title_for_initial_commit,
+            spr_ids,
         })
     }
 
@@ -248,6 +252,7 @@ mod tests {
             false,
             MergeMethod::Squash,
             StackingMode::BaseBranches,
+            true,
             true,
         )
         .unwrap()
@@ -411,6 +416,7 @@ mod tests {
                 merge_method,
                 stacking_mode,
                 false,
+                true,
             )
         };
 

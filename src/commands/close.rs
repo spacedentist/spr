@@ -5,6 +5,7 @@ use crate::{
     git::PreparedCommit,
     git_remote::PushSpec,
     github::{PullRequestState, PullRequestUpdate},
+    message::SPR_ID_TRAILER,
     output::{output, write_commit_title},
 };
 
@@ -131,6 +132,7 @@ async fn close_impl(
     // Remove trailers from commit that are not relevant after closing.
     prepared_commit.message.remove_trailer("Pull-request");
     prepared_commit.message.remove_trailer("Reviewed-by");
+    prepared_commit.message.remove_trailer(SPR_ID_TRAILER);
 
     let mut push_specs = vec![PushSpec {
         oid: None,

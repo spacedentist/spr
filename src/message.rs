@@ -3,6 +3,35 @@ use std::fmt;
 
 use crate::output::output;
 
+/// The trailer with the ID spr gives a local commit (see `new_spr_id`)
+pub const SPR_ID_TRAILER: &str = "Spr-Id";
+
+/// A new random ID for a local commit: 128 bits, as 32 hex digits.
+///
+/// It identifies a unit of work (a local commit and its Pull Request)
+/// across amends and rebases, like Gerrit's Change-Id. It only needs to be
+/// unique, not unpredictable: the randomness comes from the standard
+/// library's `RandomState`, which is seeded from the operating system.
+pub fn new_spr_id() -> String {
+    use std::hash::{BuildHasher, Hasher};
+
+    let nanos = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|duration| duration.as_nanos())
+        .unwrap_or_default();
+
+    (0..2u8)
+        .map(|part| {
+            let mut hasher =
+                std::collections::hash_map::RandomState::new().build_hasher();
+            hasher.write_u128(nanos);
+            hasher.write_u32(std::process::id());
+            hasher.write_u8(part);
+            format!("{:016x}", hasher.finish())
+        })
+        .collect()
+}
+
 /// Represents a structured commit message with title, body, and trailers.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct CommitMessage {
@@ -270,6 +299,21 @@ impl CommitMessage {
     pub fn remove_trailer(&mut self, key: &str) {
         let key_lower = key.to_lowercase();
         self.trailers.retain(|(k, _)| k.to_lowercase() != key_lower);
+    }
+
+    /// The ID spr gave the local commit (`Spr-Id` trailer), if any
+    pub fn spr_id(&self) -> Option<&str> {
+        self.get_trailer(SPR_ID_TRAILER)
+    }
+
+    /// Give the local commit a new ID (`Spr-Id` trailer), unless it has one
+    /// already. Returns whether it added one.
+    pub fn ensure_spr_id(&mut self) -> bool {
+        if self.spr_id().is_some() {
+            return false;
+        }
+        self.set_trailer(SPR_ID_TRAILER.to_string(), new_spr_id());
+        true
     }
 
     /// Update this (local) commit message from the message of its Pull
@@ -656,5 +700,62 @@ mod tests {
         assert_eq!(local.get_trailer("Reviewers"), None);
         assert_eq!(local.get_trailer("Reviewed-by"), None);
         assert!(local.get_trailer("Pull-request").is_some());
+    }
+
+    #[test]
+    fn test_new_spr_id() {
+        let ids: std::collections::HashSet<String> =
+            (0..1000).map(|_| new_spr_id()).collect();
+
+        assert_eq!(ids.len(), 1000);
+        for id in &ids {
+            assert_eq!(id.len(), 32);
+            assert!(id.chars().all(|c| c.is_ascii_hexdigit()));
+        }
+    }
+
+    #[test]
+    fn test_ensure_spr_id() {
+        let mut message = CommitMessage::parse(
+            "Title\n\nBody\n\nSigned-off-by: Alice <alice@example.com>",
+        );
+        assert_eq!(message.spr_id(), None);
+
+        assert!(message.ensure_spr_id());
+        let id = message.spr_id().unwrap().to_string();
+        assert_eq!(id.len(), 32);
+
+        // An existing ID is kept, and survives serialising and parsing
+        assert!(!message.ensure_spr_id());
+        let message = CommitMessage::parse(&message.to_string());
+        assert_eq!(message.spr_id(), Some(id.as_str()));
+        assert_eq!(
+            message.get_trailer("Signed-off-by"),
+            Some("Alice <alice@example.com>")
+        );
+    }
+
+    #[test]
+    fn test_spr_id_not_in_pull_request() {
+        let mut message = CommitMessage::parse(
+            "Title\n\nBody\n\n\
+             Pull-request: https://github.com/o/r/pull/1",
+        );
+        message.ensure_spr_id();
+
+        assert!(!message.to_github_body().contains("Spr-Id"));
+        assert!(!message.to_github_body_for_merging().contains("Spr-Id"));
+    }
+
+    #[test]
+    fn test_spr_id_kept_when_updating_from_pull_request() {
+        let mut local = CommitMessage::parse("Title\n\nBody");
+        local.ensure_spr_id();
+        let id = local.spr_id().unwrap().to_string();
+
+        let github = CommitMessage::new("New title".into(), "Body".into());
+        local.update_from_pull_request(&github);
+
+        assert_eq!(local.spr_id(), Some(id.as_str()));
     }
 }

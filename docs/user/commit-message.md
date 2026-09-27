@@ -40,12 +40,22 @@ At various stages of a commit's lifecycle, `spr` will add lines to the commit me
   The presence or absence of this line is how `spr diff` knows whether a commit already has a PR created for it, and thus whether it should create a new PR or update an existing one.
 
 - `spr land` will amend the commit message to exactly match the title/description of the PR (just as `spr amend` does), as well as adding a line like this:
+
   ```
   Reviewed-by: github-username-a
   ```
+
   This line names the GitHub users who approved the PR.
 
-These metadata fields (`Pull-request`, `Reviewers`, `Reviewed-by`) are stored as [git trailers](https://git-scm.com/docs/git-interpret-trailers) — special key-value lines at the end of commit messages that follow git's trailer conventions.
+- `spr diff --spr-id` (or any `spr diff`, if the `spr.sprIds` [config option](../reference/configuration.md) is set) adds a line like this, giving the local commit an ID:
+
+  ```
+  Spr-Id: 7f3a91c0d2e84b5f9a6c1e0b3d7f2a48
+  ```
+
+  It identifies the commit and its PR across amends and rebases (like Gerrit's `Change-Id`). It only appears in your local commit message: not in the PR, and not in the commit that lands. Once there, spr keeps it; `spr close` removes it. `spr patch --spr-id` gives the commit it creates an ID, too.
+
+These metadata fields (`Pull-request`, `Reviewers`, `Reviewed-by`, `Spr-Id`) are stored as [git trailers](https://git-scm.com/docs/git-interpret-trailers) — special key-value lines at the end of commit messages that follow git's trailer conventions.
 
 ### Backwards compatibility
 
