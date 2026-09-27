@@ -37,7 +37,9 @@
 - new experimental `spr plumbing` commands for use in scripts, which work
   on Git objects only and don't need spr to be configured:
   - `spr plumbing commit-pr` creates the commits that make a pull request
-    reflect a local commit
+    reflect a local commit; with `--expected-head`, it detects changes
+    pushed to the pull request by others (like `git push
+--force-with-lease`)
   - `spr plumbing stack` lists the local commits between the target and a
     commit, with their `Pull-request` trailers
   - `spr plumbing land-check` checks that merging a pull request gives the

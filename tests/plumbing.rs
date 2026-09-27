@@ -129,3 +129,36 @@ fn commit_pr_message_required_exit_code() {
     // Without --json, nothing goes to stdout
     assert!(output.stdout.is_empty());
 }
+
+#[test]
+fn commit_pr_expected_head_exit_code() {
+    let r = Repo::new();
+    let m1 = r.commit("m1", &[]);
+    let expected = r.commit("b", &[m1]);
+    // Somebody else pushed a change to the Pull Request
+    let head = r.commit("b, changed by somebody else", &[expected]);
+    let local = r.commit("b, changed locally", &[m1]);
+
+    let output = r.spr(&[
+        "plumbing",
+        "commit-pr",
+        "--head",
+        &head.to_string(),
+        "--base",
+        &m1.to_string(),
+        "--target",
+        &m1.to_string(),
+        "--local",
+        &local.to_string(),
+        "--expected-head",
+        &expected.to_string(),
+        "-m",
+        "update",
+        "--json",
+    ]);
+
+    assert_eq!(output.status.code(), Some(2), "{output:?}");
+    let json: serde_json::Value =
+        serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(json["error"]["kind"], "head-moved");
+}

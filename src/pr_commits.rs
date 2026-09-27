@@ -119,6 +119,43 @@ pub fn cherry_pick(
     Ok((index.write_tree_to(repo)?, target_tree.id()))
 }
 
+/// The head of the Pull Request isn't the expected one, and has changes that
+/// aren't in the local commit (e.g. somebody else pushed to the Pull
+/// Request).
+#[derive(Debug)]
+pub struct HeadMoved;
+
+impl std::fmt::Display for HeadMoved {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(
+            "the Pull Request has changes that aren't in the local commit",
+        )
+    }
+}
+
+impl std::error::Error for HeadMoved {}
+
+/// Three-way merge of trees. Returns the resulting tree, or `None` if there
+/// are conflicts.
+fn merge_trees(
+    git: &Git,
+    ancestor: Oid,
+    ours: Oid,
+    theirs: Oid,
+) -> Result<Option<Oid>> {
+    let repo = git.repo();
+    let mut index = repo.merge_trees(
+        &repo.find_tree(ancestor)?,
+        &repo.find_tree(ours)?,
+        &repo.find_tree(theirs)?,
+        None,
+    )?;
+    if index.has_conflicts() {
+        return Ok(None);
+    }
+    Ok(Some(index.write_tree_to(repo)?))
+}
+
 /// The resulting head and base of the Pull Request
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Commits {
@@ -135,6 +172,64 @@ pub struct CommitInfo<'a> {
 }
 
 impl PullRequestCommits {
+    /// Check that the Pull Request's head (`head`) has no changes that
+    /// aren't in the tree we're about to push (`head_tree`), given the head
+    /// we expected it to have (e.g. because we pushed it last), like
+    /// `git push --force-with-lease`.
+    ///
+    /// If the head isn't the expected one, it may still have moved only
+    /// because the target branch was merged into it or it was rebased onto
+    /// it (e.g. by GitHub), with changes that the local commit contains, too.
+    /// Or its changes may have been applied to the local commit already. To
+    /// check, we take the expected head with the target branch changes the
+    /// head picked up merged in, and merge the changes from there to the
+    /// head into the tree we're about to push. If that doesn't change the
+    /// tree, the head has nothing we don't have.
+    ///
+    /// Fails with `HeadMoved` otherwise, e.g. if somebody else pushed changes
+    /// to the Pull Request, or if the head is based on a newer target commit
+    /// than `target`.
+    pub fn check_expected_head(
+        &self,
+        git: &Git,
+        expected_head: Oid,
+    ) -> Result<()> {
+        if self.head == expected_head {
+            return Ok(());
+        }
+
+        let repo = git.repo();
+        // Without common history, we can't tell what changed.
+        let merge_base = |a: Oid, b: Oid| -> Result<Oid> {
+            repo.merge_base(a, b).map_err(|_| HeadMoved.into())
+        };
+        let tree = |commit: Oid| git.get_tree_oid_for_commit(commit);
+
+        // The target commit the head is based on, and the one the expected
+        // head is based on
+        let head_target = merge_base(self.head, self.target)?;
+        let expected_target = merge_base(expected_head, head_target)?;
+
+        // The expected head, with the target branch changes the head picked
+        // up merged in
+        let Some(baseline) = merge_trees(
+            git,
+            tree(expected_target)?,
+            tree(expected_head)?,
+            tree(head_target)?,
+        )?
+        else {
+            return Err(HeadMoved.into());
+        };
+
+        // Apply the changes from there to the head to the tree we're about
+        // to push. They must be contained in it already.
+        match merge_trees(git, baseline, self.head_tree, tree(self.head)?)? {
+            Some(result) if result == self.head_tree => Ok(()),
+            _ => Err(HeadMoved.into()),
+        }
+    }
+
     /// Work out which commits are needed. This doesn't create any commits.
     ///
     /// Fails with `BaseOutdated` if the base needs updating, but
@@ -726,5 +821,208 @@ mod tests {
         let error =
             cherry_pick(&r.git, m2, r.tree_of(b), r.tree_of(m1)).unwrap_err();
         assert!(error.downcast_ref::<Conflict>().is_some());
+    }
+
+    // Tests for `check_expected_head`. In these, file "m" stands for changes
+    // on the target branch, "b" for the local change, and "c" for changes
+    // pushed to the Pull Request by somebody else. `L` is the expected head
+    // (the Pull Request's head as spr last pushed it): the local change on
+    // top of master commit m1.
+
+    /// Check whether the Pull Request's head `head` may be updated to `tree`
+    /// (with the local commit based on `target`), given the expected head.
+    fn check(
+        r: &TestRepo,
+        head: Oid,
+        expected_head: Oid,
+        target: Oid,
+        tree: &[(&str, &str)],
+    ) -> Result<()> {
+        PullRequestCommits {
+            head,
+            base: target,
+            target,
+            head_tree: r.tree_with(tree),
+            base_tree: r.tree_of(target),
+            may_update_base: false,
+        }
+        .check_expected_head(&r.git, expected_head)
+    }
+
+    fn is_head_moved(result: Result<()>) -> bool {
+        result.is_err_and(|error| error.downcast_ref::<HeadMoved>().is_some())
+    }
+
+    /// Master commit m1, and the expected head L (local change "b" on m1)
+    fn expected_head_repo() -> (TestRepo, Oid, Oid) {
+        let r = TestRepo::new();
+        let m1 = r.commit_tree(r.tree_with(&[("m", "1")]), &[]);
+        let l = r.commit_tree(r.tree_with(&[("m", "1"), ("b", "1")]), &[m1]);
+        (r, m1, l)
+    }
+
+    #[test]
+    fn test_expected_head_unchanged() {
+        let (r, m1, l) = expected_head_repo();
+
+        // The local commit may have changed, of course
+        assert!(check(&r, l, l, m1, &[("m", "1"), ("b", "2")]).is_ok());
+    }
+
+    #[test]
+    fn test_expected_head_target_merged_in() {
+        // Like GitHub's "Update branch": master merged into the Pull Request
+        let (r, m1, l) = expected_head_repo();
+        let m2 = r.commit_tree(r.tree_with(&[("m", "2")]), &[m1]);
+        let head =
+            r.commit_tree(r.tree_with(&[("m", "2"), ("b", "1")]), &[l, m2]);
+
+        // The local commit was rebased onto m2 as well
+        assert!(check(&r, head, l, m2, &[("m", "2"), ("b", "1")]).is_ok());
+        // ...and changed further
+        assert!(check(&r, head, l, m2, &[("m", "2"), ("b", "2")]).is_ok());
+    }
+
+    #[test]
+    fn test_expected_head_rebased() {
+        // Like GitHub rebasing a stacked Pull Request after merging the one
+        // below: the head doesn't descend from the expected head anymore.
+        let (r, m1, l) = expected_head_repo();
+        let m2 = r.commit_tree(r.tree_with(&[("m", "2")]), &[m1]);
+        let head = r.commit_tree(r.tree_with(&[("m", "2"), ("b", "1")]), &[m2]);
+
+        assert!(check(&r, head, l, m2, &[("m", "2"), ("b", "1")]).is_ok());
+    }
+
+    #[test]
+    fn test_expected_head_rebased_after_parent_landed() {
+        // Stacked: the Pull Request of a (adding "a") was squash-merged into
+        // master, and GitHub rebased b's Pull Request onto the result.
+        let r = TestRepo::new();
+        let m1 = r.commit_tree(r.tree_with(&[("m", "1")]), &[]);
+        let a_head =
+            r.commit_tree(r.tree_with(&[("m", "1"), ("a", "1")]), &[m1]);
+        let l = r.commit_tree(
+            r.tree_with(&[("m", "1"), ("a", "1"), ("b", "1")]),
+            &[a_head],
+        );
+        let m2 = r.commit_tree(r.tree_with(&[("m", "1"), ("a", "1")]), &[m1]);
+        let head = r.commit_tree(
+            r.tree_with(&[("m", "1"), ("a", "1"), ("b", "1")]),
+            &[m2],
+        );
+
+        assert!(
+            check(&r, head, l, m2, &[("m", "1"), ("a", "1"), ("b", "1")])
+                .is_ok()
+        );
+    }
+
+    #[test]
+    fn test_expected_head_remote_changes() {
+        // Somebody pushed a change to the Pull Request
+        let (r, m1, l) = expected_head_repo();
+        let head = r.commit_tree(
+            r.tree_with(&[("m", "1"), ("b", "1"), ("c", "1")]),
+            &[l],
+        );
+
+        assert!(is_head_moved(check(
+            &r,
+            head,
+            l,
+            m1,
+            &[("m", "1"), ("b", "2")]
+        )));
+
+        // Once the change was applied to the local commit, it's fine
+        assert!(
+            check(&r, head, l, m1, &[("m", "1"), ("b", "2"), ("c", "1")])
+                .is_ok()
+        );
+    }
+
+    #[test]
+    fn test_expected_head_conflicting_remote_changes() {
+        let (r, m1, l) = expected_head_repo();
+        let head = r.commit_tree(
+            r.tree_with(&[("m", "1"), ("b", "changed remotely")]),
+            &[l],
+        );
+
+        assert!(is_head_moved(check(
+            &r,
+            head,
+            l,
+            m1,
+            &[("m", "1"), ("b", "changed locally")]
+        )));
+    }
+
+    #[test]
+    fn test_expected_head_remote_changes_and_target_merged_in() {
+        let (r, m1, l) = expected_head_repo();
+        let m2 = r.commit_tree(r.tree_with(&[("m", "2")]), &[m1]);
+        let merged =
+            r.commit_tree(r.tree_with(&[("m", "2"), ("b", "1")]), &[l, m2]);
+        let head = r.commit_tree(
+            r.tree_with(&[("m", "2"), ("b", "1"), ("c", "1")]),
+            &[merged],
+        );
+
+        assert!(is_head_moved(check(
+            &r,
+            head,
+            l,
+            m2,
+            &[("m", "2"), ("b", "1")]
+        )));
+    }
+
+    #[test]
+    fn test_expected_head_based_on_newer_target() {
+        // The Pull Request got a newer master merged in than the local
+        // commit is based on: rebase the local commit first.
+        let (r, m1, l) = expected_head_repo();
+        let m2 = r.commit_tree(r.tree_with(&[("m", "2")]), &[m1]);
+        let m3 = r.commit_tree(r.tree_with(&[("m", "3")]), &[m2]);
+        let head =
+            r.commit_tree(r.tree_with(&[("m", "3"), ("b", "1")]), &[l, m3]);
+
+        assert!(is_head_moved(check(
+            &r,
+            head,
+            l,
+            m2,
+            &[("m", "2"), ("b", "1")]
+        )));
+        assert!(check(&r, head, l, m3, &[("m", "3"), ("b", "1")]).is_ok());
+    }
+
+    #[test]
+    fn test_expected_head_local_based_on_newer_target() {
+        // The local commit is based on an even newer master than the one
+        // merged into the Pull Request.
+        let (r, m1, l) = expected_head_repo();
+        let m2 = r.commit_tree(r.tree_with(&[("m", "2")]), &[m1]);
+        let m3 = r.commit_tree(r.tree_with(&[("m", "3")]), &[m2]);
+        let head =
+            r.commit_tree(r.tree_with(&[("m", "2"), ("b", "1")]), &[l, m2]);
+
+        assert!(check(&r, head, l, m3, &[("m", "3"), ("b", "1")]).is_ok());
+    }
+
+    #[test]
+    fn test_expected_head_unrelated_history() {
+        let (r, m1, l) = expected_head_repo();
+        let head = r.commit_tree(r.tree_with(&[("x", "1")]), &[]);
+
+        assert!(is_head_moved(check(
+            &r,
+            head,
+            l,
+            m1,
+            &[("m", "1"), ("b", "1")]
+        )));
     }
 }

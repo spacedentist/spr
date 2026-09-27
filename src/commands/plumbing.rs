@@ -13,7 +13,8 @@ use crate::{
     land_check::{self, LandCheck},
     message::CommitMessage,
     pr_commits::{
-        self, BaseOutdated, CommitInfo, Conflict, Parent, PullRequestCommits,
+        self, BaseOutdated, CommitInfo, Conflict, HeadMoved, Parent,
+        PullRequestCommits,
     },
 };
 
@@ -124,6 +125,13 @@ pub struct CommitPrOptions {
     #[clap(long)]
     fixed_base: bool,
 
+    /// The head the Pull Request is expected to have (e.g. the one pushed
+    /// last). If --head differs, fail unless its changes are contained in
+    /// the tree already, e.g. because it only merged in or was rebased onto
+    /// the target branch. Like `git push --force-with-lease`.
+    #[clap(long)]
+    expected_head: Option<String>,
+
     /// Message of the new head commit (required if one gets created)
     #[clap(long, short = 'm')]
     message: Option<String>,
@@ -168,6 +176,8 @@ fn classify(error: &Report) -> (&'static str, i32) {
         (error.kind, error.exit_code)
     } else if error.downcast_ref::<BaseOutdated>().is_some() {
         ("base-outdated", 2)
+    } else if error.downcast_ref::<HeadMoved>().is_some() {
+        ("head-moved", 2)
     } else if error.downcast_ref::<Conflict>().is_some() {
         ("conflict", 4)
     } else {
@@ -277,6 +287,9 @@ fn commit_pr(
         base_tree,
         may_update_base: !opts.fixed_base,
     };
+    if let Some(spec) = opts.expected_head.as_deref() {
+        commits.check_expected_head(git, find_commit(git, spec)?)?;
+    }
     let plan = commits.plan(git)?;
 
     if opts.plan {
@@ -648,6 +661,50 @@ mod tests {
 
         assert_eq!(classify(&error), ("base-outdated", 2));
         assert_eq!(error_json(&error)["error"]["kind"], json!("base-outdated"));
+    }
+
+    #[test]
+    fn test_commit_pr_expected_head() {
+        let r = TestRepo::new();
+        let m1 = r.commit_tree(r.tree_with(&[("m", "1")]), &[]);
+        let local =
+            r.commit_tree(r.tree_with(&[("m", "1"), ("b", "2")]), &[m1]);
+        // The expected head, and the actual one with somebody else's change
+        let expected =
+            r.commit_tree(r.tree_with(&[("m", "1"), ("b", "1")]), &[m1]);
+        let head = r.commit_tree(
+            r.tree_with(&[("m", "1"), ("b", "1"), ("c", "1")]),
+            &[expected],
+        );
+        let args = |expected_head: Oid| {
+            vec![
+                "commit-pr".to_string(),
+                "--head".to_string(),
+                head.to_string(),
+                "--base".to_string(),
+                m1.to_string(),
+                "--target".to_string(),
+                m1.to_string(),
+                "--local".to_string(),
+                local.to_string(),
+                "--expected-head".to_string(),
+                expected_head.to_string(),
+                "-m".to_string(),
+                "update".to_string(),
+            ]
+        };
+        let run = |args: Vec<String>| {
+            let args: Vec<&str> = args.iter().map(String::as_str).collect();
+            plumbing(&r, &args)
+        };
+
+        let error = run(args(expected)).unwrap_err();
+        assert_eq!(classify(&error), ("head-moved", 2));
+
+        // If the head is the expected one, it's fine
+        let output = run(args(head)).unwrap();
+        let new_head: Oid = lines(&output)[0].parse().unwrap();
+        assert_eq!(r.parents_of(new_head), vec![head]);
     }
 
     #[test]

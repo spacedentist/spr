@@ -14,13 +14,13 @@ Like Git, spr has two kinds of commands. The **porcelain** commands (`spr diff`,
 
 ### Exit status
 
-| status | kind               | meaning                                                                    |
-| ------ | ------------------ | -------------------------------------------------------------------------- |
-| 0      |                    | success                                                                    |
-| 1      | `error`            | any other error                                                            |
-| 2      | (command-specific) | `base-outdated`, `merge-commit` or `mismatch`, see the commands below      |
-| 3      | `message-required` | `commit-pr` would create a head commit, but no message was given with `-m` |
-| 4      | `conflict`         | a change can't be applied without conflicts                                |
+| status | kind               | meaning                                                                             |
+| ------ | ------------------ | ----------------------------------------------------------------------------------- |
+| 0      |                    | success                                                                             |
+| 1      | `error`            | any other error                                                                     |
+| 2      | (command-specific) | `base-outdated`, `head-moved`, `merge-commit` or `mismatch`, see the commands below |
+| 3      | `message-required` | `commit-pr` would create a head commit, but no message was given with `-m`          |
+| 4      | `conflict`         | a change can't be applied without conflicts                                         |
 
 Errors are printed to stderr. With `--json`, an error object is printed to stdout as well, so scripts parsing stdout always get JSON:
 
@@ -35,7 +35,7 @@ Creates the commits that make a pull request reflect a local commit, and prints 
 ```
 spr plumbing commit-pr --base <commit> --target <commit> [--head <commit>]
                        (--local <commit> | --tree <tree> --base-tree <tree>)
-                       [--cherry-pick] [--fixed-base]
+                       [--cherry-pick] [--fixed-base] [--expected-head <commit>]
                        [-m <message>] [--base-message <message>]
                        [--author-from <commit>] [--plan] [--json]
 ```
@@ -46,6 +46,7 @@ spr plumbing commit-pr --base <commit> --target <commit> [--head <commit>]
 - `--local <commit>`: the local commit. A shorthand for `--tree <commit>: --base-tree <commit>~:`: the head of the pull request should have the tree of the local commit, and its base the tree of the local commit's parent.
 - `--cherry-pick`: apply the change (from the base tree to the tree) onto `--target` instead. The base tree becomes the target's tree. Fails with `conflict` if the change doesn't apply cleanly.
 - `--fixed-base`: don't add commits to the base. If the base doesn't have the base tree, or doesn't contain the target, fail with `base-outdated`.
+- `--expected-head <commit>`: the head the pull request is expected to have, e.g. the one you pushed last — like `git push --force-with-lease`. If `--head` is a different commit, fail with `head-moved`, unless all its changes are contained in the tree already. That's the case if the head only moved because the target branch was merged into it or it was rebased onto the target branch (e.g. by GitHub), with changes the local commit is based on, too; or if its changes were applied to the local commit already. It fails if somebody else pushed changes to the pull request, or if the head is based on a newer target commit than `--target` (then rebase the local commit first).
 
 What happens:
 
