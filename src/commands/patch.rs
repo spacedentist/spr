@@ -131,6 +131,16 @@ pub async fn patch(
 
     output("🌱", &format!("Created new branch: {}", branch_name))?;
 
+    // The new local commit has the Pull Request's current state, so record
+    // its head as the one the local commit is consistent with. That
+    // protects the Pull Request from the start, e.g. when checking out a
+    // colleague's Pull Request.
+    if pr.merge_commit.is_none()
+        && let Some(spr_id) = message.spr_id()
+    {
+        git.set_expected_head(spr_id, pr.head_oid)?;
+    }
+
     if !opts.no_checkout {
         // Check out the new branch
         repo.checkout_tree(patch_branch_commit.as_object(), None)?;

@@ -900,6 +900,11 @@ async fn diff_impl(
         // Request branch and base are all the right ones.
         output("✅", "No update necessary")?;
 
+        // The Pull Request has the local commit's tree, so whatever happened
+        // to its head (e.g. GitHub rebasing it), it's consistent with the
+        // local commit.
+        record_expected_head(git, message, pull_request.head_oid)?;
+
         if !keeps_base {
             leave_github_stack(gh, pull_request.number).await?;
         }
@@ -1057,6 +1062,7 @@ async fn diff_impl(
     gh.remote()
         .push_to_remote(push_specs.as_slice())
         .context("git push failed".to_string())?;
+    record_expected_head(git, message, new_commits.head)?;
 
     if let Some(pull_request) = pull_request {
         // We are updating an existing Pull Request
@@ -1136,6 +1142,20 @@ async fn diff_impl(
         }
     }
 
+    Ok(())
+}
+
+/// Record the head of the Pull Request of the local commit with the given
+/// message as its expected head, if the local commit has an ID (see
+/// `Git::get_expected_head`)
+fn record_expected_head(
+    git: &crate::git::Git,
+    message: &crate::message::CommitMessage,
+    head: Oid,
+) -> Result<()> {
+    if let Some(spr_id) = message.spr_id() {
+        git.set_expected_head(spr_id, head)?;
+    }
     Ok(())
 }
 

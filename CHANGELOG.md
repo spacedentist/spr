@@ -26,7 +26,9 @@
 - local commits can have an ID, in a `Spr-Id` trailer (only in local
   commit messages, not in pull requests or landed commits), added by
   `spr diff --spr-id` and `spr patch --spr-id`, or always with the new
-  config option `spr.sprIds`
+  config option `spr.sprIds`; for commits with an ID, spr records the pull
+  request head it last pushed in the local ref `refs/spr/<id>/head` (see
+  the new page "Identify Commits with Spr-Ids" in the docs)
 - new config option `spr.useCommitTitleForInitialCommit`: use the commit
   title as the message of the first commit of a new pull request, instead
   of "[𝘀𝗽𝗿] initial version" (@justinbaltazar, #189)

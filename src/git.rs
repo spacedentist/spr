@@ -287,6 +287,51 @@ impl Git {
         Ok(result)
     }
 
+    /// The ref recording the expected head of the Pull Request of the local
+    /// commit with the given ID (`Spr-Id` trailer): the Pull Request head spr
+    /// last pushed, or otherwise found the local commit to be consistent
+    /// with. The ID must be valid (`CommitMessage::spr_id` only returns valid
+    /// ones), as it becomes part of the ref name.
+    fn expected_head_ref(spr_id: &str) -> Result<String> {
+        if !crate::message::is_valid_spr_id(spr_id) {
+            bail!("Invalid Spr-Id: {spr_id}");
+        }
+        Ok(format!("refs/spr/{spr_id}/head"))
+    }
+
+    /// The recorded expected head of the Pull Request of the local commit
+    /// with the given ID, if there is one (see `expected_head_ref`)
+    pub fn get_expected_head(&self, spr_id: &str) -> Result<Option<Oid>> {
+        match self.repo.find_reference(&Self::expected_head_ref(spr_id)?) {
+            Ok(reference) => Ok(reference.target()),
+            Err(error) if error.code() == git2::ErrorCode::NotFound => Ok(None),
+            Err(error) => Err(error.into()),
+        }
+    }
+
+    /// Record the expected head of the Pull Request of the local commit with
+    /// the given ID (see `expected_head_ref`)
+    pub fn set_expected_head(&self, spr_id: &str, head: Oid) -> Result<()> {
+        self.repo.reference(
+            &Self::expected_head_ref(spr_id)?,
+            head,
+            true,
+            "spr: expected head of Pull Request",
+        )?;
+        Ok(())
+    }
+
+    /// Delete the record of the expected head of the Pull Request of the
+    /// local commit with the given ID, if there is one (see
+    /// `expected_head_ref`)
+    pub fn delete_expected_head(&self, spr_id: &str) -> Result<()> {
+        match self.repo.find_reference(&Self::expected_head_ref(spr_id)?) {
+            Ok(mut reference) => Ok(reference.delete()?),
+            Err(error) if error.code() == git2::ErrorCode::NotFound => Ok(()),
+            Err(error) => Err(error.into()),
+        }
+    }
+
     pub fn prepare_commit(
         &self,
         config: &Config,
@@ -491,6 +536,48 @@ impl Git {
 mod tests {
     use super::*;
     use crate::test_utils::TestRepo;
+
+    #[test]
+    fn test_expected_head_records() {
+        let r = TestRepo::new();
+        let git = &r.git;
+        let m1 = r.commit("m1", &[]);
+        let a = r.commit("a", &[m1]);
+        let id = crate::message::new_spr_id();
+
+        assert_eq!(git.get_expected_head(&id).unwrap(), None);
+        // Deleting a record that doesn't exist is fine
+        git.delete_expected_head(&id).unwrap();
+
+        git.set_expected_head(&id, m1).unwrap();
+        assert_eq!(git.get_expected_head(&id).unwrap(), Some(m1));
+        git.set_expected_head(&id, a).unwrap();
+        assert_eq!(git.get_expected_head(&id).unwrap(), Some(a));
+        assert_eq!(
+            git.repo()
+                .find_reference(&format!("refs/spr/{id}/head"))
+                .unwrap()
+                .target(),
+            Some(a)
+        );
+
+        git.delete_expected_head(&id).unwrap();
+        assert_eq!(git.get_expected_head(&id).unwrap(), None);
+    }
+
+    #[test]
+    fn test_expected_head_rejects_invalid_ids() {
+        let r = TestRepo::new();
+        let git = &r.git;
+        let m1 = r.commit("m1", &[]);
+
+        for id in ["../../heads/master", "", "abc"] {
+            assert!(git.set_expected_head(id, m1).is_err());
+            assert!(git.get_expected_head(id).is_err());
+            assert!(git.delete_expected_head(id).is_err());
+        }
+        assert!(git.repo().find_reference("refs/heads/master").is_err());
+    }
 
     /// A repository with branch `main` checked out, pointing at commit a on
     /// top of m1. Returns the repo, m1 and a.

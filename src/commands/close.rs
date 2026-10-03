@@ -48,7 +48,7 @@ pub async fn close(
         // This makes it easier to run the code to update the local commit message
         // with all the changes that the implementation makes at the end, even if
         // the implementation encounters an error or exits early.
-        result = close_impl(gh, config, prepared_commit).await;
+        result = close_impl(git, gh, config, prepared_commit).await;
     }
 
     // This updates the commit message in the local Git repository (if it was
@@ -59,6 +59,7 @@ pub async fn close(
 }
 
 async fn close_impl(
+    git: &crate::git::Git,
     gh: &mut crate::github::GitHub,
     config: &crate::config::Config,
     prepared_commit: &mut PreparedCommit,
@@ -126,6 +127,17 @@ async fn close_impl(
                 number,
                 pull_request.base.branch_name()
             ),
+        )?;
+    }
+
+    // Remove the record of the Pull Request's expected head. (The Pull
+    // Request is closed anyway, so failing to do so is only a warning.)
+    if let Some(spr_id) = prepared_commit.message.spr_id()
+        && let Err(error) = git.delete_expected_head(spr_id)
+    {
+        output(
+            "⚠️",
+            &format!("Could not delete refs/spr/{spr_id}/head: {error:#}"),
         )?;
     }
 

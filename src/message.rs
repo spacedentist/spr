@@ -32,6 +32,17 @@ pub fn new_spr_id() -> String {
         .collect()
 }
 
+/// Whether the given string is an ID as created by `new_spr_id`: 32 hex
+/// digits (lowercase). IDs come from commit messages, which users can edit,
+/// and are used in ref names (`refs/spr/<id>/…`), so anything else must not
+/// be used as an ID.
+pub fn is_valid_spr_id(id: &str) -> bool {
+    id.len() == 32
+        && id
+            .bytes()
+            .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
+}
+
 /// Represents a structured commit message with title, body, and trailers.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct CommitMessage {
@@ -301,13 +312,16 @@ impl CommitMessage {
         self.trailers.retain(|(k, _)| k.to_lowercase() != key_lower);
     }
 
-    /// The ID spr gave the local commit (`Spr-Id` trailer), if any
+    /// The ID spr gave the local commit (`Spr-Id` trailer), if any. A
+    /// trailer that isn't a valid ID (see `is_valid_spr_id`) is ignored.
     pub fn spr_id(&self) -> Option<&str> {
         self.get_trailer(SPR_ID_TRAILER)
+            .filter(|id| is_valid_spr_id(id))
     }
 
-    /// Give the local commit a new ID (`Spr-Id` trailer), unless it has one
-    /// already. Returns whether it added one.
+    /// Give the local commit a new ID (`Spr-Id` trailer), unless it has a
+    /// valid one already. (An invalid one is replaced.) Returns whether it
+    /// added one.
     pub fn ensure_spr_id(&mut self) -> bool {
         if self.spr_id().is_some() {
             return false;
@@ -708,9 +722,25 @@ mod tests {
             (0..1000).map(|_| new_spr_id()).collect();
 
         assert_eq!(ids.len(), 1000);
-        for id in &ids {
-            assert_eq!(id.len(), 32);
-            assert!(id.chars().all(|c| c.is_ascii_hexdigit()));
+        assert!(ids.iter().all(|id| is_valid_spr_id(id)));
+    }
+
+    #[test]
+    fn test_invalid_spr_id_is_ignored_and_replaced() {
+        for invalid in [
+            "../../heads/master",
+            "7F3A91C0D2E84B5F9A6C1E0B3D7F2A48",
+            "7f3a91c0d2e84b5f9a6c1e0b3d7f2a4",
+            "7f3a91c0d2e84b5f9a6c1e0b3d7f2a48/x",
+            "7f3a91c0d2e84b5f9a6c1e0b3d7f2a4g",
+        ] {
+            let mut message =
+                CommitMessage::parse(&format!("Title\n\nSpr-Id: {invalid}"));
+            assert_eq!(message.spr_id(), None, "{invalid}");
+
+            assert!(message.ensure_spr_id());
+            assert!(message.spr_id().is_some());
+            assert_eq!(message.trailers().len(), 1);
         }
     }
 

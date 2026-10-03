@@ -14,6 +14,7 @@
 - [Choose a Merge Method and Stacking Mode](user/stacking-modes.md)
 - [Format and Update Commit Messages](user/commit-message.md)
 - [Check Out Someone Else's PR](user/patch.md)
+- [Identify Commits with Spr-Ids](user/spr-ids.md)
 
 # Reference Guide
 

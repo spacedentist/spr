@@ -32,6 +32,6 @@ spr uses the following Git configuration values:
 
 [^stacking]: `base-branches`: the pull request targets a synthetic base branch created by spr. `chain`: the pull request targets the pull request branch of the parent commit. `github-stack`: like `chain`, and the pull requests are linked as a stack on GitHub (GitHub's stacked pull requests feature, in public preview). The combination of `mergeMethod` `merge` and `stackingMode` `base-branches` is not allowed. See [Choose a Merge Method and Stacking Mode](../user/stacking-modes.md) for the trade-offs.
 
-[^sprids]: The ID identifies a local commit and its pull request across amends and rebases, like Gerrit's `Change-Id`. It only appears in local commit messages — not in pull requests, nor in the commits that land. The setting only controls whether IDs are added automatically: commits that have an ID keep it either way. See [Format and Update Commit Messages](../user/commit-message.md#fields-added-by-spr).
+[^sprids]: The ID identifies a local commit and its pull request across amends and rebases, like Gerrit's `Change-Id`. It only appears in local commit messages — not in pull requests, nor in the commits that land. The setting only controls whether IDs are added automatically: commits that have an ID keep it either way. See [Identify Commits with Spr-Ids](../user/spr-ids.md).
 
 [^cli-token]: Be careful using this: your auth token will be in your shell history.

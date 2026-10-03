@@ -53,7 +53,7 @@ At various stages of a commit's lifecycle, `spr` will add lines to the commit me
   Spr-Id: 7f3a91c0d2e84b5f9a6c1e0b3d7f2a48
   ```
 
-  It identifies the commit and its PR across amends and rebases (like Gerrit's `Change-Id`). It only appears in your local commit message: not in the PR, and not in the commit that lands. Once there, spr keeps it; `spr close` removes it. `spr patch --spr-id` gives the commit it creates an ID, too.
+  It gives the commit a stable identity across amends and rebases (like Gerrit's `Change-Id`), which spr uses to keep track of the PR's state locally. It only appears in your local commit message: not in the PR, and not in the commit that lands. See [Identify Commits with Spr-Ids](spr-ids.md).
 
 These metadata fields (`Pull-request`, `Reviewers`, `Reviewed-by`, `Spr-Id`) are stored as [git trailers](https://git-scm.com/docs/git-interpret-trailers) — special key-value lines at the end of commit messages that follow git's trailer conventions.
 

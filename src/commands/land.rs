@@ -64,6 +64,7 @@ pub async fn land(
     };
 
     write_commit_title(prepared_commit)?;
+    let spr_id = prepared_commit.message.spr_id().map(str::to_owned);
 
     let pull_request_number =
         if let Some(number) = prepared_commit.pull_request_number {
@@ -349,6 +350,10 @@ pub async fn land(
         }
     };
 
+    // The Pull Request has landed, so the record of its expected head isn't
+    // needed anymore
+    forget_expected_heads(git, spr_id.as_deref())?;
+
     output("🛬", "Landed!")?;
 
     // Pull Requests stacked on this one (in chain stacking mode) are based on
@@ -588,6 +593,13 @@ async fn land_stack(
         ),
     };
 
+    forget_expected_heads(
+        git,
+        prepared_commits
+            .iter()
+            .filter_map(|commit| commit.message.spr_id()),
+    )?;
+
     output(
         "🛬",
         &format!(
@@ -665,5 +677,23 @@ async fn land_stack(
         }
     }
 
+    Ok(())
+}
+
+/// Delete the records of the expected heads of landed Pull Requests (for the
+/// local commits with the given IDs). The Pull Requests have landed anyway,
+/// so failing to do so is only a warning.
+fn forget_expected_heads<'a>(
+    git: &crate::git::Git,
+    spr_ids: impl IntoIterator<Item = &'a str>,
+) -> Result<()> {
+    for spr_id in spr_ids {
+        if let Err(error) = git.delete_expected_head(spr_id) {
+            output(
+                "⚠️",
+                &format!("Could not delete refs/spr/{spr_id}/head: {error:#}"),
+            )?;
+        }
+    }
     Ok(())
 }
