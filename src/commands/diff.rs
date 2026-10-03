@@ -13,7 +13,8 @@ use crate::{
     },
     output::{output, write_commit_title},
     pr_commits::{
-        self, BaseOutdated, CommitInfo, Conflict, Plan, PullRequestCommits,
+        self, BaseOutdated, CommitInfo, Conflict, HeadMoved, Plan,
+        PullRequestCommits,
     },
     utils::{parse_name_list, remove_all_parens, slugify},
 };
@@ -59,6 +60,12 @@ pub struct DiffOptions {
     /// one yet. (Always done if `spr.sprIds` is set.)
     #[clap(long)]
     spr_id: bool,
+
+    /// Update Pull Requests even if they have changes that aren't in the
+    /// local commit (e.g. pushed by somebody else), overwriting them. Only
+    /// checked for commits with an ID (`Spr-Id` trailer).
+    #[clap(long)]
+    force: bool,
 }
 
 fn get_oids(refs: &str, repo: &git2::Repository) -> Result<HashSet<Oid>> {
@@ -802,6 +809,22 @@ async fn diff_impl(
         base_tree: new_base_tree,
         may_update_base,
     };
+    // If somebody else changed the Pull Request, updating it would revert
+    // their changes. Stop, unless the user tells us to --force.
+    if let Some(ref pull_request) = pull_request
+        && !check_remote_changes(
+            opts,
+            git,
+            gh,
+            config,
+            message,
+            &commits,
+            pull_request,
+        )?
+    {
+        return Ok(());
+    }
+
     let plan = match commits.plan(git) {
         Err(error) if error.downcast_ref::<BaseOutdated>().is_some() => {
             if let Some(ref stack_on) = stack_on
@@ -1143,6 +1166,103 @@ async fn diff_impl(
     }
 
     Ok(())
+}
+
+/// Check whether the Pull Request has changes that aren't in the local commit
+/// (e.g. pushed by somebody else), by comparing its head with the expected
+/// head recorded for the local commit (see `Git::get_expected_head`). Only
+/// commits with an ID have such a record.
+///
+/// Fails if there are such changes, unless the user gave `--force`. Returns
+/// whether to go ahead, which in a dry run is false if a real run would fail.
+///
+/// If the Pull Request is based on a newer master commit than the local
+/// commit (e.g. after GitHub's "Update branch"), it fails even with
+/// `--force`: overwriting would revert those master changes in the Pull
+/// Request. The local commit needs to be rebased first.
+fn check_remote_changes(
+    opts: &DiffOptions,
+    git: &crate::git::Git,
+    gh: &crate::github::GitHub,
+    config: &crate::config::Config,
+    message: &crate::message::CommitMessage,
+    commits: &PullRequestCommits,
+    pull_request: &PullRequest,
+) -> Result<bool> {
+    let Some(expected_head) = message
+        .spr_id()
+        .map(|spr_id| git.get_expected_head(spr_id))
+        .transpose()?
+        .flatten()
+    else {
+        return Ok(true);
+    };
+
+    match commits.check_expected_head(git, expected_head) {
+        Err(error) if error.downcast_ref::<HeadMoved>().is_some() => (),
+        result => return result.map(|()| true),
+    }
+
+    let number = pull_request.number;
+
+    // Is the Pull Request based on a newer master commit than the local one?
+    let master = config.master_ref.branch_name();
+    let master_tip = gh.remote().fetch_branch(master)?;
+    let pr_master = git.repo().merge_base(commits.head, master_tip)?;
+    if !git.is_ancestor(pr_master, commits.target)? {
+        let newer_master = format!(
+            "Pull Request #{number} is based on a newer `{master}` than your \
+             local commit (e.g. somebody used GitHub's \"Update branch\")"
+        );
+        if opts.dry_run {
+            output(
+                "🔍",
+                &format!(
+                    "Would stop: {newer_master}. Rebase your local commit \
+                     onto `{master}` first."
+                ),
+            )?;
+            return Ok(false);
+        }
+        bail!(
+            "{newer_master}. Rebase your local commit onto the current \
+             `{master}` first, then run `spr diff` again."
+        );
+    }
+
+    let changes = format!(
+        "Pull Request #{number} has changes that aren't in your local commit \
+         (e.g. somebody else pushed to it)"
+    );
+    match (opts.force, opts.dry_run) {
+        (true, true) => {
+            output(
+                "🔍",
+                &format!("{changes}. Would overwrite them (--force)."),
+            )?;
+            Ok(true)
+        }
+        (true, false) => {
+            output("💪", &format!("{changes}. Overwriting them (--force)."))?;
+            Ok(true)
+        }
+        (false, true) => {
+            output(
+                "🔍",
+                &format!(
+                    "Would stop: {changes}. Use `spr diff --force` to \
+                     overwrite them."
+                ),
+            )?;
+            Ok(false)
+        }
+        (false, false) => bail!(formatdoc!(
+            "{changes}. Updating it would revert them.
+             To get them locally, `spr patch {number}` checks out the Pull \
+             Request's current state as a new branch. To overwrite them with \
+             your local commit, run `spr diff --force`."
+        )),
+    }
 }
 
 /// Record the head of the Pull Request of the local commit with the given

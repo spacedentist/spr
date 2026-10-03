@@ -18,4 +18,4 @@ Thus, the new local branch always has either one or two commits on it, before jo
 
 You can amend the head commit of the `PR-<number>` branch locally, and run `spr diff` to update the PR; it doesn't matter that you didn't create the PR. However, doing so will overwrite the contents of the PR on GitHub with what you have locally. You should coordinate with the PR creator before doing so.
 
-If you're going to work on the PR, use `spr patch --spr-id <number>`: it gives the local commit a [Spr-Id](spr-ids.md), and records the PR's current state, so spr can keep track of changes others push to the PR after that.
+If you're going to work on the PR, use `spr patch --spr-id <number>`: it gives the local commit a [Spr-Id](spr-ids.md), and records the PR's current state. If others push changes to the PR after that, `spr diff` stops instead of overwriting them (see [Spr-Ids](spr-ids.md#what-the-record-is-for-changes-others-push-to-your-pull-request)).

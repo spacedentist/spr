@@ -29,6 +29,9 @@
   config option `spr.sprIds`; for commits with an ID, spr records the pull
   request head it last pushed in the local ref `refs/spr/<id>/head` (see
   the new page "Identify Commits with Spr-Ids" in the docs)
+- for commits with a `Spr-Id`, `spr diff` stops if somebody else pushed
+  changes to the pull request that aren't in the local commit, instead of
+  silently reverting them; `spr diff --force` overwrites them (#246)
 - new config option `spr.useCommitTitleForInitialCommit`: use the commit
   title as the message of the first commit of a new pull request, instead
   of "[𝘀𝗽𝗿] initial version" (@justinbaltazar, #189)

@@ -44,11 +44,26 @@ spr never force-pushes: each update of a pull request is a new commit on top of 
 
 But spr's next commit gets the tree of your local commit, which doesn't contain their changes. So your next `spr diff` would quietly revert them.
 
-To notice that, spr needs to know which state of the pull request your local commit corresponds to — and that's what the record is: if the pull request's head is still the one recorded, nothing happened that your local commit doesn't know about. If it moved, spr can work out whether the changes are already contained locally (e.g. because GitHub only rebased the branch), or whether somebody else changed the pull request.
+To notice that, spr needs to know which state of the pull request your local commit corresponds to — and that's what the record is. If the pull request's head is still the one recorded, nothing happened that your local commit doesn't know about. If it moved, spr works out whether the changes are already contained locally: e.g. GitHub only rebased the branch, or you already applied the same changes to your local commit.
+
+If they aren't, `spr diff` stops, and leaves the pull request as it is:
+
+```
+Pull Request #123 has changes that aren't in your local commit (e.g. somebody else pushed to it). Updating it would revert them.
+```
+
+Then you can:
+
+- **Get their changes.** `spr patch 123` checks out the pull request's current state as a new local branch. From there, take what you need into your local commit with Git, e.g. with `git cherry-pick`.
+- **Overwrite them.** `spr diff --force` updates the pull request with your local commit anyway, as if you force-pushed your local commit to the pull request. (spr still doesn't force-push: their commits stay in the pull request's history, and the new commit reverts their changes.)
+
+With `spr diff --all`, it stops at the first commit whose pull request has changes, and `spr diff --dry-run` tells you which ones would stop.
+
+A special case is a pull request that is based on a newer `main` than your local commit, e.g. after somebody used GitHub's "Update branch" button. `spr diff` then asks you to rebase your local commit onto the current `main` first. `--force` doesn't help here: the pull request would then show your change _and_ the reversal of everything that's new on `main`. After rebasing, `spr diff` checks again, and only stops if there are other changes, too.
 
 ## When to use Spr-Ids
 
-Without a `Spr-Id`, spr works as it always has: nothing is recorded, and your next `spr diff` overwrites changes that others pushed to your pull request.
+Without a `Spr-Id`, spr works as it always has: nothing is recorded, nothing is checked, and your next `spr diff` overwrites changes that others pushed to your pull request.
 
 IDs are opt-in, because the trailer is clutter in your commit messages if you work on your pull requests alone. You can add one to just the pull requests that others work on, too:
 
