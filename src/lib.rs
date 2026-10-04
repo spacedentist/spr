@@ -7,6 +7,7 @@ pub mod land_check;
 pub mod message;
 pub mod output;
 pub mod pr_commits;
+pub mod remote_changes;
 #[cfg(test)]
 pub mod test_utils;
 pub mod utils;

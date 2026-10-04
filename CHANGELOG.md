@@ -32,6 +32,9 @@
 - for commits with a `Spr-Id`, `spr diff` stops if somebody else pushed
   changes to the pull request that aren't in the local commit, instead of
   silently reverting them; `spr diff --force` overwrites them (#246)
+- new command `spr pull`: applies the changes somebody else pushed to the
+  pull request to the local commit (for commits with a `Spr-Id`; `--all`
+  for all commits of the branch) (#140)
 - new config option `spr.useCommitTitleForInitialCommit`: use the commit
   title as the message of the first commit of a new pull request, instead
   of "[𝘀𝗽𝗿] initial version" (@justinbaltazar, #189)

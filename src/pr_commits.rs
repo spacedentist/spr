@@ -137,7 +137,7 @@ impl std::error::Error for HeadMoved {}
 
 /// Three-way merge of trees. Returns the resulting tree, or `None` if there
 /// are conflicts.
-fn merge_trees(
+pub fn merge_trees(
     git: &Git,
     ancestor: Oid,
     ours: Oid,
@@ -154,6 +154,44 @@ fn merge_trees(
         return Ok(None);
     }
     Ok(Some(index.write_tree_to(repo)?))
+}
+
+/// The baseline for working out what changed on a Pull Request since it had
+/// the head `expected_head`: the tree of `expected_head`, with the target
+/// branch changes merged in that the current `head` picked up since (e.g.
+/// GitHub merging in or rebasing onto the target branch). The changes from
+/// the baseline to `head` are then the ones others made to the Pull Request.
+/// `target` is the target-branch commit the local commit is based on.
+///
+/// Returns `None` if there is no such baseline: without common history, or
+/// if merging in the target branch changes has conflicts.
+pub fn remote_changes_baseline(
+    git: &Git,
+    head: Oid,
+    target: Oid,
+    expected_head: Oid,
+) -> Result<Option<Oid>> {
+    let repo = git.repo();
+    let tree = |commit: Oid| git.get_tree_oid_for_commit(commit);
+
+    // The target commit the head is based on, and the one the expected head
+    // is based on
+    let Ok(head_target) = repo.merge_base(head, target) else {
+        return Ok(None);
+    };
+    let Ok(expected_target) = repo.merge_base(expected_head, head_target)
+    else {
+        return Ok(None);
+    };
+
+    // The expected head, with the target branch changes the head picked up
+    // merged in
+    merge_trees(
+        git,
+        tree(expected_target)?,
+        tree(expected_head)?,
+        tree(head_target)?,
+    )
 }
 
 /// The resulting head and base of the Pull Request
@@ -198,33 +236,19 @@ impl PullRequestCommits {
             return Ok(());
         }
 
-        let repo = git.repo();
-        // Without common history, we can't tell what changed.
-        let merge_base = |a: Oid, b: Oid| -> Result<Oid> {
-            repo.merge_base(a, b).map_err(|_| HeadMoved.into())
-        };
-        let tree = |commit: Oid| git.get_tree_oid_for_commit(commit);
-
-        // The target commit the head is based on, and the one the expected
-        // head is based on
-        let head_target = merge_base(self.head, self.target)?;
-        let expected_target = merge_base(expected_head, head_target)?;
-
-        // The expected head, with the target branch changes the head picked
-        // up merged in
-        let Some(baseline) = merge_trees(
+        // Apply the changes from the baseline to the head to the tree we're
+        // about to push. They must be contained in it already.
+        let Some(baseline) = remote_changes_baseline(
             git,
-            tree(expected_target)?,
-            tree(expected_head)?,
-            tree(head_target)?,
+            self.head,
+            self.target,
+            expected_head,
         )?
         else {
             return Err(HeadMoved.into());
         };
-
-        // Apply the changes from there to the head to the tree we're about
-        // to push. They must be contained in it already.
-        match merge_trees(git, baseline, self.head_tree, tree(self.head)?)? {
+        let head_tree = git.get_tree_oid_for_commit(self.head)?;
+        match merge_trees(git, baseline, self.head_tree, head_tree)? {
             Some(result) if result == self.head_tree => Ok(()),
             _ => Err(HeadMoved.into()),
         }

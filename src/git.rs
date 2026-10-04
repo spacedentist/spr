@@ -228,6 +228,37 @@ impl Git {
         self.move_head(landed_oid, "spr landed")
     }
 
+    /// Replace the commits of the current branch (or HEAD, if detached) up
+    /// to `old_head` with the rewritten ones up to `new_head` (e.g. amended
+    /// commits), and check out `new_head`. Fails without changing anything
+    /// if the branch doesn't point at `old_head` anymore. `rewrites` maps old
+    /// to new commits, for the `post-rewrite` hook.
+    pub fn replace_head(
+        &self,
+        old_head: Oid,
+        new_head: Oid,
+        rewrites: &[(Oid, Oid)],
+        reflog_message: &str,
+    ) -> Result<()> {
+        let reference = self.repo.head()?.resolve()?;
+        let name = reference.name()?.to_string();
+        if reference.target() != Some(old_head) {
+            bail!("The current branch was changed while spr was running");
+        }
+
+        let new_commit = self.repo.find_commit(new_head)?;
+        self.repo.checkout_tree(new_commit.as_object(), None)?;
+        self.repo
+            .reference_matching(&name, new_head, true, old_head, reflog_message)
+            .map_err(|_| {
+                eyre!("The current branch was changed while spr was running")
+            })?;
+        self.hooks()
+            .run_post_rewrite_rebase(self.repo.as_ref(), rewrites);
+
+        Ok(())
+    }
+
     /// Check out the given commit and point the current branch (or HEAD, if
     /// detached) at it.
     fn move_head(&self, new_oid: Oid, reflog_message: &str) -> Result<()> {

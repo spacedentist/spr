@@ -1250,17 +1250,17 @@ fn check_remote_changes(
             output(
                 "🔍",
                 &format!(
-                    "Would stop: {changes}. Use `spr diff --force` to \
-                     overwrite them."
+                    "Would stop: {changes}. Use `spr pull` to apply them to \
+                     your local commit, or `spr diff --force` to overwrite \
+                     them."
                 ),
             )?;
             Ok(false)
         }
         (false, false) => bail!(formatdoc!(
             "{changes}. Updating it would revert them.
-             To get them locally, `spr patch {number}` checks out the Pull \
-             Request's current state as a new branch. To overwrite them with \
-             your local commit, run `spr diff --force`."
+             To apply them to your local commit, run `spr pull`. To \
+             overwrite them with your local commit, run `spr diff --force`."
         )),
     }
 }

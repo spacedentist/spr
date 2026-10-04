@@ -86,6 +86,9 @@ enum Commands {
     /// Create a new branch with the contents of an existing Pull Request
     Patch(commands::patch::PatchOptions),
 
+    /// Apply changes others pushed to the Pull Request to the local commit
+    Pull(commands::pull::PullOptions),
+
     /// Close a Pull request
     Close(commands::close::CloseOptions),
 
@@ -229,6 +232,9 @@ pub async fn spr() -> Result<()> {
         }
         Commands::Close(opts) => {
             commands::close::close(opts, &git, &mut gh, &config).await?
+        }
+        Commands::Pull(opts) => {
+            commands::pull::pull(opts, &git, &mut gh, &config).await?
         }
         Commands::Format(opts) => {
             commands::format::format(opts, &git, &mut gh, &config).await?
