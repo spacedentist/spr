@@ -65,6 +65,10 @@
 
 ### Fixes
 
+- the trailers in the message of a landed commit (`Pull-request`,
+  `Reviewers`, `Reviewed-by`) are one block after the description, so Git
+  recognises all of them as trailers (before, they were separated by blank
+  lines, and only the last one counted)
 - `spr diff --all` no longer loses the links to newly created pull requests
   if updating a later commit's pull request fails (the next run created
   them again)

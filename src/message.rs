@@ -382,28 +382,42 @@ impl CommitMessage {
         self.body.clone()
     }
 
-    /// Build a GitHub PR body for merging (includes trailers).
+    /// Build a GitHub PR body for merging: the body of the commit that
+    /// lands. Includes the trailers that belong in the landed commit, as one
+    /// block after the body, so Git recognises all of them as trailers.
     pub fn to_github_body_for_merging(&self) -> String {
+        let trailers: Vec<String> = self
+            .trailers
+            .iter()
+            .filter(|(key, _)| {
+                let key_lower = key.to_lowercase();
+                key_lower == "reviewers"
+                    || key_lower == "reviewed-by"
+                    || key_lower == "pull-request"
+            })
+            .map(|(key, value)| format!("{}: {}", key, unfold(value)))
+            .collect();
+
         let mut result = self.body.clone();
-
-        // Add relevant trailers
-        for (key, value) in &self.trailers {
-            let key_lower = key.to_lowercase();
-            if key_lower == "reviewers"
-                || key_lower == "reviewed-by"
-                || key_lower == "pull-request"
-            {
-                if !result.is_empty() {
-                    result.push_str("\n\n");
-                }
-                result.push_str(key);
-                result.push_str(": ");
-                result.push_str(value);
+        if !trailers.is_empty() {
+            if !result.is_empty() {
+                result.push_str("\n\n");
             }
+            result.push_str(&trailers.join("\n"));
         }
-
         result
     }
+}
+
+/// Unfold a multi-line trailer value: split by newlines, trim each line,
+/// filter empty lines, and join with single spaces
+fn unfold(value: &str) -> String {
+    value
+        .lines()
+        .map(|line| line.trim())
+        .filter(|line| !line.is_empty())
+        .collect::<Vec<_>>()
+        .join(" ")
 }
 
 impl fmt::Display for CommitMessage {
@@ -420,15 +434,7 @@ impl fmt::Display for CommitMessage {
         if !self.trailers.is_empty() {
             write!(f, "\n\n")?;
             for (key, value) in &self.trailers {
-                // Unfold multi-line values: split by newlines, trim each line,
-                // filter empty lines, and join with single space
-                let unfolded_value = value
-                    .lines()
-                    .map(|line| line.trim())
-                    .filter(|line| !line.is_empty())
-                    .collect::<Vec<_>>()
-                    .join(" ");
-                writeln!(f, "{}: {}", key, unfolded_value)?;
+                writeln!(f, "{}: {}", key, unfold(value))?;
             }
         }
 
@@ -775,6 +781,36 @@ mod tests {
 
         assert!(!message.to_github_body().contains("Spr-Id"));
         assert!(!message.to_github_body_for_merging().contains("Spr-Id"));
+    }
+
+    #[test]
+    fn test_github_body_for_merging() {
+        let mut message = CommitMessage::parse(
+            "Title\n\nBody\n\n\
+             Reviewers: alice,\n  bob\n\
+             Signed-off-by: Carol <carol@example.com>",
+        );
+        message.ensure_spr_id();
+        message.set_trailer(
+            "Pull-request".into(),
+            "https://github.com/o/r/pull/1".into(),
+        );
+        message.set_trailer("Reviewed-by".into(), "alice".into());
+
+        // The trailers that belong in the landed commit, as one block (so
+        // Git sees all of them as trailers), unfolded
+        assert_eq!(
+            message.to_github_body_for_merging(),
+            "Body\n\n\
+             Reviewers: alice, bob\n\
+             Pull-request: https://github.com/o/r/pull/1\n\
+             Reviewed-by: alice"
+        );
+
+        // Without a body, just the trailers
+        let mut message = CommitMessage::new("Title".into(), String::new());
+        message.set_trailer("Reviewed-by".into(), "alice".into());
+        assert_eq!(message.to_github_body_for_merging(), "Reviewed-by: alice");
     }
 
     #[test]

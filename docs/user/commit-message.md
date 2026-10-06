@@ -95,11 +95,9 @@ Add feature
 
 This is a really cool feature! It's going to be great.
 
-Reviewers: user-a, coworker-b
-
-Reviewed-by: coworker-b
-
 Pull-request: https://github.com/example/my-thing/pull/123
+Reviewers: user-a, coworker-b
+Reviewed-by: coworker-b
 ```
 
 ### Reformatting the commit message
