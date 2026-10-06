@@ -35,10 +35,10 @@
             const path_to_root = "../";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "../searchindex-2e5c678e.js";
+            window.path_to_searchindex_js = "../searchindex-87d88fd8.js";
         </script>
         <!-- Start loading toc.js asap -->
-        <script src="../toc-ab90c969.js"></script>
+        <script src="../toc-67e12d6a.js"></script>
     </head>
     <body>
     <div id="mdbook-help-container">
@@ -202,7 +202,7 @@
 <tbody>
 <tr><td>0</td><td></td><td>success</td></tr>
 <tr><td>1</td><td><code>error</code></td><td>any other error</td></tr>
-<tr><td>2</td><td>(command-specific)</td><td><code>base-outdated</code>, <code>merge-commit</code> or <code>mismatch</code>, see the commands below</td></tr>
+<tr><td>2</td><td>(command-specific)</td><td><code>base-outdated</code>, <code>head-moved</code>, <code>merge-commit</code> or <code>mismatch</code>, see the commands below</td></tr>
 <tr><td>3</td><td><code>message-required</code></td><td><code>commit-pr</code> would create a head commit, but no message was given with <code>-m</code></td></tr>
 <tr><td>4</td><td><code>conflict</code></td><td>a change can’t be applied without conflicts</td></tr>
 </tbody>
@@ -215,7 +215,7 @@
 <p>Creates the commits that make a pull request reflect a local commit, and prints the new head and base commit of the pull request (each is the input commit if it didn’t need changing).</p>
 <pre><code>spr plumbing commit-pr --base &lt;commit&gt; --target &lt;commit&gt; [--head &lt;commit&gt;]
                        (--local &lt;commit&gt; | --tree &lt;tree&gt; --base-tree &lt;tree&gt;)
-                       [--cherry-pick] [--fixed-base]
+                       [--cherry-pick] [--fixed-base] [--expected-head &lt;commit&gt;]
                        [-m &lt;message&gt;] [--base-message &lt;message&gt;]
                        [--author-from &lt;commit&gt;] [--plan] [--json]
 </code></pre>
@@ -226,6 +226,7 @@
 <li><code>--local &lt;commit&gt;</code>: the local commit. A shorthand for <code>--tree &lt;commit&gt;: --base-tree &lt;commit&gt;~:</code>: the head of the pull request should have the tree of the local commit, and its base the tree of the local commit’s parent.</li>
 <li><code>--cherry-pick</code>: apply the change (from the base tree to the tree) onto <code>--target</code> instead. The base tree becomes the target’s tree. Fails with <code>conflict</code> if the change doesn’t apply cleanly.</li>
 <li><code>--fixed-base</code>: don’t add commits to the base. If the base doesn’t have the base tree, or doesn’t contain the target, fail with <code>base-outdated</code>.</li>
+<li><code>--expected-head &lt;commit&gt;</code>: the head the pull request is expected to have, e.g. the one you pushed last — like <code>git push --force-with-lease</code>. If <code>--head</code> is a different commit, fail with <code>head-moved</code>, unless all its changes are contained in the tree already. That’s the case if the head only moved because the target branch was merged into it or it was rebased onto the target branch (e.g. by GitHub), with changes the local commit is based on, too; or if its changes were applied to the local commit already. It fails if somebody else pushed changes to the pull request, or if the head is based on a newer target commit than <code>--target</code> (then rebase the local commit first).</li>
 </ul>
 <p>What happens:</p>
 <ul>

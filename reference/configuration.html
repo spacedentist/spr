@@ -35,10 +35,10 @@
             const path_to_root = "../";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "../searchindex-2e5c678e.js";
+            window.path_to_searchindex_js = "../searchindex-87d88fd8.js";
         </script>
         <!-- Start loading toc.js asap -->
-        <script src="../toc-ab90c969.js"></script>
+        <script src="../toc-67e12d6a.js"></script>
     </head>
     <body>
     <div id="mdbook-help-container">
@@ -197,6 +197,7 @@
 <tr><td><code>mergeMethod</code></td><td></td><td>How pull requests are merged: <code>squash</code> or <code>merge</code><sup class="footnote-reference" id="fr-merge-1"><a href="#footnote-merge">4</a></sup></td><td><code>squash</code></td><td>not set</td></tr>
 <tr><td><code>stackingMode</code></td><td></td><td>How pull requests of stacked commits are set up: <code>base-branches</code>, <code>chain</code> or <code>github-stack</code><sup class="footnote-reference" id="fr-stacking-1"><a href="#footnote-stacking">5</a></sup></td><td><code>base-branches</code> with <code>squash</code>, <code>chain</code> with <code>merge</code></td><td>not set</td></tr>
 <tr><td><code>useCommitTitleForInitialCommit</code></td><td></td><td>If true, uses the actual commit title for the initial PR commit message. If false, uses <code>[𝘀𝗽𝗿] initial version</code>.</td><td><code>false</code></td><td>not set</td></tr>
+<tr><td><code>sprIds</code></td><td></td><td>If true, <code>spr diff</code> and <code>spr patch</code> give every local commit an ID (<code>Spr-Id</code> trailer); otherwise only with <code>--spr-id</code><sup class="footnote-reference" id="fr-sprids-1"><a href="#footnote-sprids">6</a></sup></td><td><code>false</code></td><td>not set</td></tr>
 </tbody>
 </table>
 </div>
@@ -231,13 +232,16 @@
 <li id="footnote-stacking">
 <p><code>base-branches</code>: the pull request targets a synthetic base branch created by spr. <code>chain</code>: the pull request targets the pull request branch of the parent commit. <code>github-stack</code>: like <code>chain</code>, and the pull requests are linked as a stack on GitHub (GitHub’s stacked pull requests feature, in public preview). The combination of <code>mergeMethod</code> <code>merge</code> and <code>stackingMode</code> <code>base-branches</code> is not allowed. See <a href="../user/stacking-modes.html">Choose a Merge Method and Stacking Mode</a> for the trade-offs. <a href="#fr-stacking-1">↩</a></p>
 </li>
+<li id="footnote-sprids">
+<p>The ID identifies a local commit and its pull request across amends and rebases, like Gerrit’s <code>Change-Id</code>. It only appears in local commit messages — not in pull requests, nor in the commits that land. The setting only controls whether IDs are added automatically: commits that have an ID keep it either way. See <a href="../user/spr-ids.html">Identify Commits with Spr-Ids</a>. <a href="#fr-sprids-1">↩</a></p>
+</li>
 </ol>
 
                     </main>
 
                     <nav class="nav-wrapper" aria-label="Page navigation">
                         <!-- Mobile navigation buttons -->
-                            <a rel="prev" href="../user/patch.html" class="mobile-nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
+                            <a rel="prev" href="../user/spr-ids.html" class="mobile-nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
                                 <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M41.4 233.4c-12.5 12.5-12.5 32.8 0 45.3l160 160c12.5 12.5 32.8 12.5 45.3 0s12.5-32.8 0-45.3L109.3 256 246.6 118.6c12.5-12.5 12.5-32.8 0-45.3s-32.8-12.5-45.3 0l-160 160z"/></svg></span>
                             </a>
 
@@ -251,7 +255,7 @@
             </div>
 
             <nav class="nav-wide-wrapper" aria-label="Page navigation">
-                    <a rel="prev" href="../user/patch.html" class="nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
+                    <a rel="prev" href="../user/spr-ids.html" class="nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
                         <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M41.4 233.4c-12.5 12.5-12.5 32.8 0 45.3l160 160c12.5 12.5 32.8 12.5 45.3 0s12.5-32.8 0-45.3L109.3 256 246.6 118.6c12.5-12.5 12.5-32.8 0-45.3s-32.8-12.5-45.3 0l-160 160z"/></svg></span>
                     </a>
 

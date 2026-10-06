@@ -35,10 +35,10 @@
             const path_to_root = "../";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "../searchindex-2e5c678e.js";
+            window.path_to_searchindex_js = "../searchindex-87d88fd8.js";
         </script>
         <!-- Start loading toc.js asap -->
-        <script src="../toc-ab90c969.js"></script>
+        <script src="../toc-67e12d6a.js"></script>
     </head>
     <body>
     <div id="mdbook-help-container">
@@ -218,8 +218,14 @@ Reviewers: github-username-a, github-username-b
 </code></pre>
 <p>This line names the GitHub users who approved the PR.</p>
 </li>
+<li>
+<p><code>spr diff --spr-id</code> (or any <code>spr diff</code>, if the <code>spr.sprIds</code> <a href="../reference/configuration.html">config option</a> is set) adds a line like this, giving the local commit an ID:</p>
+<pre><code>Spr-Id: 7f3a91c0d2e84b5f9a6c1e0b3d7f2a48
+</code></pre>
+<p>It gives the commit a stable identity across amends and rebases (like Gerrit’s <code>Change-Id</code>), which spr uses to keep track of the PR’s state locally. It only appears in your local commit message: not in the PR, and not in the commit that lands. See <a href="spr-ids.html">Identify Commits with Spr-Ids</a>.</p>
+</li>
 </ul>
-<p>These metadata fields (<code>Pull-request</code>, <code>Reviewers</code>, <code>Reviewed-by</code>) are stored as <a href="https://git-scm.com/docs/git-interpret-trailers">git trailers</a> — special key-value lines at the end of commit messages that follow git’s trailer conventions.</p>
+<p>These metadata fields (<code>Pull-request</code>, <code>Reviewers</code>, <code>Reviewed-by</code>, <code>Spr-Id</code>) are stored as <a href="https://git-scm.com/docs/git-interpret-trailers">git trailers</a> — special key-value lines at the end of commit messages that follow git’s trailer conventions.</p>
 <h3 id="backwards-compatibility"><a class="header" href="#backwards-compatibility">Backwards compatibility</a></h3>
 <p>Older versions of spr used different field names with spaces instead of hyphens (<code>Pull Request:</code> instead of <code>Pull-request:</code>, and <code>Reviewed By:</code> instead of <code>Reviewed-by:</code>). Current versions of spr can read commit messages written by older versions and will automatically recognize these old-style fields. When spr updates a commit message (e.g., when running <code>spr diff</code> or <code>spr land</code>), it will rewrite the fields to use the new trailer format.</p>
 <p>If you have old commits with the previous field format, they will continue to work seamlessly — spr will read them correctly and update them to the new format when it next modifies the commit message.</p>
