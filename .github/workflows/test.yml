@@ -32,3 +32,23 @@ jobs:
         id: test
         if: "!cancelled()"
         run: cargo test --all-features
+
+  # Check that spr builds with the minimum supported Rust version, as
+  # declared in Cargo.toml (`rust-version`). Lints are the job above's
+  # business: older compilers may warn differently.
+  msrv:
+    runs-on: ubuntu-latest
+    env:
+      RUSTFLAGS: ""
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Install the minimum supported Rust version
+        run: |
+          msrv=$(sed -n 's/^rust-version = "\(.*\)"$/\1/p' Cargo.toml)
+          echo "Rust $msrv"
+          rustup toolchain install "$msrv" --profile minimal
+          echo "MSRV=$msrv" >> "$GITHUB_ENV"
+
+      - name: Build
+        run: cargo "+$MSRV" check --locked --all-targets --all-features

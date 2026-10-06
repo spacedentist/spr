@@ -7,6 +7,7 @@ repository = "https://github.com/spacedentist/spr"
 homepage = "https://github.com/spacedentist/spr"
 license = "MIT"
 edition = "2024"
+rust-version = "1.91"
 exclude = [".github", ".gitignore"]
 
 [dependencies]

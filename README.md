@@ -42,7 +42,7 @@ cargo install spr
 
 ### Install from Source
 
-spr is written in Rust. You need a Rust toolchain to build from source. See [rustup.rs](https://rustup.rs) for information on how to install Rust if you have not got a Rust toolchain on your system already.
+spr is written in Rust. You need a Rust toolchain, version 1.91 or newer, to build from source. See [rustup.rs](https://rustup.rs) for information on how to install Rust if you have not got a Rust toolchain on your system already.
 
 With Rust all set up, clone this repository and run `cargo build --release`. The spr binary will be in the `target/release` directory.
 

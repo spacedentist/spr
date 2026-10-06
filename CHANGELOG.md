@@ -89,6 +89,8 @@
 
 - update dependencies (git2 0.21, octocrab 0.54, and others), move to the
   2024 Rust edition
+- spr requires Rust 1.91 or newer to build (`rust-version` in
+  `Cargo.toml`)
 - development: Nix shell with all tools, pre-commit hooks for formatting and
   clippy, CI also checks formatting
 
