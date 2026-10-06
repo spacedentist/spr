@@ -48,9 +48,7 @@ cargo install spr
 
 ### Install from Source
 
-spr is written in Rust. You need a Rust toolchain, version 1.91 or newer, to build from source. See [rustup.rs](https://rustup.rs) for information on how to install Rust if you have not got a Rust toolchain on your system already.
-
-With Rust all set up, clone this repository and run `cargo build --release`. The spr binary will be in the `target/release` directory.
+See [Development and building from source](#development-and-building-from-source) below.
 
 ## Quickstart
 
@@ -65,6 +63,26 @@ With several commits on your branch, `spr diff --all` creates or updates a pull 
 To land an approved pull request, run `spr land` (it squash-merges by default, see [Choose a Merge Method and Stacking Mode](https://spacedentist.github.io/spr/user/stacking-modes.html)).
 
 For more information on spr commands and options, run `spr help`. For more information on a specific spr command, run `spr help <COMMAND>` (e.g. `spr help diff`).
+
+## Development and building from source
+
+spr is written in Rust. To build it, you need:
+
+- Rust 1.91 or newer. See [rustup.rs](https://rustup.rs) for how to install it.
+- A C compiler, `pkg-config`, and the OpenSSL development files (e.g. `libssl-dev` on Debian and Ubuntu, `openssl-devel` on Fedora, `openssl` from Homebrew on macOS). libgit2 and libssh2 are built from source as part of the build, unless matching versions are installed on your system.
+
+Clone this repository and run `cargo build --release`. The spr binary will be in the `target/release` directory. Run the tests with `cargo test`.
+
+For working on spr, you also need:
+
+- `rustfmt` and `clippy` (with rustup: `rustup component add rustfmt clippy`). CI checks that `cargo fmt --check` passes and that `cargo clippy --all-targets --all-features` gives no warnings.
+- Formatters for the other files (CI doesn't check these yet): [prettier](https://prettier.io) for Markdown and YAML, [taplo](https://taplo.tamasfe.dev) for TOML, and [nixfmt](https://github.com/NixOS/nixfmt) for Nix files.
+- Optionally [pre-commit](https://pre-commit.com): `pre-commit install` sets up a Git hook that runs all of the above formatters and clippy when you commit (`.pre-commit-config.yaml`). It uses the tools installed on your system.
+- For the documentation (in `docs/`): [mdBook](https://rust-lang.github.io/mdBook/) and [mdbook-mermaid](https://github.com/badboy/mdbook-mermaid). Run `mdbook-mermaid install` once, then `mdbook serve` to view it.
+
+With Nix, `nix-shell` (or [direnv](https://direnv.net) with `use nix` in `.envrc`) gives you a shell with all of these tools, from your system's nixpkgs.
+
+The minimum Rust version is what spr and its dependencies need. We raise it when needed, to any version that is at least about six months old.
 
 ## Contributing
 
