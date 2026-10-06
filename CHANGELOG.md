@@ -58,6 +58,8 @@
     same result as applying the local commits (the check `spr land` does)
 - logging, enabled via `RUST_LOG` (#236), and better error reporting (#242,
   #243)
+- a Nix flake for the latest development version of spr:
+  `nix run github:spacedentist/spr`
 - documentation: new pages on merge methods and stacking modes, on how
   stacked pull requests work, and on the plumbing commands
 

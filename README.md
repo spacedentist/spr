@@ -32,6 +32,12 @@ spr is available in nixpkgs
 nix run nixpkgs#spr
 ```
 
+For the latest development version, use the flake in this repository:
+
+```shell
+nix run github:spacedentist/spr
+```
+
 #### Using Cargo
 
 If you have Cargo installed (the Rust build tool), you can install spr by running

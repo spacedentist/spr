@@ -1,5 +1,6 @@
 /book/
 /target/
+/result
 /mermaid.min.js
 /mermaid-init.js
 /.envrc
