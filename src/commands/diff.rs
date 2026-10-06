@@ -634,7 +634,7 @@ async fn diff_impl(
         if pull_request.state == PullRequestState::Closed {
             return Err(Error::msg(formatdoc!(
                 "Pull request is closed. If you want to open a new one, \
-                 remove the 'Pull Request' section from the commit message."
+                 remove the 'Pull-request' trailer from the commit message."
             )));
         }
 
