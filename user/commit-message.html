@@ -35,7 +35,7 @@
             const path_to_root = "../";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "../searchindex-87d88fd8.js";
+            window.path_to_searchindex_js = "../searchindex-9cffc3b1.js";
         </script>
         <!-- Start loading toc.js asap -->
         <script src="../toc-67e12d6a.js"></script>
@@ -189,7 +189,7 @@ This describes the change you are making with this commit.
 
 Reviewers: github-username-a, github-username-b
 </code></pre>
-<p>The first line will be the title of the PR created by <code>spr diff</code>, and the rest of the lines except for the <code>Reviewers</code> line will be the PR description (i.e. the content of the first comment). The GitHub users named on the <code>Reviewers</code> line will be added to the PR as reviewers.</p>
+<p>The first line will be the title of the PR created by <code>spr diff</code>, and the rest of the message except for the <code>Reviewers</code> line will be the PR description (i.e. the content of the first comment). The GitHub users named on the <code>Reviewers</code> line will be added to the PR as reviewers. That line is a <a href="https://git-scm.com/docs/git-interpret-trailers">git trailer</a>: a key-value line in the last paragraph of the commit message.</p>
 <h2 id="updating-the-commit-message"><a class="header" href="#updating-the-commit-message">Updating the commit message</a></h2>
 <p>When you create a PR with <code>spr diff</code>, <strong>the PR becomes the source of truth</strong> for the title and description. When you land a commit with <code>spr land</code>, its commit message will be amended to match the PR’s title and description, regardless of what is in your local repo.</p>
 <p>If you want to update the title or description, there are two ways to do so:</p>
@@ -198,37 +198,37 @@ Reviewers: github-username-a, github-username-b
 <p>Modify the PR through GitHub’s UI.</p>
 </li>
 <li>
-<p>Amend the commit message locally, then run <code>spr diff --update-message</code>. <em>Note that this does not update reviewers</em>; that must be done in the GitHub UI. If you amend the commit message but don’t include the <code>--update-message</code> flag, you’ll get an error.</p>
+<p>Amend the commit message locally, then run <code>spr diff --update-message</code>. <em>Note that this does not update reviewers</em>; that must be done in the GitHub UI. If you amend the commit message but don’t include the <code>--update-message</code> flag, <code>spr diff</code> leaves the title and description on GitHub as they are, and warns you that they differ from your local commit message.</p>
 </li>
 </ul>
 <p>If you want to go the other way — that is, make your local commit message match the PR’s title and description — you can run <code>spr amend</code>.</p>
 <h2 id="further-information"><a class="header" href="#further-information">Further information</a></h2>
-<h3 id="fields-added-by-spr"><a class="header" href="#fields-added-by-spr">Fields added by spr</a></h3>
-<p>At various stages of a commit’s lifecycle, <code>spr</code> will add lines to the commit message:</p>
+<h3 id="trailers-added-by-spr"><a class="header" href="#trailers-added-by-spr">Trailers added by spr</a></h3>
+<p>At various stages of a commit’s lifecycle, <code>spr</code> will add trailers to the commit message:</p>
 <ul>
 <li>
-<p>After first creating a PR, <code>spr diff</code> will amend the commit message to include a line like this at the end:</p>
+<p>After first creating a PR, <code>spr diff</code> will amend the commit message to include a trailer like this:</p>
 <pre><code>Pull-request: https://github.com/example/project/pull/123
 </code></pre>
-<p>The presence or absence of this line is how <code>spr diff</code> knows whether a commit already has a PR created for it, and thus whether it should create a new PR or update an existing one.</p>
+<p>The presence or absence of this trailer is how <code>spr diff</code> knows whether a commit already has a PR created for it, and thus whether it should create a new PR or update an existing one.</p>
 </li>
 <li>
-<p><code>spr land</code> will amend the commit message to exactly match the title/description of the PR (just as <code>spr amend</code> does), as well as adding a line like this:</p>
+<p><code>spr land</code> will amend the commit message to exactly match the title/description of the PR (just as <code>spr amend</code> does), as well as adding a trailer like this:</p>
 <pre><code>Reviewed-by: github-username-a
 </code></pre>
-<p>This line names the GitHub users who approved the PR.</p>
+<p>This trailer names the GitHub users who approved the PR.</p>
 </li>
 <li>
-<p><code>spr diff --spr-id</code> (or any <code>spr diff</code>, if the <code>spr.sprIds</code> <a href="../reference/configuration.html">config option</a> is set) adds a line like this, giving the local commit an ID:</p>
+<p><code>spr diff --spr-id</code> (or any <code>spr diff</code>, if the <code>spr.sprIds</code> <a href="../reference/configuration.html">config option</a> is set) adds a trailer like this, giving the local commit an ID:</p>
 <pre><code>Spr-Id: 7f3a91c0d2e84b5f9a6c1e0b3d7f2a48
 </code></pre>
 <p>It gives the commit a stable identity across amends and rebases (like Gerrit’s <code>Change-Id</code>), which spr uses to keep track of the PR’s state locally. It only appears in your local commit message: not in the PR, and not in the commit that lands. See <a href="spr-ids.html">Identify Commits with Spr-Ids</a>.</p>
 </li>
 </ul>
-<p>These metadata fields (<code>Pull-request</code>, <code>Reviewers</code>, <code>Reviewed-by</code>, <code>Spr-Id</code>) are stored as <a href="https://git-scm.com/docs/git-interpret-trailers">git trailers</a> — special key-value lines at the end of commit messages that follow git’s trailer conventions.</p>
+<p>All of these (<code>Pull-request</code>, <code>Reviewers</code>, <code>Reviewed-by</code>, <code>Spr-Id</code>) follow git’s trailer conventions, so you can also read and edit them with tools like <a href="https://git-scm.com/docs/git-interpret-trailers"><code>git interpret-trailers</code></a>.</p>
 <h3 id="backwards-compatibility"><a class="header" href="#backwards-compatibility">Backwards compatibility</a></h3>
-<p>Older versions of spr used different field names with spaces instead of hyphens (<code>Pull Request:</code> instead of <code>Pull-request:</code>, and <code>Reviewed By:</code> instead of <code>Reviewed-by:</code>). Current versions of spr can read commit messages written by older versions and will automatically recognize these old-style fields. When spr updates a commit message (e.g., when running <code>spr diff</code> or <code>spr land</code>), it will rewrite the fields to use the new trailer format.</p>
-<p>If you have old commits with the previous field format, they will continue to work seamlessly — spr will read them correctly and update them to the new format when it next modifies the commit message.</p>
+<p>Older versions of spr didn’t use trailers, and wrote these lines with spaces instead of hyphens (<code>Pull Request:</code> instead of <code>Pull-request:</code>, and <code>Reviewed By:</code> instead of <code>Reviewed-by:</code>). Current versions of spr can read commit messages written by older versions and will automatically recognize these old-style lines. When spr updates a commit message (e.g., when running <code>spr diff</code> or <code>spr land</code>), it will rewrite them as trailers.</p>
+<p>If you have old commits in the previous format, they will continue to work seamlessly — spr will read them correctly and update them to the new format when it next modifies the commit message.</p>
 <h3 id="example-commit-message-lifecycle"><a class="header" href="#example-commit-message-lifecycle">Example commit message lifecycle</a></h3>
 <p>This is what a commit message should look like when you first commit it, before running <code>spr</code> at all:</p>
 <pre><code>Add feature
@@ -243,7 +243,6 @@ Reviewers: user-a, coworker-b
 This is a really cool feature! It's going to be great.
 
 Reviewers: user-a, coworker-b
-
 Pull-request: https://github.com/example/my-thing/pull/123
 </code></pre>
 <p>In this state, running <code>spr diff</code> again will update PR 123.</p>
@@ -252,11 +251,9 @@ Pull-request: https://github.com/example/my-thing/pull/123
 
 This is a really cool feature! It's going to be great.
 
-Reviewers: user-a, coworker-b
-
-Reviewed-by: coworker-b
-
 Pull-request: https://github.com/example/my-thing/pull/123
+Reviewers: user-a, coworker-b
+Reviewed-by: coworker-b
 </code></pre>
 <h3 id="reformatting-the-commit-message"><a class="header" href="#reformatting-the-commit-message">Reformatting the commit message</a></h3>
 <p>spr is fairly permissive in parsing your commit message: it is case-insensitive, and it mostly ignores whitespace. You can run <code>spr format</code> to rewrite your HEAD commit’s message to be in a canonical format.</p>

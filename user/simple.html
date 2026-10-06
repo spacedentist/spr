@@ -35,7 +35,7 @@
             const path_to_root = "../";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "../searchindex-87d88fd8.js";
+            window.path_to_searchindex_js = "../searchindex-9cffc3b1.js";
         </script>
         <!-- Start loading toc.js asap -->
         <script src="../toc-67e12d6a.js"></script>
@@ -217,6 +217,9 @@
 <p>When you run <code>spr diff</code> to update an existing PR, your update will be added to the PR as a new commit, so that reviewers can see exactly what changed. The new commit’s message will be what you entered in step 4.3 of the instructions above.</p>
 <p>The individual commits that you see in the PR are solely for the benefit of reviewers; they will not be reflected in the commit history when the PR is landed. The commit that eventually lands on upstream <code>main</code> will always be a single commit, whose message is the title and description from the PR.</p>
 <p>(That’s with the default merge method, squash-merging. If your repository is set up to merge PRs with merge commits (<code>spr.mergeMethod</code> is <code>merge</code>), <code>spr land</code> does that, and the commits of the PR become part of the history of <code>main</code>. See <a href="./stacking-modes.html">Choose a Merge Method and Stacking Mode</a>.)</p>
+<h2 id="when-others-push-to-your-pr"><a class="header" href="#when-others-push-to-your-pr">When others push to your PR</a></h2>
+<p><code>spr diff</code> updates the PR to match your local commit. So if someone else pushed changes to your PR (a colleague fixing a typo, a CI bot fixing the formatting), your next <code>spr diff</code> reverts them.</p>
+<p>If others work on your PR, give your commit a <a href="./spr-ids.html">Spr-Id</a> with <code>spr diff --spr-id</code>. Then <code>spr diff</code> stops instead of reverting their changes, and <code>spr pull</code> applies them to your local commit. See <a href="./spr-ids.html#pulling-changes-others-pushed-spr-pull">Pulling changes others pushed</a>.</p>
 <h2 id="updating-before-landing"><a class="header" href="#updating-before-landing">Updating before landing</a></h2>
 <p>If you amend your local commit before landing, you must run <code>spr diff</code> to update the PR before landing, or else <code>spr land</code> will fail.</p>
 <p>This is because <code>spr land</code> checks to make sure that the following two operations result in exactly the same tree:</p>

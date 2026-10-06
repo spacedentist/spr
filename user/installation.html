@@ -35,7 +35,7 @@
             const path_to_root = "../";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "../searchindex-87d88fd8.js";
+            window.path_to_searchindex_js = "../searchindex-9cffc3b1.js";
         </script>
         <!-- Start loading toc.js asap -->
         <script src="../toc-67e12d6a.js"></script>
@@ -189,10 +189,13 @@
 <p>spr is available in nixpkgs</p>
 <pre><code class="language-shell">nix run nixpkgs#spr
 </code></pre>
+<p>For the latest development version, use the flake in this repository:</p>
+<pre><code class="language-shell">nix run github:spacedentist/spr
+</code></pre>
 <h3 id="using-cargo"><a class="header" href="#using-cargo">Using Cargo</a></h3>
 <p>If you have Cargo installed (the Rust build tool), you can install spr by running <code>cargo install spr</code>.</p>
 <h2 id="install-from-source"><a class="header" href="#install-from-source">Install from Source</a></h2>
-<p>spr is written in Rust. You need a Rust toolchain to build from source. See <a href="https://rustup.rs">rustup.rs</a> for information on how to install Rust if you have not got a Rust toolchain on your system already.</p>
+<p>spr is written in Rust. You need a Rust toolchain, version 1.91 or newer, to build from source. See <a href="https://rustup.rs">rustup.rs</a> for information on how to install Rust if you have not got a Rust toolchain on your system already.</p>
 <p>With Rust all set up, clone this repository and run <code>cargo build --release</code>. The spr binary will be in the <code>target/release</code> directory.</p>
 
                     </main>
