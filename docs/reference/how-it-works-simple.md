@@ -46,8 +46,8 @@ The transient branch is not something you really need to directly interact with;
 `spr` takes care of keeping it up to date, creating the correct commits, etc.
 All you need to do is continue working on the `main` branch.
 
-The `C1` commit is updated with a few sections from the PR information.
-A `Pull Request` section is added that links to the PR that was created.
+The message of the `C1` commit gets a `Pull-request` trailer
+that links to the PR that was created.
 This allows `spr` to know which branch/PR to update from only the commit.
 
 ## Amending the commit

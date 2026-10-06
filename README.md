@@ -1,6 +1,6 @@
 ![spr](./docs/spr.svg)
 
-# spr &middot; [![GitHub](https://img.shields.io/github/license/spacedentist/spr)](https://img.shields.io/github/license/spacedentist/spr) [![GitHub release](https://img.shields.io/github/v/release/spacedentist/spr?include_prereleases)](https://github.com/spacedentist/spr/releases) [![crates.io](https://img.shields.io/crates/v/spr.svg)](https://crates.io/crates/spr) [![homebrew](https://img.shields.io/homebrew/v/spr.svg)](https://formulae.brew.sh/formula/spr) [![GitHub Repo stars](https://img.shields.io/github/stars/spacedentist/spr?style=social)](https://github.com/spacedentist/spr)
+# spr &middot; [![GitHub](https://img.shields.io/github/license/spacedentist/spr)](./LICENSE) [![GitHub release](https://img.shields.io/github/v/release/spacedentist/spr?include_prereleases)](https://github.com/spacedentist/spr/releases) [![crates.io](https://img.shields.io/crates/v/spr.svg)](https://crates.io/crates/spr) [![homebrew](https://img.shields.io/homebrew/v/spr.svg)](https://formulae.brew.sh/formula/spr) [![GitHub Repo stars](https://img.shields.io/github/stars/spacedentist/spr?style=social)](https://github.com/spacedentist/spr)
 
 A command-line tool for submitting and updating GitHub Pull Requests from local
 Git commits that may be amended and rebased. Pull Requests can be stacked to
@@ -50,11 +50,13 @@ With Rust all set up, clone this repository and run `cargo build --release`. The
 
 To use spr, run `spr init` inside a local checkout of a GitHub-backed git repository. You will be guided through authorising spr to use the GitHub API in order to create and merge pull requests.
 
-To submit a commit for pull request, run `spr diff`.
+To submit a commit for review as a pull request, run `spr diff`.
 
 If you want to make changes to the pull request, amend your local commit (and/or rebase it) and call `spr diff` again. When updating an existing pull request, spr will ask you for a short message to describe the update.
 
-To squash-merge an open pull request, run `spr land`.
+With several commits on your branch, `spr diff --all` creates or updates a pull request for each of them, stacked on top of each other. See [Stack Multiple PRs](https://spacedentist.github.io/spr/user/stack.html) for the workflow.
+
+To land an approved pull request, run `spr land` (it squash-merges by default, see [Choose a Merge Method and Stacking Mode](https://spacedentist.github.io/spr/user/stacking-modes.html)).
 
 For more information on spr commands and options, run `spr help`. For more information on a specific spr command, run `spr help <COMMAND>` (e.g. `spr help diff`).
 

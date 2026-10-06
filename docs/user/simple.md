@@ -30,6 +30,12 @@ The individual commits that you see in the PR are solely for the benefit of revi
 
 (That's with the default merge method, squash-merging. If your repository is set up to merge PRs with merge commits (`spr.mergeMethod` is `merge`), `spr land` does that, and the commits of the PR become part of the history of `main`. See [Choose a Merge Method and Stacking Mode](./stacking-modes.md).)
 
+## When others push to your PR
+
+`spr diff` updates the PR to match your local commit. So if someone else pushed changes to your PR (a colleague fixing a typo, a CI bot fixing the formatting), your next `spr diff` reverts them.
+
+If others work on your PR, give your commit a [Spr-Id](./spr-ids.md) with `spr diff --spr-id`. Then `spr diff` stops instead of reverting their changes, and `spr pull` applies them to your local commit. See [Pulling changes others pushed](./spr-ids.md#pulling-changes-others-pushed-spr-pull).
+
 ## Updating before landing
 
 If you amend your local commit before landing, you must run `spr diff` to update the PR before landing, or else `spr land` will fail.
