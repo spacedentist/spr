@@ -65,6 +65,12 @@
 
 ### Fixes
 
+- `spr init` no longer asks for the `user` scope ("Update all user data"),
+  which spr doesn't need, and keeps a configured token that has the scopes
+  spr needs (e.g. from `gh auth token`) or no scopes at all (fine-grained
+  personal access tokens) instead of always logging in again (#240, #252).
+  To drop the `user` scope from an existing authorisation, revoke spr in
+  your GitHub settings and run `spr init` again.
 - the trailers in the message of a landed commit (`Pull-request`,
   `Reviewers`, `Reviewed-by`) are one block after the description, so Git
   recognises all of them as trailers (before, they were separated by blank

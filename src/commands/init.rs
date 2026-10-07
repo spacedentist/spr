@@ -17,32 +17,21 @@ pub async fn init() -> Result<()> {
     ))?;
     let mut config = repo.config()?;
 
-    // GitHub Personal Access Token
+    // GitHub authentication token: keep a configured one if it works and
+    // has the scopes spr needs, otherwise log in with GitHub to get one
 
-    let github_auth_token = config
+    let configured_token = config
         .get_string("spr.githubAuthToken")
         .ok()
         .filter(|value| !value.is_empty());
 
-    let scopes = if let Some(token) = github_auth_token.as_deref() {
-        let response: AuthScopes = octocrab::OctocrabBuilder::new()
-            .personal_token(token)
-            .build()?
-            .get("/", Some(&()))
-            .await?;
-
-        response.scopes
-    } else {
-        vec![]
+    let keep_token = match configured_token.as_deref() {
+        None => false,
+        Some(token) => check_token(token).await?,
     };
 
-    let valid_auth = scopes.iter().any(|s| s == "repo")
-        && scopes.iter().any(|s| s == "user")
-        && scopes.iter().any(|s| s == "org" || s == "read:org")
-        && scopes.iter().any(|s| s == "workflow");
-
-    let github_auth_token = if valid_auth {
-        github_auth_token.unwrap()
+    let github_auth_token = if keep_token {
+        configured_token.unwrap()
     } else {
         console::Term::stdout().write_line("")?;
 
@@ -59,7 +48,7 @@ pub async fn init() -> Result<()> {
         let device_codes = client
             .authenticate_as_device(
                 &client_id.into(),
-                ["repo user read:org workflow"],
+                [REQUIRED_SCOPES.join(" ")],
             )
             .await?;
 
@@ -231,9 +220,91 @@ fn validate_branch_prefix(branch_prefix: &str) -> Result<()> {
     Ok(())
 }
 
+/// The OAuth scopes spr needs: `repo` for pushing branches and working with
+/// Pull Requests, `read:org` for looking up teams named as reviewers, and
+/// `workflow` for pushing Pull Request branches that change GitHub Actions
+/// workflows (GitHub refuses those pushes otherwise).
+const REQUIRED_SCOPES: [&str; 3] = ["repo", "read:org", "workflow"];
+
+/// The required scopes that the given scopes of a token don't include
+fn missing_scopes(scopes: &[String]) -> Vec<&'static str> {
+    let has = |scope: &str| scopes.iter().any(|s| s == scope);
+    REQUIRED_SCOPES
+        .into_iter()
+        .filter(|&required| match required {
+            // Broader scopes include `read:org`
+            "read:org" => {
+                !(has("read:org") || has("write:org") || has("admin:org"))
+            }
+            _ => !has(required),
+        })
+        .collect()
+}
+
+/// Check whether to keep using the configured token. Explains why not, if
+/// it shouldn't be kept.
+async fn check_token(token: &str) -> Result<bool> {
+    let response: octocrab::Result<AuthScopes> =
+        octocrab::OctocrabBuilder::new()
+            .personal_token(token)
+            .build()?
+            .get("/user", None::<&()>)
+            .await;
+
+    match response {
+        Ok(AuthScopes { scopes: None }) => {
+            // Fine-grained personal access tokens have permissions instead
+            // of scopes, which GitHub doesn't tell us about
+            output(
+                "🔑",
+                "Using the configured GitHub token. It has no OAuth scopes \
+                 (e.g. a fine-grained personal access token), so spr can't \
+                 check its permissions.",
+            )?;
+            Ok(true)
+        }
+        Ok(AuthScopes {
+            scopes: Some(scopes),
+        }) => {
+            let missing = missing_scopes(&scopes);
+            if missing.is_empty() {
+                return Ok(true);
+            }
+            output(
+                "⚠️",
+                &format!(
+                    "The configured GitHub token is missing scopes that spr \
+                     needs ({}), so let's get a new one.",
+                    missing.join(", ")
+                ),
+            )?;
+            Ok(false)
+        }
+        Err(error) => {
+            // For errors from GitHub, its message (e.g. "Bad credentials")
+            let reason = match &error {
+                octocrab::Error::GitHub { source, .. } => {
+                    source.message.clone()
+                }
+                error => error.to_string(),
+            };
+            output(
+                "⚠️",
+                &format!(
+                    "The configured GitHub token doesn't work ({reason}), so \
+                     let's get a new one."
+                ),
+            )?;
+            Ok(false)
+        }
+    }
+}
+
 #[derive(Debug)]
 struct AuthScopes {
-    scopes: Vec<String>,
+    /// The token's OAuth scopes, or `None` if it has none (e.g. a
+    /// fine-grained personal access token)
+    scopes: Option<Vec<String>>,
 }
 
 impl FromResponse for AuthScopes {
@@ -259,15 +330,38 @@ impl FromResponse for AuthScopes {
                     .filter(|x| !x.is_empty())
                     .map(String::from)
                     .collect::<Vec<_>>()
-            })
-            .unwrap_or_default();
+            });
         Ok(AuthScopes { scopes })
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::validate_branch_prefix;
+    use super::{missing_scopes, validate_branch_prefix};
+
+    fn scopes(scopes: &[&str]) -> Vec<String> {
+        scopes.iter().map(|s| s.to_string()).collect()
+    }
+
+    #[test]
+    fn test_missing_scopes() {
+        // What `gh auth token` gives: enough, `user` isn't needed
+        assert!(
+            missing_scopes(&scopes(&["gist", "read:org", "repo", "workflow"]))
+                .is_empty()
+        );
+        // Broader org scopes include read:org
+        assert!(
+            missing_scopes(&scopes(&["repo", "admin:org", "workflow"]))
+                .is_empty()
+        );
+        assert_eq!(
+            missing_scopes(&scopes(&["repo", "user"])),
+            vec!["read:org", "workflow"]
+        );
+        // A classic token without any scopes
+        assert_eq!(missing_scopes(&[]), vec!["repo", "read:org", "workflow"]);
+    }
 
     #[test]
     fn test_branch_prefix_rules() {
