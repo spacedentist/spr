@@ -35,7 +35,7 @@
             const path_to_root = "../";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "../searchindex-9cffc3b1.js";
+            window.path_to_searchindex_js = "../searchindex-6c62c6b6.js";
         </script>
         <!-- Start loading toc.js asap -->
         <script src="../toc-67e12d6a.js"></script>
@@ -182,7 +182,7 @@
                     <main>
                         <h1 id="set-up-spr"><a class="header" href="#set-up-spr">Set up spr</a></h1>
 <p>In the repo you want to use spr in, run <code>spr init</code>; this will ask you several questions.</p>
-<p>You’ll need to authorise spr with your GitHub account. <code>spr init</code> will guide you through the process.</p>
+<p>You’ll need to authorise spr with your GitHub account. <code>spr init</code> will guide you through the process (see <a href="#authentication">Authentication</a> below).</p>
 <p>The rest of the settings that <code>spr init</code> asks for have sensible defaults, so almost all users can simply accept the defaults. <code>spr init</code> suggests the GitHub repository that your <code>origin</code> remote points to; if your repository has no such remote, enter the repository as <code>owner/repo</code>.</p>
 <p><code>spr init</code> doesn’t ask how pull requests get merged or stacked. The defaults are spr’s original workflow: squash-merging, and synthetic base branches for stacked pull requests. If your team merges pull requests with merge commits, or you want to use GitHub’s stacked pull requests, see <a href="./stacking-modes.html">Choose a Merge Method and Stacking Mode</a>.</p>
 <p>See the <a href="../reference/configuration.html">Configuration</a> reference page for full details about the available settings.</p>
@@ -196,6 +196,30 @@
 </li>
 <li>
 <p>Edit the <code>[spr]</code> section of <code>.git/config</code> directly.</p>
+</li>
+</ul>
+<h2 id="authentication"><a class="header" href="#authentication">Authentication</a></h2>
+<p>spr needs a GitHub token to talk to GitHub on your behalf. It’s stored in the <code>spr.githubAuthToken</code> <a href="../reference/configuration.html">setting</a>.</p>
+<p>By default, <code>spr init</code> gets one by logging you in with GitHub: it shows a link and a code to enter there. (It also tries to open the link in your web browser, but you can open it anywhere, e.g. when you run <code>spr init</code> on a server via SSH.) This authorises spr’s OAuth app with these scopes:</p>
+<ul>
+<li><code>repo</code>: pushing pull request branches, and creating, updating and merging pull requests. GitHub has no narrower scope for this, which is why the authorisation page lists access to much more (e.g. wikis) — spr doesn’t use that.</li>
+<li><code>read:org</code>: looking up teams named as reviewers (<code>Reviewers: #team</code>).</li>
+<li><code>workflow</code>: pushing pull request branches that change GitHub Actions workflows (<code>.github/workflows/</code>). GitHub refuses those pushes without it.</li>
+</ul>
+<p>Older development versions of spr also asked for the <code>user</code> scope (“Update all user data”), which spr doesn’t need. To get rid of it, revoke spr under <a href="https://github.com/settings/applications">Authorized OAuth Apps</a> in your GitHub settings, and run <code>spr init</code> again.</p>
+<h3 id="using-your-own-token"><a class="header" href="#using-your-own-token">Using your own token</a></h3>
+<p>If a token is configured already, <code>spr init</code> keeps using it, as long as it works and has the scopes above. So you can also set a token yourself before running <code>spr init</code>, e.g. if your organisation <a href="https://docs.github.com/en/organizations/managing-oauth-access-to-your-organizations-data/about-oauth-app-access-restrictions">restricts access by OAuth apps</a>:</p>
+<ul>
+<li>
+<p>The token of the GitHub CLI has the right scopes:</p>
+<pre><code class="language-shell">git config spr.githubAuthToken "$(gh auth token)"
+</code></pre>
+</li>
+<li>
+<p>A classic <a href="https://github.com/settings/tokens">personal access token</a> with the scopes <code>repo</code>, <code>read:org</code> and <code>workflow</code>.</p>
+</li>
+<li>
+<p>A <a href="https://github.com/settings/personal-access-tokens">fine-grained personal access token</a>, which lets you limit access to particular repositories and permissions. spr needs these repository permissions: <em>Contents</em>, <em>Pull requests</em> and <em>Workflows</em> (read and write); and for team reviewers, the organisation permission <em>Members</em> (read). GitHub doesn’t tell spr the permissions of such a token, so <code>spr init</code> can’t check them.</p>
 </li>
 </ul>
 
