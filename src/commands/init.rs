@@ -52,10 +52,10 @@ pub async fn init() -> Result<()> {
             )
             .await?;
 
-        open::that_detached(&device_codes.verification_uri)?;
         output(
-        "🔑",
-        &formatdoc!("
+            "🔑",
+            &formatdoc!(
+                "
             Okay, let's get started.
 
             To authenticate spr with GitHub, please go to
@@ -64,13 +64,18 @@ pub async fn init() -> Result<()> {
 
             and enter code
 
-            > > > > > {} < < < < <
-
-            For your convenience, the link should open in your web browser now.",
-            &device_codes.verification_uri,
-            &device_codes.user_code,
-            )
+            > > > > > {} < < < < <",
+                &device_codes.verification_uri,
+                &device_codes.user_code,
+            ),
         )?;
+
+        // For convenience, open the link in the web browser. That's not
+        // possible everywhere (e.g. on a server via SSH), and not needed: the
+        // link and code above are all the user needs.
+        if open::that_detached(&device_codes.verification_uri).is_ok() {
+            output("🌐", "The link should open in your web browser now.")?;
+        }
 
         let auth = device_codes
             .poll_until_available(&client, &client_id.into())
