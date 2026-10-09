@@ -21,17 +21,17 @@ jobs:
       - name: Linter
         id: lint
         if: "!cancelled()"
-        run: cargo clippy --all-targets --all-features
+        run: cargo clippy --workspace --all-targets --all-features
 
       - name: Code formatter
         id: format
         if: "!cancelled()"
-        run: cargo fmt --check
+        run: cargo fmt --all --check
 
       - name: Tests
         id: test
         if: "!cancelled()"
-        run: cargo test --all-features
+        run: cargo test --workspace --all-features
 
   # Check that spr builds with the minimum supported Rust version, as
   # declared in Cargo.toml (`rust-version`). Lints are the job above's
@@ -51,4 +51,4 @@ jobs:
           echo "MSRV=$msrv" >> "$GITHUB_ENV"
 
       - name: Build
-        run: cargo "+$MSRV" check --locked --all-targets --all-features
+        run: cargo "+$MSRV" check --locked --workspace --all-targets --all-features

@@ -75,10 +75,25 @@ Clone this repository and run `cargo build --release`. The spr binary will be in
 
 For working on spr, you also need:
 
-- `rustfmt` and `clippy` (with rustup: `rustup component add rustfmt clippy`). CI checks that `cargo fmt --check` passes and that `cargo clippy --all-targets --all-features` gives no warnings.
+- `rustfmt` and `clippy` (with rustup: `rustup component add rustfmt clippy`). CI checks that `cargo fmt --all --check` passes, that `cargo clippy --workspace --all-targets --all-features` gives no warnings, and runs `cargo test --workspace`. (`--workspace` includes the live tests, see below; without it, cargo only builds and tests spr itself.)
 - Formatters for the other files (CI doesn't check these yet): [prettier](https://prettier.io) for Markdown and YAML, [taplo](https://taplo.tamasfe.dev) for TOML, and [nixfmt](https://github.com/NixOS/nixfmt) for Nix files.
 - Optionally [pre-commit](https://pre-commit.com): `pre-commit install` sets up a Git hook that runs all of the above formatters and clippy when you commit (`.pre-commit-config.yaml`). It uses the tools installed on your system.
 - For the documentation (in `docs/`): [mdBook](https://rust-lang.github.io/mdBook/) and [mdbook-mermaid](https://github.com/badboy/mdbook-mermaid). Run `mdbook-mermaid install` once, then `mdbook serve` to view it.
+
+### Live tests
+
+`cargo test` runs tests that need nothing but a local Git repository. The live tests in `livetest/` run spr against GitHub instead, so they need a GitHub token and a repository meant for testing (its default branch must contain a file `.spr-livetest`). They're a program of their own, not run by `cargo test` or CI:
+
+```shell
+export SPR_GITHUB_LIVETEST_TOKEN=$(gh auth token)  # or a token of your own
+cargo run -p spr-livetest -- --repo OWNER/REPO live          # all automated tests
+cargo run -p spr-livetest -- --repo OWNER/REPO live --list   # what there is
+cargo run -p spr-livetest -- --help
+```
+
+The program is `spr-github-livetest` (live tests for other forges would get programs of their own). It takes the GitHub token from the environment variable `SPR_GITHUB_LIVETEST_TOKEN` (or `--token`, but then others can see it in the list of processes). Each run works on branches of its own and removes them at the end; `cleanup` removes what interrupted runs left behind. spr runs in a controlled environment (its own home directory and a fresh clone), so your Git configuration doesn't affect the tests.
+
+### Nix
 
 With Nix, `nix-shell` (or [direnv](https://direnv.net) with `use nix` in `.envrc`) gives you a shell with all of these tools, from your system's nixpkgs.
 

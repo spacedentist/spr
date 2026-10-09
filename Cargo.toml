@@ -1,3 +1,10 @@
+[workspace]
+# The live tests (`livetest/`) are a separate crate, so building, packaging
+# and installing spr doesn't involve them. Plain `cargo build` and
+# `cargo test` only build spr; use `--workspace` for everything.
+members = [".", "livetest"]
+default-members = ["."]
+
 [package]
 name = "spr"
 version = "1.3.8-beta.1"

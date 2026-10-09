@@ -34,6 +34,9 @@
                 ./Cargo.lock
                 ./src
                 ./tests
+                # Cargo needs the manifests of all workspace members (the
+                # package only builds spr, though)
+                ./livetest
               ];
             };
 
