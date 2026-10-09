@@ -19,9 +19,10 @@ pub struct Api {
     pub repo: String,
 }
 
-/// A response: status and JSON body (`Null` if empty)
+/// A response: status, headers and JSON body (`Null` if empty)
 pub struct Response {
     pub status: StatusCode,
+    pub headers: http::HeaderMap,
     pub body: Value,
 }
 
@@ -111,13 +112,18 @@ impl Api {
             }
             let response = self.octocrab.execute(request).await?;
             let status = response.status();
+            let headers = response.headers().clone();
             let text = self.octocrab.body_to_string(response).await?;
             let body = if text.trim().is_empty() {
                 Value::Null
             } else {
                 serde_json::from_str(&text).unwrap_or(Value::String(text))
             };
-            Ok(Response { status, body })
+            Ok(Response {
+                status,
+                headers,
+                body,
+            })
         })
     }
 
@@ -289,6 +295,22 @@ impl Api {
         )?
         .ok("Dissolving a stack")
         .map(|_| ())
+    }
+
+    /// The login of the token's user, and the token's OAuth scopes (`None`
+    /// if it has none, e.g. a fine-grained personal access token)
+    pub fn token_info(&self) -> Result<(String, Option<String>)> {
+        let response = self.request(Method::GET, "/user", None, None)?;
+        let scopes = response
+            .headers
+            .get("x-oauth-scopes")
+            .map(|value| value.to_str().map(String::from))
+            .transpose()?;
+        let user = response.ok("Reading the user")?;
+        let login = user["login"]
+            .as_str()
+            .ok_or_else(|| eyre!("User without login"))?;
+        Ok((login.to_string(), scopes))
     }
 }
 

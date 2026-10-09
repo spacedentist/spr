@@ -1,5 +1,7 @@
 //! Pure helper functions (unit-tested)
 
+use std::collections::BTreeSet;
+
 use color_eyre::eyre::{Result, bail};
 
 /// Replace every occurrence of `secret` in `text`, so tokens never end up in
@@ -96,6 +98,16 @@ pub fn is_run_id(id: &str) -> bool {
         })
 }
 
+/// The scopes in GitHub's `X-OAuth-Scopes` header
+pub fn parse_scopes(header: &str) -> BTreeSet<String> {
+    header
+        .split(',')
+        .map(str::trim)
+        .filter(|scope| !scope.is_empty())
+        .map(String::from)
+        .collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -144,5 +156,17 @@ mod tests {
         assert_eq!(run_id_of_branch("spr/spacedentist/x"), None);
         assert_eq!(run_id_of_branch("livetest/notarunid/main"), None);
         assert_eq!(run_id_of_branch("master"), None);
+    }
+
+    #[test]
+    fn test_parse_scopes() {
+        assert_eq!(
+            parse_scopes("repo, read:org,workflow ,"),
+            ["read:org", "repo", "workflow"]
+                .into_iter()
+                .map(String::from)
+                .collect()
+        );
+        assert!(parse_scopes("").is_empty());
     }
 }

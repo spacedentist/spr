@@ -88,8 +88,11 @@ For working on spr, you also need:
 export SPR_GITHUB_LIVETEST_TOKEN=$(gh auth token)  # or a token of your own
 cargo run -p spr-livetest -- --repo OWNER/REPO live          # all automated tests
 cargo run -p spr-livetest -- --repo OWNER/REPO live --list   # what there is
+cargo run -p spr-livetest -- --repo OWNER/REPO manual init  # guided test of logging in
 cargo run -p spr-livetest -- --help
 ```
+
+Manual tests guide you through what to do and check (e.g. logging in with `spr init`), check automatically what they can, and print a report.
 
 The program is `spr-github-livetest` (live tests for other forges would get programs of their own). It takes the GitHub token from the environment variable `SPR_GITHUB_LIVETEST_TOKEN` (or `--token`, but then others can see it in the list of processes). Each run works on branches of its own and removes them at the end; `cleanup` removes what interrupted runs left behind. spr runs in a controlled environment (its own home directory and a fresh clone), so your Git configuration doesn't affect the tests.
 

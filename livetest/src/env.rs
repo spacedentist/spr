@@ -25,6 +25,7 @@ pub struct TestEnv {
 /// The result of running a program
 pub struct RunOutput {
     pub success: bool,
+    pub code: Option<i32>,
     /// stdout and stderr, with the token masked
     pub stdout: String,
     pub stderr: String,
@@ -34,6 +35,7 @@ impl RunOutput {
     fn from_output(output: Output, token: &str) -> Self {
         RunOutput {
             success: output.status.success(),
+            code: output.status.code(),
             stdout: mask(&String::from_utf8_lossy(&output.stdout), token),
             stderr: mask(&String::from_utf8_lossy(&output.stderr), token),
         }
@@ -71,6 +73,17 @@ impl TestEnv {
             let _ = dir.keep();
         }
         &self.root
+    }
+
+    /// The home directory of the environment
+    pub fn home(&self) -> &Path {
+        &self.home
+    }
+
+    /// A directory for programs that should take precedence over the ones in
+    /// `PATH` (e.g. a browser opener)
+    pub fn bin_dir(&self) -> &Path {
+        &self.bin
     }
 
     /// A command with a cleared environment: only `PATH` (with our `bin`
@@ -148,6 +161,72 @@ impl TestEnv {
         Ok(output.all())
     }
 
+    /// A command for spr, to run it differently (e.g. interactively)
+    pub fn spr_command(&self) -> Command {
+        self.command(&self.spr)
+    }
+
+    /// Run a command until its output contains `until`, or the timeout
+    /// expires, then stop it. For commands that would wait forever, e.g.
+    /// for a login.
+    pub fn run_until(
+        &self,
+        mut command: Command,
+        until: &str,
+        timeout: std::time::Duration,
+    ) -> Result<RunOutput> {
+        use std::io::Read as _;
+        let mut child = command
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()?;
+        let collect = |mut pipe: Box<dyn std::io::Read + Send>| {
+            let output = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+            let collected = output.clone();
+            std::thread::spawn(move || {
+                let mut buffer = [0; 4096];
+                while let Ok(n) = pipe.read(&mut buffer) {
+                    if n == 0 {
+                        break;
+                    }
+                    collected.lock().unwrap().extend_from_slice(&buffer[..n]);
+                }
+            });
+            output
+        };
+        let stdout = collect(Box::new(child.stdout.take().unwrap()));
+        let stderr = collect(Box::new(child.stderr.take().unwrap()));
+        let start = std::time::Instant::now();
+        let status = loop {
+            if let Some(status) = child.try_wait()? {
+                break Some(status);
+            }
+            let seen = String::from_utf8_lossy(&stdout.lock().unwrap())
+                .contains(until);
+            if seen || start.elapsed() > timeout {
+                // Give it a moment to finish its output
+                std::thread::sleep(std::time::Duration::from_millis(500));
+                let _ = child.kill();
+                let _ = child.wait();
+                break None;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(200));
+        };
+        std::thread::sleep(std::time::Duration::from_millis(100));
+        let text = |output: &std::sync::Arc<std::sync::Mutex<Vec<u8>>>| {
+            mask(
+                &String::from_utf8_lossy(&output.lock().unwrap()),
+                &self.token,
+            )
+        };
+        Ok(RunOutput {
+            success: status.is_some_and(|status| status.success()),
+            code: status.and_then(|status| status.code()),
+            stdout: text(&stdout),
+            stderr: text(&stderr),
+        })
+    }
+
     pub fn run(&self, mut command: Command) -> Result<RunOutput> {
         let output = command.output().wrap_err_with(|| {
             format!("Running {:?} failed", command.get_program())
@@ -176,16 +255,54 @@ impl TestEnv {
         Ok(())
     }
 
+    /// Set `spr.githubAuthToken` in the test repository to the token of
+    /// the tests
+    pub fn set_token_in_config(&self) -> Result<()> {
+        self.set_token(&self.token)
+    }
+
     /// Set `spr.githubAuthToken` in the test repository. Written to the
     /// config file directly, so the token isn't on the command line of a
     /// process (where others could see it).
-    pub fn set_token_in_config(&self) -> Result<()> {
+    pub fn set_token(&self, token: &str) -> Result<()> {
         use std::io::Write as _;
+        self.unset_token()?;
         let mut file = std::fs::OpenOptions::new()
             .append(true)
             .open(self.repo_dir.join(".git/config"))?;
-        writeln!(file, "[spr]\n\tgithubAuthToken = \"{}\"", self.token)?;
+        writeln!(file, "[spr]\n\tgithubAuthToken = \"{token}\"")?;
         Ok(())
+    }
+
+    /// Remove `spr.githubAuthToken` from the test repository
+    pub fn unset_token(&self) -> Result<()> {
+        // Exit code 5: it wasn't set
+        let output = self.run({
+            let mut command = self.command("git");
+            command.args(["config", "--unset-all", "spr.githubAuthToken"]);
+            command
+        })?;
+        if !output.success && output.code != Some(5) {
+            bail!(
+                "Removing the token from the config failed: {}",
+                output.all()
+            );
+        }
+        Ok(())
+    }
+
+    /// The token configured in the test repository (e.g. by `spr init`).
+    /// Not to be printed!
+    pub fn configured_token(&self) -> Result<Option<String>> {
+        let output = self
+            .command("git")
+            .args(["config", "--get", "spr.githubAuthToken"])
+            .output()?;
+        Ok(output
+            .status
+            .success()
+            .then(|| String::from_utf8_lossy(&output.stdout).trim().to_string())
+            .filter(|token| !token.is_empty()))
     }
 
     /// Fail if spr would see any `spr.*` setting from outside the test

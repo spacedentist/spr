@@ -11,6 +11,7 @@
 
 mod api;
 mod env;
+mod manual;
 mod report;
 mod run;
 mod scenarios;
@@ -80,12 +81,24 @@ enum Commands {
         keep: bool,
     },
 
+    /// Run a manual test: it tells you what to do and check
+    Manual {
+        #[arg(value_enum)]
+        test: ManualTest,
+    },
+
     /// Remove what test runs left behind in the repository (e.g. after
     /// `--keep`, or when interrupted)
     Cleanup {
         /// The run to clean up (default: all runs)
         run_id: Option<String>,
     },
+}
+
+#[derive(Clone, Copy, clap::ValueEnum)]
+enum ManualTest {
+    /// Logging in with `spr init`, and how it treats configured tokens
+    Init,
 }
 
 fn main() -> ExitCode {
@@ -127,6 +140,12 @@ fn run(cli: Cli, token: &str) -> Result<bool> {
             let selected = select(scenarios::all(), &tests)?;
             let spr = spr_binary(cli.spr)?;
             run_live(&api, &cli.repo, &spr, token, &selected, keep)
+        }
+        Commands::Manual { test } => {
+            let spr = spr_binary(cli.spr)?;
+            match test {
+                ManualTest::Init => manual::init(&api, &cli.repo, &spr, token),
+            }
         }
         Commands::Cleanup { run_id } => {
             let ids = match run_id {
