@@ -80,21 +80,17 @@ For working on spr, you also need:
 - Optionally [pre-commit](https://pre-commit.com): `pre-commit install` sets up a Git hook that runs all of the above formatters and clippy when you commit (`.pre-commit-config.yaml`). It uses the tools installed on your system.
 - For the documentation (in `docs/`): [mdBook](https://rust-lang.github.io/mdBook/) and [mdbook-mermaid](https://github.com/badboy/mdbook-mermaid). Run `mdbook-mermaid install` once, then `mdbook serve` to view it.
 
-### Live tests
+### Tests
 
-`cargo test` runs tests that need nothing but a local Git repository. The live tests in `livetest/` run spr against GitHub instead, so they need a GitHub token and a repository meant for testing (its default branch must contain a file `.spr-livetest`). They're a program of their own, not run by `cargo test` or CI:
+`cargo test` runs the unit and integration tests, which need nothing but a local Git repository. The live tests in `livetest/` run spr against a GitHub repository meant for testing, and need a GitHub token; they and the guided manual tests (e.g. of logging in) run on demand, not in CI:
 
 ```shell
 export SPR_GITHUB_LIVETEST_TOKEN=$(gh auth token)  # or a token of your own
-cargo run -p spr-livetest -- --repo OWNER/REPO live          # all automated tests
-cargo run -p spr-livetest -- --repo OWNER/REPO live --list   # what there is
+cargo run -p spr-livetest -- --repo OWNER/REPO live          # all automated live tests
 cargo run -p spr-livetest -- --repo OWNER/REPO manual init  # guided test of logging in
-cargo run -p spr-livetest -- --help
 ```
 
-Manual tests guide you through what to do and check (e.g. logging in with `spr init`), check automatically what they can, and print a report.
-
-The program is `spr-github-livetest` (live tests for other forges would get programs of their own). It takes the GitHub token from the environment variable `SPR_GITHUB_LIVETEST_TOKEN` (or `--token`, but then others can see it in the list of processes). Each run works on branches of its own and removes them at the end; `cleanup` removes what interrupted runs left behind. spr runs in a controlled environment (its own home directory and a fresh clone), so your Git configuration doesn't affect the tests.
+See [Testing](https://spacedentist.github.io/spr/dev/testing.html) in the documentation for what each kind of test covers, what the live tests need and do in the repository, and what CI runs.
 
 ### Nix
 

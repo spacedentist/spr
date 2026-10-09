@@ -107,7 +107,7 @@
 - development: Nix shell with all tools, pre-commit hooks for formatting and
   clippy, CI also checks formatting
 - development: live tests that run spr against a GitHub test repository
-  (`cargo run -p spr-livetest`, see the README)
+  (`cargo run -p spr-livetest`), and a documentation page on testing
 
 ## [1.3.7] - 2025-08-25
 
