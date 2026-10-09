@@ -40,6 +40,7 @@ impl Response {
 pub struct PullRequest {
     pub number: u64,
     pub state: String,
+    pub merged: bool,
     pub title: String,
     pub head_ref: String,
     pub head_sha: String,
@@ -60,6 +61,7 @@ impl PullRequest {
                 .as_u64()
                 .ok_or_else(|| eyre!("Pull Request without number"))?,
             state: string("/state")?,
+            merged: value["merged_at"].is_string(),
             title: string("/title")?,
             head_ref: string("/head/ref")?,
             head_sha: string("/head/sha")?,

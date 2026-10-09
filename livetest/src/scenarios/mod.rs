@@ -2,6 +2,7 @@
 //! check the results
 
 mod basic;
+mod land;
 
 use std::time::Duration;
 
@@ -22,7 +23,7 @@ pub struct Scenario {
 
 /// All scenarios, in the order they run
 pub fn all() -> Vec<Scenario> {
-    vec![basic::SCENARIO]
+    vec![basic::SCENARIO, land::SQUASH, land::MERGE]
 }
 
 /// How long to wait for GitHub to reflect a change
@@ -69,6 +70,10 @@ impl Ctx<'_> {
         self.env
             .git(&["commit", "--quiet", "--amend", "--no-edit"])?;
         self.env.git(&["rev-parse", "HEAD"])
+    }
+
+    pub fn rev_parse(&self, rev: &str) -> Result<String> {
+        self.env.git(&["rev-parse", rev])
     }
 
     /// The commit message of a commit
