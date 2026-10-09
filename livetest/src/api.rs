@@ -262,6 +262,22 @@ impl Api {
         .map(|_| ())
     }
 
+    /// Change the title of a Pull Request, like somebody editing it on
+    /// GitHub
+    pub fn set_pull_request_title(
+        &self,
+        number: u64,
+        title: &str,
+    ) -> Result<()> {
+        self.repo_request(
+            Method::PATCH,
+            &format!("pulls/{number}"),
+            Some(&json!({ "title": title })),
+        )?
+        .ok("Changing a Pull Request")
+        .map(|_| ())
+    }
+
     /// GitHub's "Update branch" button
     pub fn update_branch(&self, number: u64) -> Result<()> {
         self.repo_request(

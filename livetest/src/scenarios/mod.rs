@@ -2,6 +2,7 @@
 //! check the results
 
 mod basic;
+mod commands;
 mod land;
 mod remote_changes;
 mod stacks;
@@ -36,6 +37,9 @@ pub fn all() -> Vec<Scenario> {
         stacks::BASE_BRANCHES,
         stacks::CHAIN,
         stacks::GITHUB_STACK,
+        commands::PATCH,
+        commands::AMEND,
+        commands::DRY_RUN,
     ]
 }
 
