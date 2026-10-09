@@ -4,6 +4,7 @@
 mod basic;
 mod land;
 mod remote_changes;
+mod stacks;
 
 use std::time::Duration;
 
@@ -32,6 +33,9 @@ pub fn all() -> Vec<Scenario> {
         remote_changes::PULL,
         remote_changes::PULL_CONFLICT,
         remote_changes::UPDATE_BRANCH,
+        stacks::BASE_BRANCHES,
+        stacks::CHAIN,
+        stacks::GITHUB_STACK,
     ]
 }
 
