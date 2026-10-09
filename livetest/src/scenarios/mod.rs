@@ -3,10 +3,11 @@
 
 mod basic;
 mod land;
+mod remote_changes;
 
 use std::time::Duration;
 
-use color_eyre::eyre::{Result, bail, eyre};
+use color_eyre::eyre::{Result, WrapErr, bail, eyre};
 
 use crate::{
     api::{Api, PullRequest, wait_for},
@@ -23,7 +24,15 @@ pub struct Scenario {
 
 /// All scenarios, in the order they run
 pub fn all() -> Vec<Scenario> {
-    vec![basic::SCENARIO, land::SQUASH, land::MERGE]
+    vec![
+        basic::SCENARIO,
+        land::SQUASH,
+        land::MERGE,
+        remote_changes::REMOTE_CHANGES,
+        remote_changes::PULL,
+        remote_changes::PULL_CONFLICT,
+        remote_changes::UPDATE_BRANCH,
+    ]
 }
 
 /// How long to wait for GitHub to reflect a change
@@ -163,6 +172,23 @@ impl Ctx<'_> {
         Ok((head, pr))
     }
 
+    /// The expected head spr recorded for the commit's Pull Request
+    /// (`refs/spr/<Spr-Id>/head`), if any
+    pub fn expected_head(&self, rev: &str) -> Result<Option<String>> {
+        let Some(id) = self.trailer(rev, "Spr-Id")? else {
+            return Ok(None);
+        };
+        Ok(self
+            .env
+            .git(&[
+                "rev-parse",
+                "--verify",
+                "--quiet",
+                &format!("refs/spr/{id}/head"),
+            ])
+            .ok())
+    }
+
     /// Whether a branch exists on GitHub
     pub fn branch_exists(&self, branch: &str) -> Result<bool> {
         Ok(self.api.branch_sha(branch)?.is_some())
@@ -176,4 +202,27 @@ pub fn check(condition: bool, message: impl FnOnce() -> String) -> Result<()> {
     } else {
         Err(eyre!(message()))
     }
+}
+
+/// Fail unless the output contains the text
+pub fn check_output(output: &str, text: &str) -> Result<()> {
+    check(output.contains(text), || {
+        format!(
+            "Expected the output to contain {text:?}, but it was:\n{output}"
+        )
+    })
+    .wrap_err("Unexpected output")
+}
+
+/// Wait until GitHub reports a new head for the Pull Request (e.g. after
+/// "Update branch")
+pub fn wait_for_change(ctx: &Ctx, number: u64, old_head: &str) -> Result<()> {
+    wait_for(
+        &format!("Pull Request #{number} to get a new head"),
+        GITHUB_DELAY,
+        || {
+            Ok((ctx.api.pull_request(number)?.head_sha != old_head)
+                .then_some(()))
+        },
+    )
 }

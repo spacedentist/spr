@@ -262,6 +262,52 @@ impl Api {
         .map(|_| ())
     }
 
+    /// GitHub's "Update branch" button
+    pub fn update_branch(&self, number: u64) -> Result<()> {
+        self.repo_request(
+            Method::PUT,
+            &format!("pulls/{number}/update-branch"),
+            Some(&json!({})),
+        )?
+        .ok("Updating a Pull Request branch")
+        .map(|_| ())
+    }
+
+    /// Create or change a file on a branch, like somebody editing it in
+    /// GitHub's web interface. Returns the new commit.
+    pub fn put_file(
+        &self,
+        branch: &str,
+        path: &str,
+        content: &str,
+        message: &str,
+    ) -> Result<String> {
+        let existing = self.repo_request(
+            Method::GET,
+            &format!("contents/{path}?ref={branch}"),
+            None,
+        )?;
+        let mut body = json!({
+            "message": message,
+            "content": base64(content.as_bytes()),
+            "branch": branch,
+        });
+        if existing.status.is_success() {
+            body["sha"] = existing.body["sha"].clone();
+        }
+        let response = self
+            .repo_request(
+                Method::PUT,
+                &format!("contents/{path}"),
+                Some(&body),
+            )?
+            .ok("Changing a file")?;
+        response["commit"]["sha"]
+            .as_str()
+            .map(String::from)
+            .ok_or_else(|| eyre!("No commit in response"))
+    }
+
     /// The open GitHub stack the Pull Request is in, if any
     pub fn stack_of_pull_request(&self, number: u64) -> Result<Option<Value>> {
         let response = self.request(
@@ -332,5 +378,43 @@ pub fn wait_for<T>(
             return Err(eyre!("Timed out waiting for {what}"));
         }
         std::thread::sleep(Duration::from_secs(1));
+    }
+}
+
+/// Base64 (standard alphabet, with padding), for the contents API
+pub fn base64(data: &[u8]) -> String {
+    const ALPHABET: &[u8] =
+        b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    let mut out = String::with_capacity(data.len().div_ceil(3) * 4);
+    for chunk in data.chunks(3) {
+        let b = [
+            chunk[0],
+            chunk.get(1).copied().unwrap_or(0),
+            chunk.get(2).copied().unwrap_or(0),
+        ];
+        let n =
+            (u32::from(b[0]) << 16) | (u32::from(b[1]) << 8) | u32::from(b[2]);
+        for i in 0..4 {
+            if i <= chunk.len() {
+                out.push(ALPHABET[(n >> (18 - 6 * i) & 63) as usize] as char);
+            } else {
+                out.push('=');
+            }
+        }
+    }
+    out
+}
+
+#[cfg(test)]
+mod tests {
+    use super::base64;
+
+    #[test]
+    fn test_base64() {
+        assert_eq!(base64(b""), "");
+        assert_eq!(base64(b"f"), "Zg==");
+        assert_eq!(base64(b"fo"), "Zm8=");
+        assert_eq!(base64(b"foo"), "Zm9v");
+        assert_eq!(base64(b"foobar\n"), "Zm9vYmFyCg==");
     }
 }

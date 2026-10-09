@@ -161,6 +161,19 @@ impl TestEnv {
         Ok(output.all())
     }
 
+    /// Run spr, failing if it succeeds. Returns its output.
+    pub fn spr_fails(&self, args: &[&str]) -> Result<String> {
+        let output = self.spr(args)?;
+        if output.success {
+            bail!(
+                "spr {} succeeded, but should have failed:\n{}",
+                args.join(" "),
+                output.all()
+            );
+        }
+        Ok(output.all())
+    }
+
     /// A command for spr, to run it differently (e.g. interactively)
     pub fn spr_command(&self) -> Command {
         self.command(&self.spr)
