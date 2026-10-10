@@ -90,6 +90,9 @@
   repository is reported as an error, instead of being removed silently
   (whereupon spr created a new pull request for the commit); links are
   recognised regardless of the case of the owner and repository names
+- `spr list` and `spr land` (with `spr.requireApproval`) recognise approved
+  pull requests in repositories that don't require reviews, instead of
+  showing them as pending (#176)
 - when landing fails, `spr land` reliably changes the pull request's base
   back to its base branch (#175)
 - `spr land` no longer fails if GitHub has already deleted the landed

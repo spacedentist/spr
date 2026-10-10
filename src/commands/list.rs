@@ -1,6 +1,8 @@
 use color_eyre::eyre::{Result, WrapErr as _, eyre};
 use graphql_client::{GraphQLQuery, Response};
 
+use crate::github::{ReviewStatus, review_status_from_reviews};
+
 #[allow(clippy::upper_case_acronyms)]
 type URI = String;
 #[derive(GraphQLQuery)]
@@ -37,8 +39,33 @@ fn print_pr_info(
             Some(crate::commands::list::search_query::SearchQuerySearchNodes::PullRequest(pr)) => pr,
             _ => continue,
         };
+        // Without required reviews, GitHub has no review decision: go by
+        // the reviews instead
+        let review_decision = pr.review_decision.or_else(|| {
+            use search_query::{
+                PullRequestReviewDecision as Decision,
+                PullRequestReviewState as State,
+            };
+            let reviews: Vec<ReviewStatus> = pr
+                .latest_opinionated_reviews
+                .iter()
+                .flat_map(|reviews| &reviews.nodes)
+                .flatten()
+                .flatten()
+                .map(|review| match review.state {
+                    State::APPROVED => ReviewStatus::Approved,
+                    State::CHANGES_REQUESTED => ReviewStatus::Rejected,
+                    _ => ReviewStatus::Requested,
+                })
+                .collect();
+            match review_status_from_reviews(&reviews)? {
+                ReviewStatus::Approved => Some(Decision::APPROVED),
+                ReviewStatus::Rejected => Some(Decision::CHANGES_REQUESTED),
+                ReviewStatus::Requested => None,
+            }
+        });
         let dummy: String;
-        let decision = match pr.review_decision {
+        let decision = match review_decision {
             Some(search_query::PullRequestReviewDecision::APPROVED) => {
                 console::style("Accepted").green()
             }

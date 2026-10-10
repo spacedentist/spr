@@ -37,6 +37,24 @@ pub enum ReviewStatus {
     Rejected,
 }
 
+/// The review status of a Pull Request according to the latest reviews of
+/// its reviewers, for when GitHub has no review decision (because the
+/// repository doesn't require reviews): rejected if anybody requested
+/// changes, approved if anybody approved, otherwise none.
+pub fn review_status_from_reviews<'a>(
+    reviews: impl IntoIterator<Item = &'a ReviewStatus>,
+) -> Option<ReviewStatus> {
+    let mut status = None;
+    for review in reviews {
+        match review {
+            ReviewStatus::Rejected => return Some(ReviewStatus::Rejected),
+            ReviewStatus::Approved => status = Some(ReviewStatus::Approved),
+            ReviewStatus::Requested => {}
+        }
+    }
+    status
+}
+
 #[derive(serde::Serialize, Default, Debug)]
 pub struct PullRequestUpdate {
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -308,7 +326,9 @@ impl GitHub {
             Some(pull_request_query::PullRequestReviewDecision::APPROVED) => Some(ReviewStatus::Approved),
             Some(pull_request_query::PullRequestReviewDecision::CHANGES_REQUESTED) => Some(ReviewStatus::Rejected),
             Some(pull_request_query::PullRequestReviewDecision::REVIEW_REQUIRED) => Some(ReviewStatus::Requested),
-            _ => None,
+            // No review decision: the repository doesn't require reviews.
+            // Go by the reviews instead.
+            _ => review_status_from_reviews(reviewers.values()),
         };
 
         // Sorted, so the resulting trailers don't change between runs of spr
@@ -840,5 +860,20 @@ mod tests {
         assert_eq!(r.on_github(), "refs/heads/refs/heads/foo");
         assert_eq!(r.branch_name(), "refs/heads/foo");
         assert!(!r.is_master_branch());
+    }
+
+    #[test]
+    fn test_review_status_from_reviews() {
+        use ReviewStatus::*;
+        assert_eq!(review_status_from_reviews(&[]), None);
+        assert_eq!(review_status_from_reviews(&[Requested]), None);
+        assert_eq!(
+            review_status_from_reviews(&[Requested, Approved]),
+            Some(Approved)
+        );
+        assert_eq!(
+            review_status_from_reviews(&[Approved, Rejected, Approved]),
+            Some(Rejected)
+        );
     }
 }
