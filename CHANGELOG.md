@@ -84,6 +84,8 @@
 - `spr amend` keeps trailers that only exist locally, e.g. `Signed-off-by`
 - `spr amend` no longer rewrites commits just because GitHub returned the
   reviewers in a different order
+- `spr amend --all` updates the commit messages it got from GitHub even if
+  fetching a later commit's pull request fails (before, it updated none)
 - when landing fails, `spr land` reliably changes the pull request's base
   back to its base branch (#175)
 - `spr land` no longer fails if GitHub has already deleted the landed

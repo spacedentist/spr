@@ -46,24 +46,38 @@ pub async fn amend(
         })
         .collect();
 
-    let mut failure = false;
+    let mut result = Ok(());
 
+    // Errors must not return from this function directly (e.g. with `?`),
+    // but end the loop, so that the messages of the commits updated so far
+    // still get written below. (The commits above those keep their messages.)
+    let mut updated = 0;
     for commit in slice.iter_mut() {
-        write_commit_title(commit)?;
-        let pull_request = pull_requests.pop().flatten();
-        if let Some(pull_request) = pull_request {
-            let pull_request = pull_request.await??;
-            commit
-                .message
-                .update_from_pull_request(&pull_request.message);
+        if let Err(error) = write_commit_title(commit) {
+            result = Err(error);
+            break;
         }
-        failure = commit.message.validate(config).is_err() || failure;
+        if let Some(pull_request) = pull_requests.pop().flatten() {
+            match pull_request.await {
+                Ok(Ok(pull_request)) => commit
+                    .message
+                    .update_from_pull_request(&pull_request.message),
+                Ok(Err(error)) => {
+                    result = Err(error);
+                    break;
+                }
+                Err(error) => {
+                    result = Err(error.into());
+                    break;
+                }
+            }
+        }
+        if commit.message.validate(config).is_err() && result.is_ok() {
+            result = Err(eyre!("amend failed"));
+        }
+        updated += 1;
     }
-    git.rewrite_commit_messages(slice, None)?;
+    git.rewrite_commit_messages(slice, Some(updated))?;
 
-    if failure {
-        Err(eyre!("amend failed"))
-    } else {
-        Ok(())
-    }
+    result
 }
