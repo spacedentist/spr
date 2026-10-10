@@ -55,6 +55,12 @@ pub fn review_status_from_reviews<'a>(
     status
 }
 
+/// A Pull Request's description as GitHub returns it, with Unix line endings
+/// and without surrounding whitespace, as in a commit message
+fn normalize_body(body: &str) -> String {
+    body.replace("\r\n", "\n").trim().to_string()
+}
+
 #[derive(serde::Serialize, Default, Debug)]
 pub struct PullRequestUpdate {
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -291,14 +297,20 @@ impl GitHub {
             eyre!("{} not found on GitHub", &head.ref_on_github)
         })?;
 
-        let title = pr.title.trim().to_string();
-        let title = if title.is_empty() {
+        // Titles and descriptions edited on GitHub can have surrounding
+        // whitespace, and descriptions edited in the web interface have
+        // Windows line endings. Normalise them, so they compare equal to the
+        // local commit message (and `spr amend` doesn't write them into it).
+        let pr_title = pr.title.trim().to_string();
+        let body = normalize_body(&pr.body);
+
+        let title = if pr_title.is_empty() {
             String::from("(untitled)")
         } else {
-            title
+            pr_title.clone()
         };
 
-        let mut message = CommitMessage::new(title, pr.body.clone());
+        let mut message = CommitMessage::new(title, body.clone());
 
         message.set_trailer(
             "Pull-request".to_string(),
@@ -381,8 +393,8 @@ impl GitHub {
                 }
                 _ => PullRequestState::Closed,
             },
-            title: pr.title,
-            body: Some(pr.body),
+            title: pr_title,
+            body: Some(body),
             message,
             base,
             head,
@@ -860,6 +872,18 @@ mod tests {
         assert_eq!(r.on_github(), "refs/heads/refs/heads/foo");
         assert_eq!(r.branch_name(), "refs/heads/foo");
         assert!(!r.is_master_branch());
+    }
+
+    #[test]
+    fn test_normalize_body() {
+        // As edited in GitHub's web interface
+        let body = "First paragraph.\r\n\r\n- one\r\n- two\r\n";
+        assert_eq!(normalize_body(body), "First paragraph.\n\n- one\n- two");
+
+        // The same as the body of the local commit message
+        let message =
+            CommitMessage::parse("Title\n\nFirst paragraph.\n\n- one\n- two\n");
+        assert_eq!(normalize_body(body), message.body());
     }
 
     #[test]

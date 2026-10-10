@@ -93,6 +93,10 @@
 - `spr list` and `spr land` (with `spr.requireApproval`) recognise approved
   pull requests in repositories that don't require reviews, instead of
   showing them as pending (#176)
+- `spr diff` no longer warns that the title/message differ when the pull
+  request's description was edited on GitHub (its web interface uses
+  Windows line endings), and `spr amend` no longer writes those line
+  endings into the local commit message (#129)
 - when landing fails, `spr land` reliably changes the pull request's base
   back to its base branch (#175)
 - `spr land` no longer fails if GitHub has already deleted the landed
