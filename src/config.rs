@@ -198,8 +198,9 @@ impl Config {
         );
         let m = regex.captures(text);
         if let Some(caps) = m
-            && self.owner == caps.get(1).unwrap().as_str()
-            && self.repo == caps.get(2).unwrap().as_str()
+            // GitHub's owner and repository names are case-insensitive
+            && self.owner.eq_ignore_ascii_case(caps.get(1).unwrap().as_str())
+            && self.repo.eq_ignore_ascii_case(caps.get(2).unwrap().as_str())
         {
             return caps.get(3).unwrap().as_str().parse().ok();
         }
@@ -343,6 +344,31 @@ mod tests {
             ),
             Some(123)
         );
+        assert_eq!(
+            gh.parse_pull_request_field(
+                "https://github.com/Acme/CODEZ/pull/123"
+            ),
+            Some(123)
+        );
+    }
+
+    #[test]
+    fn test_parse_pull_request_field_other_repository() {
+        let gh = config_factory();
+
+        assert_eq!(
+            gh.parse_pull_request_field(
+                "https://github.com/acme/other/pull/123"
+            ),
+            None
+        );
+        assert_eq!(
+            gh.parse_pull_request_field(
+                "https://github.com/other/codez/pull/123"
+            ),
+            None
+        );
+        assert_eq!(gh.parse_pull_request_field("PR 123"), None);
     }
 
     #[test]

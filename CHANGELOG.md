@@ -86,6 +86,10 @@
   reviewers in a different order
 - `spr amend --all` updates the commit messages it got from GitHub even if
   fetching a later commit's pull request fails (before, it updated none)
+- a `Pull-request` trailer that refers to a pull request in another
+  repository is reported as an error, instead of being removed silently
+  (whereupon spr created a new pull request for the commit); links are
+  recognised regardless of the case of the owner and repository names
 - when landing fails, `spr land` reliably changes the pull request's base
   back to its base branch (#175)
 - `spr land` no longer fails if GitHub has already deleted the landed

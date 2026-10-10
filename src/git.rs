@@ -385,9 +385,28 @@ impl Git {
 
         let mut message = CommitMessage::parse(&message_text);
 
-        let pull_request_number = message
-            .get_trailer("Pull-request")
-            .and_then(|text| config.parse_pull_request_field(text));
+        // A Pull-request trailer that doesn't refer to a Pull Request in this
+        // repository (e.g. on a commit cherry-picked from another one) is an
+        // error: dropping it silently would lose it, and keeping it would put
+        // a wrong link into the Pull Request spr creates for the commit.
+        let pull_request_number = match message.get_trailer("Pull-request") {
+            Some(text) if !text.trim().is_empty() => Some(
+                config.parse_pull_request_field(text).ok_or_else(|| {
+                    eyre!(
+                        "Commit {short_id} ({title}) has a Pull-request \
+                         trailer that doesn't refer to a Pull Request in \
+                         {owner}/{repo}: {text}\n\
+                         Remove it from the commit message (e.g. with \
+                         `git rebase --interactive` and `reword`), and spr \
+                         creates a new Pull Request for the commit.",
+                        title = message.title(),
+                        owner = config.owner,
+                        repo = config.repo,
+                    )
+                })?,
+            ),
+            _ => None,
+        };
 
         if let Some(number) = pull_request_number {
             message.set_trailer(
@@ -688,5 +707,66 @@ mod tests {
             repo.find_reference("refs/heads/main").unwrap().target(),
             Some(a)
         );
+    }
+
+    #[test]
+    fn test_prepare_commit_pull_request_trailer() {
+        let r = TestRepo::new();
+        let m1 = r.commit("m1", &[]);
+        let config = crate::config::Config::new(
+            "acme".into(),
+            "codez".into(),
+            "master".into(),
+            "spr/foo/".into(),
+            "xyz".into(),
+            false,
+            crate::config::MergeMethod::Squash,
+            crate::config::StackingMode::BaseBranches,
+            true,
+            true,
+        )
+        .unwrap();
+        let commit = |message: &str| {
+            let repo = r.git.repo();
+            let signature = repo.signature().unwrap();
+            let tree = repo.find_commit(m1).unwrap().tree().unwrap();
+            let parent = repo.find_commit(m1).unwrap();
+            let oid = repo
+                .commit(
+                    None,
+                    &signature,
+                    &signature,
+                    message,
+                    &tree,
+                    &[&parent],
+                )
+                .unwrap();
+            r.git.prepare_commit(&config, oid)
+        };
+
+        // A number, or a link to a Pull Request in this repository (in any
+        // case), becomes a link
+        for trailer in ["#12", "https://github.com/Acme/Codez/pull/12"] {
+            let prepared =
+                commit(&format!("A\n\nPull-request: {trailer}\n")).unwrap();
+            assert_eq!(prepared.pull_request_number, Some(12));
+            assert_eq!(
+                prepared.message.get_trailer("Pull-request"),
+                Some("https://github.com/acme/codez/pull/12")
+            );
+        }
+
+        // An empty one is removed
+        let prepared =
+            commit("A\n\nPull-request:\nSigned-off-by: X\n").unwrap();
+        assert_eq!(prepared.pull_request_number, None);
+        assert_eq!(prepared.message.get_trailer("Pull-request"), None);
+
+        // One for another repository is an error
+        let error = commit(
+            "A\n\nPull-request: https://github.com/acme/other/pull/12\n",
+        )
+        .unwrap_err();
+        assert!(error.to_string().contains("acme/other/pull/12"));
     }
 }
