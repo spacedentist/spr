@@ -43,7 +43,17 @@ impl Run {
         let Some(sha) = api.branch_sha(&run.default_branch)? else {
             bail!("The default branch {} doesn't exist", run.default_branch);
         };
+        println!(
+            "Test run {} in {}/{}, with branches under {}",
+            run.id, api.owner, api.repo, run.prefix
+        );
         api.create_branch(&run.target_branch, &sha)?;
+        println!(
+            "Created the target branch {} from {} ({})",
+            run.target_branch,
+            run.default_branch,
+            crate::log::short(&sha)
+        );
         Ok(run)
     }
 
@@ -117,8 +127,10 @@ pub fn cleanup_runs(api: &Api, ids: &BTreeSet<String>) -> Result<()> {
             && let Some(number) = stack["number"].as_u64()
         {
             api.unstack(number)?;
+            println!("Dissolved stack #{number}");
         }
         api.close_pull_request(pr.number)?;
+        println!("Closed PR #{} ({})", pr.number, pr.head_ref);
     }
 
     for id in ids {
@@ -126,6 +138,7 @@ pub fn cleanup_runs(api: &Api, ids: &BTreeSet<String>) -> Result<()> {
             for branch in api.branches_with_prefix(&prefix)? {
                 if belongs_to_run(&branch) {
                     api.delete_branch(&branch)?;
+                    println!("Deleted branch {branch}");
                 }
             }
         }

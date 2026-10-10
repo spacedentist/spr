@@ -11,6 +11,7 @@
 
 mod api;
 mod env;
+mod log;
 mod manual;
 mod report;
 mod run;
@@ -198,13 +199,11 @@ fn run_live(
     }
 
     let run = Run::start(api)?;
-    println!(
-        "Test run {} in {repo} (branches {}…, target branch {})\n",
-        run.id, run.prefix, run.target_branch
-    );
+    println!();
 
     let mut report = Report::new();
     for scenario in selected {
+        println!("{}: {}", scenario.name, scenario.description);
         let start = Instant::now();
         let mut env = TestEnv::new(spr, token)?;
         let result = setup(&env, repo, &run, scenario.name).and_then(|()| {
@@ -237,6 +236,7 @@ fn run_live(
             run.id
         );
     } else {
+        println!("Cleaning up");
         run.cleanup(api)?;
     }
     Ok(report.print_summary())

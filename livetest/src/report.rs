@@ -30,6 +30,7 @@ impl Report {
                 }
             }
         }
+        println!();
         self.results.push((name.to_string(), outcome, duration));
     }
 

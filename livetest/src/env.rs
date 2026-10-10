@@ -147,9 +147,33 @@ impl TestEnv {
 
     /// Run spr (output captured)
     pub fn spr(&self, args: &[&str]) -> Result<RunOutput> {
+        crate::log::step(format!(
+            "$ {}",
+            crate::log::command_line("spr", args)
+        ));
+        let before = self.head();
         let mut command = self.command(&self.spr);
         command.args(args);
-        self.run(command)
+        let output = self.run(command)?;
+
+        // spr rewrites local commits (e.g. adding trailers), lands them,
+        // or switches branches: show it
+        let after = self.head();
+        if let (Some(before), Some(after)) = (before, after)
+            && before != after
+        {
+            crate::log::step(format!(
+                "HEAD {} → {}",
+                crate::log::short(&before),
+                crate::log::short(&after)
+            ));
+        }
+        Ok(output)
+    }
+
+    /// The HEAD commit of the test repository, if there is one
+    fn head(&self) -> Option<String> {
+        self.git(&["rev-parse", "--verify", "--quiet", "HEAD"]).ok()
     }
 
     /// Run spr, failing if it fails. Returns its output.
@@ -171,6 +195,7 @@ impl TestEnv {
                 output.all()
             );
         }
+        crate::log::step("✓ it failed, as expected");
         Ok(output.all())
     }
 

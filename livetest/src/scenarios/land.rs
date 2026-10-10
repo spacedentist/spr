@@ -2,7 +2,8 @@
 
 use color_eyre::eyre::Result;
 
-use super::{Ctx, Scenario, check};
+use super::{Ctx, Scenario, check, check_eq};
+use crate::log::short;
 
 pub const SQUASH: Scenario = Scenario {
     name: "land",
@@ -29,15 +30,22 @@ fn create_and_land(ctx: &Ctx, name: &str) -> Result<(u64, String)> {
     ctx.env.spr_ok(&["land"])?;
 
     let pr = ctx.api.pull_request(number)?;
-    check(pr.merged, || format!("#{number} wasn't merged"))?;
+    check(format!("PR #{number} is merged"), pr.merged)?;
     let landed = ctx.fetch(&ctx.run.target_branch)?;
-    check(ctx.tree(&landed)? == local_tree, || {
-        "The target branch doesn't have the tree of the local commit".into()
-    })?;
-    // The local branch is on the landed commit now
-    check(ctx.rev_parse("HEAD")? == landed, || {
-        "The local branch wasn't moved to the landed commit".into()
-    })?;
+    check(
+        format!(
+            "the target branch (now at {}) has the tree of the local commit",
+            short(&landed)
+        ),
+        ctx.tree(&landed)? == local_tree,
+    )?;
+    check(
+        format!(
+            "the local branch is on the landed commit {}",
+            short(&landed)
+        ),
+        ctx.rev_parse("HEAD")? == landed,
+    )?;
     Ok((number, landed))
 }
 
@@ -47,26 +55,29 @@ fn land_squash(ctx: &Ctx) -> Result<()> {
     // One commit, with the Pull Request's title, and trailers that Git
     // recognises as such
     let parents = ctx.env.git(&["log", "-1", "--format=%P", &landed])?;
-    check(parents.split_whitespace().count() == 1, || {
-        format!("Expected a squash commit, got parents {parents}")
-    })?;
+    check_eq(
+        "the landed commit is a squash commit (one parent)",
+        parents.split_whitespace().count(),
+        1,
+    )?;
     let message = ctx.message(&landed)?;
-    check(message.starts_with("Test land"), || {
-        format!("Unexpected message of the landed commit:\n{message}")
-    })?;
+    check(
+        "the landed commit has the Pull Request's title",
+        message.starts_with("Test land"),
+    )?;
     let trailers = ctx.env.git(&[
         "log",
         "-1",
         "--format=%(trailers:key=Pull-request,valueonly)",
         &landed,
     ])?;
-    check(trailers.ends_with(&format!("/pull/{number}")), || {
+    check(
         format!(
-            "Git doesn't see a Pull-request trailer in the landed commit:\n\
-             {message}"
-        )
-    })?;
-    Ok(())
+            "Git sees the Pull-request trailer of the landed commit (PR \
+             #{number})"
+        ),
+        trailers.ends_with(&format!("/pull/{number}")),
+    )
 }
 
 fn land_merge(ctx: &Ctx) -> Result<()> {
@@ -77,12 +88,13 @@ fn land_merge(ctx: &Ctx) -> Result<()> {
     let pr = ctx.api.pull_request(number)?;
     let parents = ctx.env.git(&["log", "-1", "--format=%P", &landed])?;
     let parents: Vec<&str> = parents.split_whitespace().collect();
-    check(parents.len() == 2 && parents[1] == pr.head_sha, || {
+    check_eq(
         format!(
-            "Expected a merge commit of the Pull Request's head {}, got \
-             parents {parents:?}",
-            pr.head_sha
-        )
-    })?;
-    Ok(())
+            "the landed commit merges PR #{number}'s head {}",
+            short(&pr.head_sha)
+        ),
+        parents.get(1).copied(),
+        Some(pr.head_sha.as_str()),
+    )?;
+    check_eq("the landed commit has two parents", parents.len(), 2)
 }

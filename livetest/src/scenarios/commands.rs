@@ -1,11 +1,14 @@
 //! The other commands: spr patch, spr amend, spr list, and dry runs
 
+use std::time::{Duration, Instant};
+
 use color_eyre::eyre::Result;
 
-use std::time::Duration;
-
-use super::{Ctx, Scenario, check, check_output};
-use crate::api::wait_for;
+use super::{Ctx, Scenario, check, check_eq, check_output};
+use crate::{
+    api::wait_for,
+    log::{short, step},
+};
 
 /// How long GitHub's search may take to find a new Pull Request
 const SEARCH_DELAY: Duration = Duration::from_secs(120);
@@ -43,21 +46,29 @@ fn patch(ctx: &Ctx) -> Result<()> {
         "--branch-name",
         &branch,
     ])?;
-    check(
-        ctx.env.git(&["branch", "--show-current"])? == branch,
-        || format!("Branch {branch} isn't checked out"),
+    check_eq(
+        format!("branch {branch} is checked out"),
+        ctx.env.git(&["branch", "--show-current"])?,
+        branch.clone(),
     )?;
-    check(ctx.tree("HEAD")? == ctx.tree(&head)?, || {
-        "The patched commit doesn't have the Pull Request's tree".into()
-    })?;
-    check(ctx.expected_head("HEAD")?.as_deref() == Some(&head), || {
-        "spr patch didn't record the Pull Request's head".into()
-    })?;
+    let patched = ctx.rev_parse("HEAD")?;
+    check(
+        format!(
+            "the patched commit {} has the tree of PR #{number}'s head {}",
+            short(&patched),
+            short(&head)
+        ),
+        ctx.tree(&patched)? == ctx.tree(&head)?,
+    )?;
+    check_eq(
+        format!("spr recorded {} as PR #{number}'s head", short(&head)),
+        ctx.expected_head("HEAD")?.as_deref(),
+        Some(head.as_str()),
+    )?;
 
     // Updating the Pull Request from there works (nothing to do)
     let output = ctx.env.spr_ok(&["diff", "-m", "From the patched branch"])?;
-    check_output(&output, "No update necessary")?;
-    Ok(())
+    check_output(&output, "No update necessary")
 }
 
 fn amend(ctx: &Ctx) -> Result<()> {
@@ -70,27 +81,42 @@ fn amend(ctx: &Ctx) -> Result<()> {
     let spr_id = ctx.trailer("HEAD", "Spr-Id")?;
 
     // spr list uses GitHub's search, which takes a while to know about new
-    // Pull Requests
+    // Pull Requests. (Not logging every attempt.)
+    step("$ spr list (until GitHub's search finds the new PR)");
+    let start = Instant::now();
     wait_for("spr list to show the Pull Request", SEARCH_DELAY, || {
-        let output = ctx.env.spr_ok(&["list"])?;
-        Ok(output.contains("Amend test").then_some(()))
+        let output = ctx.env.run({
+            let mut command = ctx.env.spr_command();
+            command.arg("list");
+            command
+        })?;
+        Ok((output.success && output.stdout.contains("Amend test"))
+            .then_some(()))
     })?;
+    step(format!(
+        "✓ spr list shows PR #{number} (after {}s)",
+        start.elapsed().as_secs()
+    ));
 
     // Somebody changes the title on GitHub; spr amend takes it, keeping
     // the local trailers
     ctx.api
         .set_pull_request_title(number, "Amend test, retitled")?;
+    step(format!(
+        "somebody changes PR #{number}'s title to \"Amend test, retitled\""
+    ));
     ctx.env.spr_ok(&["amend"])?;
     let message = ctx.message("HEAD")?;
-    check(message.starts_with("Amend test, retitled\n"), || {
-        format!("spr amend didn't take the new title:\n{message}")
-    })?;
+    check_eq(
+        "the local commit has the new title",
+        message.lines().next().unwrap_or_default(),
+        "Amend test, retitled",
+    )?;
     check(
+        "the local commit kept its Spr-Id and Signed-off-by trailers",
         ctx.trailer("HEAD", "Spr-Id")? == spr_id
             && ctx.trailer("HEAD", "Signed-off-by")?.is_some(),
-        || format!("spr amend dropped local trailers:\n{message}"),
-    )?;
-    Ok(())
+    )
 }
 
 fn dry_run(ctx: &Ctx) -> Result<()> {
@@ -99,13 +125,16 @@ fn dry_run(ctx: &Ctx) -> Result<()> {
     check_output(&output, "Would create")?;
 
     // Nothing changed: no Pull Request, no branch, same local commit
-    check(ctx.rev_parse("HEAD")? == before, || {
-        "The local commit changed".into()
-    })?;
+    check_eq(
+        format!("the local commit is still {}", short(&before)),
+        ctx.rev_parse("HEAD")?,
+        before.clone(),
+    )?;
     let prefix = ctx.run.test_prefix(DRY_RUN.name);
     let branches = ctx.api.branches_with_prefix(&prefix)?;
-    check(branches.is_empty(), || {
-        format!("Branches were created: {branches:?}")
-    })?;
-    Ok(())
+    check_eq(
+        format!("no branches were created under {prefix}"),
+        branches,
+        Vec::<String>::new(),
+    )
 }

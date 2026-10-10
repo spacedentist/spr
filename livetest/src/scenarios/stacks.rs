@@ -2,7 +2,8 @@
 
 use color_eyre::eyre::Result;
 
-use super::{Ctx, Scenario, check};
+use super::{Ctx, Scenario, check, check_eq};
+use crate::log::{short, step};
 
 pub const BASE_BRANCHES: Scenario = Scenario {
     name: "stack-base-branches",
@@ -46,7 +47,13 @@ fn amend_below_head(ctx: &Ctx, files: &[(&str, &str)]) -> Result<()> {
     let top = ctx.rev_parse("HEAD")?;
     ctx.env.git(&["reset", "--quiet", "--hard", "HEAD~"])?;
     ctx.amend(files)?;
-    ctx.env.git(&["cherry-pick", "--allow-empty", &top])?;
+    ctx.env
+        .git(&["cherry-pick", "--allow-empty", "--quiet", &top])?;
+    step(format!(
+        "rebased the top commit {} onto it: {}",
+        short(&top),
+        short(&ctx.rev_parse("HEAD")?)
+    ));
     Ok(())
 }
 
@@ -67,9 +74,16 @@ fn update_bottom(
     let (new_bottom, _) = ctx.check_pr_matches(bottom, "HEAD~")?;
     let (new_top, _) = ctx.check_pr_matches(top, "HEAD")?;
     check(
+        format!(
+            "PR #{bottom} ({} → {}) and PR #{top} ({} → {}) were updated \
+             without rewriting their branches",
+            short(&old_bottom),
+            short(&new_bottom),
+            short(&old_top),
+            short(&new_top)
+        ),
         ctx.is_ancestor(&old_bottom, &new_bottom)?
             && ctx.is_ancestor(&old_top, &new_top)?,
-        || "A Pull Request branch was rewritten".into(),
     )?;
     Ok((new_bottom, new_top))
 }
@@ -81,15 +95,17 @@ fn base_branches(ctx: &Ctx) -> Result<()> {
     // The top Pull Request is based on a base branch spr created
     let bottom_pr = ctx.api.pull_request(bottom)?;
     let top_pr = ctx.api.pull_request(top)?;
-    check(bottom_pr.base_ref == ctx.run.target_branch, || {
-        format!("#{bottom} is based on {}", bottom_pr.base_ref)
-    })?;
+    check_eq(
+        format!("PR #{bottom} targets {}", ctx.run.target_branch),
+        &bottom_pr.base_ref,
+        &ctx.run.target_branch,
+    )?;
     let base = top_pr.base_ref.clone();
     check(
+        format!("PR #{top} targets a synthetic base branch: {base}"),
         base.starts_with(&ctx.run.test_prefix(name))
             && base.contains(&format!("{}.", ctx.run.target_branch))
             && base != bottom_pr.head_ref,
-        || format!("#{top} isn't based on a synthetic base branch: {base}"),
     )?;
 
     update_bottom(ctx, name, bottom, top)?;
@@ -97,14 +113,15 @@ fn base_branches(ctx: &Ctx) -> Result<()> {
     // Closing both deletes the base branch, too
     ctx.env.spr_ok(&["close", "--all"])?;
     for number in [bottom, top] {
-        check(!ctx.api.pull_request(number)?.is_open(), || {
-            format!("#{number} is still open")
-        })?;
+        check(
+            format!("PR #{number} is closed"),
+            !ctx.api.pull_request(number)?.is_open(),
+        )?;
     }
-    check(!ctx.branch_exists(&base)?, || {
-        format!("The base branch {base} still exists")
-    })?;
-    Ok(())
+    check(
+        format!("the base branch {base} is deleted"),
+        !ctx.branch_exists(&base)?,
+    )
 }
 
 fn chain(ctx: &Ctx) -> Result<()> {
@@ -115,15 +132,22 @@ fn chain(ctx: &Ctx) -> Result<()> {
     // The top Pull Request is based on the bottom one's branch
     let bottom_pr = ctx.api.pull_request(bottom)?;
     let top_pr = ctx.api.pull_request(top)?;
-    check(top_pr.base_ref == bottom_pr.head_ref, || {
-        format!("#{top} is based on {}", top_pr.base_ref)
-    })?;
+    check_eq(
+        format!("PR #{top} targets PR #{bottom}'s branch"),
+        &top_pr.base_ref,
+        &bottom_pr.head_ref,
+    )?;
 
     // After updating, the top Pull Request contains the bottom one's head
     let (new_bottom, new_top) = update_bottom(ctx, name, bottom, top)?;
-    check(ctx.is_ancestor(&new_bottom, &new_top)?, || {
-        format!("#{top} doesn't contain the head of #{bottom}")
-    })?;
+    check(
+        format!(
+            "PR #{top}'s head {} contains PR #{bottom}'s head {}",
+            short(&new_top),
+            short(&new_bottom)
+        ),
+        ctx.is_ancestor(&new_bottom, &new_top)?,
+    )?;
 
     ctx.env.spr_ok(&["close", "--all"])?;
     Ok(())
@@ -143,9 +167,17 @@ fn github_stack(ctx: &Ctx) -> Result<()> {
         .flatten()
         .filter_map(|pr| pr["number"].as_u64())
         .collect();
-    check(numbers == [bottom, top], || {
-        format!("Expected a stack of #{bottom} and #{top}, got {stack:?}")
-    })?;
+    check_eq(
+        format!(
+            "PRs #{bottom} and #{top} are a stack on GitHub (#{})",
+            stack
+                .as_ref()
+                .and_then(|stack| stack["number"].as_u64())
+                .unwrap_or_default()
+        ),
+        numbers,
+        vec![bottom, top],
+    )?;
 
     update_bottom(ctx, name, bottom, top)?;
 
@@ -153,16 +185,24 @@ fn github_stack(ctx: &Ctx) -> Result<()> {
     let local_tree = ctx.tree("HEAD")?;
     ctx.env.spr_ok(&["land"])?;
     for number in [bottom, top] {
-        check(ctx.api.pull_request(number)?.merged, || {
-            format!("#{number} wasn't merged")
-        })?;
+        check(
+            format!("PR #{number} is merged"),
+            ctx.api.pull_request(number)?.merged,
+        )?;
     }
     let landed = ctx.fetch(&ctx.run.target_branch)?;
-    check(ctx.tree(&landed)? == local_tree, || {
-        "The target branch doesn't have the tree of the local commits".into()
-    })?;
-    check(ctx.rev_parse("HEAD")? == landed, || {
-        "The local branch wasn't moved to the landed commits".into()
-    })?;
-    Ok(())
+    check(
+        format!(
+            "the target branch (now at {}) has the tree of the local commits",
+            short(&landed)
+        ),
+        ctx.tree(&landed)? == local_tree,
+    )?;
+    check(
+        format!(
+            "the local branch is on the landed commits {}",
+            short(&landed)
+        ),
+        ctx.rev_parse("HEAD")? == landed,
+    )
 }

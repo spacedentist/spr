@@ -9,11 +9,12 @@ mod stacks;
 
 use std::time::Duration;
 
-use color_eyre::eyre::{Result, WrapErr, bail, eyre};
+use color_eyre::eyre::{Result, bail, eyre};
 
 use crate::{
     api::{Api, PullRequest, wait_for},
     env::TestEnv,
+    log::{short, step, title},
     run::Run,
 };
 
@@ -77,16 +78,63 @@ impl Ctx<'_> {
         self.write(files)?;
         self.env.git(&["add", "--all"])?;
         self.env.git(&["commit", "--quiet", "-m", message])?;
-        self.env.git(&["rev-parse", "HEAD"])
+        let commit = self.rev_parse("HEAD")?;
+        step(format!("commit {} {:?}", short(&commit), title(message)));
+        Ok(commit)
     }
 
     /// Amend the HEAD commit with the files. Returns the new commit.
     pub fn amend(&self, files: &[(&str, &str)]) -> Result<String> {
+        let before = self.rev_parse("HEAD")?;
         self.write(files)?;
         self.env.git(&["add", "--all"])?;
         self.env
             .git(&["commit", "--quiet", "--amend", "--no-edit"])?;
-        self.env.git(&["rev-parse", "HEAD"])
+        let commit = self.rev_parse("HEAD")?;
+        step(format!("amend {} → {}", short(&before), short(&commit)));
+        Ok(commit)
+    }
+
+    /// Somebody else changes a file on a branch on GitHub (like in its web
+    /// interface). Returns the new commit.
+    pub fn somebody_edits(
+        &self,
+        branch: &str,
+        path: &str,
+        content: &str,
+    ) -> Result<String> {
+        let commit = self.api.put_file(
+            branch,
+            path,
+            content,
+            "Change by somebody else",
+        )?;
+        step(format!(
+            "somebody else changes {path} on {branch}: commit {}",
+            short(&commit)
+        ));
+        Ok(commit)
+    }
+
+    /// Somebody presses "Update branch" on the Pull Request on GitHub.
+    /// Returns its new head, once GitHub has updated it.
+    pub fn update_branch(&self, number: u64) -> Result<String> {
+        let old_head = self.api.pull_request(number)?.head_sha;
+        self.api.update_branch(number)?;
+        let new_head = wait_for(
+            &format!("Pull Request #{number} to get a new head"),
+            GITHUB_DELAY,
+            || {
+                let head = self.api.pull_request(number)?.head_sha;
+                Ok((head != old_head).then_some(head))
+            },
+        )?;
+        step(format!(
+            "somebody presses \"Update branch\" on PR #{number}: head {} → {}",
+            short(&old_head),
+            short(&new_head)
+        ));
+        Ok(new_head)
     }
 
     pub fn rev_parse(&self, rev: &str) -> Result<String> {
@@ -113,10 +161,16 @@ impl Ctx<'_> {
         let url = self
             .trailer(rev, "Pull-request")?
             .ok_or_else(|| eyre!("Commit {rev} has no Pull-request trailer"))?;
-        url.rsplit('/')
+        let number = url
+            .rsplit('/')
             .next()
             .and_then(|number| number.parse().ok())
-            .ok_or_else(|| eyre!("Unexpected Pull-request trailer: {url}"))
+            .ok_or_else(|| eyre!("Unexpected Pull-request trailer: {url}"))?;
+        step(format!(
+            "commit {} has PR #{number}",
+            short(&self.rev_parse(rev)?)
+        ));
+        Ok(number)
     }
 
     /// The Pull Request, once GitHub reports `head` as its head (it takes a
@@ -148,16 +202,12 @@ impl Ctx<'_> {
     }
 
     pub fn is_ancestor(&self, ancestor: &str, rev: &str) -> Result<bool> {
-        let output = self.env.run({
-            let mut command = self.env.git_command(&[
-                "merge-base",
-                "--is-ancestor",
-                ancestor,
-                rev,
-            ]);
-            command.current_dir(&self.env.repo_dir);
-            command
-        })?;
+        let output = self.env.run(self.env.git_command(&[
+            "merge-base",
+            "--is-ancestor",
+            ancestor,
+            rev,
+        ]))?;
         Ok(output.success)
     }
 
@@ -171,12 +221,15 @@ impl Ctx<'_> {
         let pr = self.api.pull_request(number)?;
         let head = self.fetch(&pr.head_ref)?;
         let pr = self.pull_request_with_head(number, &head)?;
-        if self.tree(&head)? != self.tree(rev)? {
-            bail!(
-                "Pull Request #{number} (head {head}) doesn't have the tree \
-                 of the local commit {rev}"
-            );
-        }
+        let local = self.rev_parse(rev)?;
+        check(
+            format!(
+                "PR #{number} (head {}) has the tree of the local commit {}",
+                short(&head),
+                short(&local)
+            ),
+            self.tree(&head)? == self.tree(&local)?,
+        )?;
         Ok((head, pr))
     }
 
@@ -203,34 +256,43 @@ impl Ctx<'_> {
     }
 }
 
-/// Fail with the message unless the condition holds
-pub fn check(condition: bool, message: impl FnOnce() -> String) -> Result<()> {
+/// Check that something holds, described positively (e.g. "PR #12 is
+/// open"): print it, or fail with it
+pub fn check(description: impl Into<String>, condition: bool) -> Result<()> {
+    let description = description.into();
     if condition {
+        step(format!("✓ {description}"));
         Ok(())
     } else {
-        Err(eyre!(message()))
+        bail!("Expected: {description}")
     }
 }
 
-/// Fail unless the output contains the text
-pub fn check_output(output: &str, text: &str) -> Result<()> {
-    check(output.contains(text), || {
-        format!(
-            "Expected the output to contain {text:?}, but it was:\n{output}"
+/// Check that a value is the expected one, described positively: print the
+/// description, or fail with it and the actual value
+pub fn check_eq<T: PartialEq + std::fmt::Debug>(
+    description: impl Into<String>,
+    actual: T,
+    expected: T,
+) -> Result<()> {
+    let description = description.into();
+    if actual == expected {
+        step(format!("✓ {description}"));
+        Ok(())
+    } else {
+        bail!(
+            "Expected: {description}\nbut got {actual:?} instead of \
+             {expected:?}"
         )
-    })
-    .wrap_err("Unexpected output")
+    }
 }
 
-/// Wait until GitHub reports a new head for the Pull Request (e.g. after
-/// "Update branch")
-pub fn wait_for_change(ctx: &Ctx, number: u64, old_head: &str) -> Result<()> {
-    wait_for(
-        &format!("Pull Request #{number} to get a new head"),
-        GITHUB_DELAY,
-        || {
-            Ok((ctx.api.pull_request(number)?.head_sha != old_head)
-                .then_some(()))
-        },
-    )
+/// Check that the output of a command contains the text
+pub fn check_output(output: &str, text: &str) -> Result<()> {
+    if output.contains(text) {
+        step(format!("✓ the output says {text:?}"));
+        Ok(())
+    } else {
+        bail!("Expected: the output says {text:?}\nThe output was:\n{output}")
+    }
 }

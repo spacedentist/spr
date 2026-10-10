@@ -2,7 +2,8 @@
 
 use color_eyre::eyre::Result;
 
-use super::{Ctx, Scenario, check};
+use super::{Ctx, Scenario, check, check_eq};
+use crate::log::short;
 
 pub const SCENARIO: Scenario = Scenario {
     name: "basic",
@@ -20,34 +21,43 @@ fn run(ctx: &Ctx) -> Result<()> {
 
     let number = ctx.pr_number("HEAD")?;
     let (first_head, pr) = ctx.check_pr_matches(number, "HEAD")?;
-    check(pr.is_open(), || format!("#{number} isn't open"))?;
-    check(pr.title == "Basic test", || {
-        format!("#{number} has the title {:?}", pr.title)
-    })?;
-    check(pr.base_ref == ctx.run.target_branch, || {
-        format!("#{number} is based on {}", pr.base_ref)
-    })?;
+    check(format!("PR #{number} is open"), pr.is_open())?;
+    check_eq(
+        format!("PR #{number} has the commit's title"),
+        pr.title.as_str(),
+        "Basic test",
+    )?;
+    check_eq(
+        format!("PR #{number} targets {}", ctx.run.target_branch),
+        &pr.base_ref,
+        &ctx.run.target_branch,
+    )?;
 
     // Update: a new commit on top of the Pull Request branch (no force-push)
     ctx.amend(&[("basic.txt", "one\ntwo\n")])?;
     ctx.env.spr_ok(&["diff", "-m", "Second version"])?;
     let (second_head, _) = ctx.check_pr_matches(number, "HEAD")?;
-    check(second_head != first_head, || {
-        "The head didn't change".into()
-    })?;
-    check(ctx.is_ancestor(&first_head, &second_head)?, || {
-        "The Pull Request branch was rewritten".into()
-    })?;
+    check(
+        format!(
+            "PR #{number}'s head moved on from {} to {}, without rewriting \
+             its branch",
+            short(&first_head),
+            short(&second_head)
+        ),
+        second_head != first_head
+            && ctx.is_ancestor(&first_head, &second_head)?,
+    )?;
 
     // Close: Pull Request closed, branch deleted, trailer removed
     ctx.env.spr_ok(&["close"])?;
     let pr = ctx.api.pull_request(number)?;
-    check(!pr.is_open(), || format!("#{number} is still open"))?;
-    check(!ctx.branch_exists(&pr.head_ref)?, || {
-        format!("Branch {} still exists", pr.head_ref)
-    })?;
-    check(ctx.trailer("HEAD", "Pull-request")?.is_none(), || {
-        "The local commit still has a Pull-request trailer".into()
-    })?;
-    Ok(())
+    check(format!("PR #{number} is closed"), !pr.is_open())?;
+    check(
+        format!("its branch {} is deleted", pr.head_ref),
+        !ctx.branch_exists(&pr.head_ref)?,
+    )?;
+    check(
+        "the local commit has no Pull-request trailer anymore",
+        ctx.trailer("HEAD", "Pull-request")?.is_none(),
+    )
 }
