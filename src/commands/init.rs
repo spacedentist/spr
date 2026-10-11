@@ -110,15 +110,17 @@ pub async fn init() -> Result<()> {
 
     let regex =
         lazy_regex::regex!(r#"github\.com[/:]([\w\-\.]+/[\w\-\.]+?)(.git)?$"#);
-    let github_repo = crate::config::configured_target(&config)
+    // The configured target: spr.target, or the options it replaces
+    let configured_target = crate::config::configured_target(&config)
         .ok()
         .flatten()
-        .map(|target| target.repository().clone())
-        .filter(|repository| {
-            repository.forge() == Forge::GitHub
-                && repository.is_on_public_instance()
-        })
-        .map(|repository| repository.path().to_string())
+        .filter(|target| {
+            target.repository().forge() == Forge::GitHub
+                && target.repository().is_on_public_instance()
+        });
+    let github_repo = configured_target
+        .as_ref()
+        .map(|target| target.repository().path().to_string())
         .or_else(|| {
             // We can provide a default value in case the remote "origin" is pointing to github.com
             repo.find_remote("origin")
@@ -141,7 +143,8 @@ pub async fn init() -> Result<()> {
         .interact_text()?;
     let repository = Repository::new(Forge::GitHub, None, &github_repo)?;
 
-    // Master branch name (just query GitHub)
+    // Target branch: the configured one if the repository stays the same,
+    // otherwise the repository's default branch on GitHub
 
     let github_repo_info = octocrab
         .get::<octocrab::models::Repository, _, _>(
@@ -150,15 +153,59 @@ pub async fn init() -> Result<()> {
         )
         .await
         .context("Getting github repo info".to_string())?;
+    let default_branch = github_repo_info
+        .default_branch
+        .unwrap_or_else(|| "master".to_string());
 
-    let target = Target::new(
-        repository,
-        github_repo_info
-            .default_branch
-            .as_deref()
-            .unwrap_or("master"),
+    console::Term::stdout().write_line("")?;
+
+    output(
+        "❓",
+        &formatdoc!(
+            "Which branch should Pull Requests be merged into? (The \
+             repository's default branch is '{default_branch}'.)"
+        ),
     )?;
+
+    let branch = configured_target
+        .filter(|target| target.repository() == &repository)
+        .map(|target| target.branch().to_string())
+        .unwrap_or(default_branch);
+    let branch = dialoguer::Input::<String>::new()
+        .with_prompt("Target branch")
+        .with_initial_text(branch)
+        .validate_with(|input: &String| -> Result<()> {
+            Target::new(repository.clone(), input).map(|_| ())
+        })
+        .interact_text()?;
+    let target = Target::new(repository, &branch)?;
     config.set_str("spr.target", &target.to_string())?;
+
+    // spr.target replaces the old options: remove them from the
+    // repository's configuration. (Not from the global one, where other
+    // repositories may still rely on them; spr's deprecation note tells how
+    // to replace them there.)
+    let mut local_config = config.open_level(git2::ConfigLevel::Local)?;
+    let mut removed = Vec::new();
+    for key in crate::config::OLD_TARGET_OPTIONS {
+        match local_config.remove(key) {
+            Ok(()) => removed.push(key),
+            Err(error) if error.code() == git2::ErrorCode::NotFound => {}
+            Err(error) => return Err(error.into()),
+        }
+    }
+    if !removed.is_empty() {
+        output(
+            "🧹",
+            &format!(
+                "Replaced {} with spr.target = {target}",
+                removed.join(" and ")
+            ),
+        )?;
+    }
+    if let Some(note) = crate::config::deprecation_note(&config) {
+        output("⚠️", &note)?;
+    }
 
     // Pull Request branch prefix
 

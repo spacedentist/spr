@@ -67,7 +67,8 @@
   `spr.githubMasterBranch` — a first step towards supporting other forges
   than github.com. `spr init` writes it; the old options still work where
   `spr.target` isn't set, but are deprecated: spr shows a note on how to
-  replace them
+  replace them, and `spr init` replaces them in the repository's
+  configuration
 
 ### Fixes
 

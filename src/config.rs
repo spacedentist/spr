@@ -287,7 +287,7 @@ pub fn configured_target(git_config: &git2::Config) -> Result<Option<Target>> {
 }
 
 /// Options that `spr.target` replaces
-const OLD_TARGET_OPTIONS: [&str; 2] =
+pub const OLD_TARGET_OPTIONS: [&str; 2] =
     ["spr.githubRepository", "spr.githubMasterBranch"];
 
 /// A note on the deprecated options in the Git configuration (those that

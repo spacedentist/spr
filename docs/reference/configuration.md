@@ -33,7 +33,7 @@ spr uses the following Git configuration values:
 
 [^sprids]: The ID identifies a local commit and its pull request across amends and rebases, like Gerrit's `Change-Id`. It only appears in local commit messages — not in pull requests, nor in the commits that land. The setting only controls whether IDs are added automatically: commits that have an ID keep it either way. See [Identify Commits with Spr-Ids](../user/spr-ids.md).
 
-[^target]: The notation is `FORGE:REPOSITORY:BRANCH`. For now, spr supports only GitHub (`github:`) on github.com, with the repository as `owner/repo`. The branch is everything after the last colon (branch names can't contain colons), e.g. `github:acme/project:release/1.2`. Before `target`, spr had two options, `githubRepository` (`owner/repo`) and `githubMasterBranch` (default: `master`). spr still reads them if `target` isn't set, but they're deprecated and will be removed in a future version: spr shows a note on how to replace them.
+[^target]: The notation is `FORGE:REPOSITORY:BRANCH`. For now, spr supports only GitHub (`github:`) on github.com, with the repository as `owner/repo`. The branch is everything after the last colon (branch names can't contain colons), e.g. `github:acme/project:release/1.2`. Before `target`, spr had two options, `githubRepository` (`owner/repo`) and `githubMasterBranch` (default: `master`). spr still reads them if `target` isn't set, but they're deprecated and will be removed in a future version: spr shows a note on how to replace them. `spr init` replaces them in the repository's `.git/config` (and keeps a branch configured there).
 
 [^cli-target]: `--github-repository` (`owner/repo`) and `--github-master-branch` override the repository or the branch of `target`.
 
