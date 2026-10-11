@@ -1,6 +1,6 @@
 # Release Checklist
 
-This is internal documentation, listing the step to make a new release.
+This is internal documentation, listing the step to make a new release. For a pre-release, see [Pre-releases](#pre-releases) below.
 
 ## Release commit
 
@@ -49,3 +49,15 @@ This is internal documentation, listing the step to make a new release.
 - Add a new "Unreleased" section at the top of `CHANGELOG.md`
 - Make a commit with the above changes named "Start next development cycle"
 - Push that commit to master - the last release commit should be the direct parent
+
+## Pre-releases
+
+A pre-release lets users try what's on master before the release, e.g. 2.0.0-beta.1 before 2.0.0. Its version is the one master has during the release cycle, `x.y.z-beta.N`, and the next pre-release counts `N` up. Only GitHub and crates.io get pre-releases: users of `brew install spr`, nixpkgs and `cargo install spr` keep getting the latest stable release.
+
+- Release commit as above, keeping the version as it is (e.g. `2.0.0-beta.1`): in `CHANGELOG.md`, rename "Unreleased" to "2.0.0-beta.1 - date" and add the link at the bottom; commit "Release 2.0.0-beta.1"; push it to master; tag it "v2.0.0-beta.1".
+- GitHub: make a release from the tag, with **"Set as a pre-release"** ticked, so that the latest stable release stays the "Latest" one. Release notes: the version's section of `CHANGELOG.md`. With the GitHub CLI: `gh release create v2.0.0-beta.1 --prerelease --title 2.0.0-beta.1 --notes-file NOTES.md`
+- crates.io: `cargo publish`. Cargo treats versions with a suffix as pre-releases: `cargo install spr` keeps installing the latest stable release, `cargo install spr --version 2.0.0-beta.1` installs the pre-release.
+- Skip nixpkgs and Homebrew: nixpkgs packages stable releases, and homebrew-core only accepts stable versions. Nix users can run a pre-release from the flake: `nix run github:spacedentist/spr/v2.0.0-beta.1`.
+- Start the next cycle as below, but with the next pre-release version (e.g. `2.0.0-beta.2`).
+
+For the final release after pre-releases (e.g. 2.0.0): `CHANGELOG.md` keeps the pre-releases' sections as they are, and the release's section lists the changes since the last pre-release.

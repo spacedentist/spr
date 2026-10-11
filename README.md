@@ -8,6 +8,26 @@ allow for a series of code reviews of interdependent code.
 
 spr is pronounced /ˈsuːpəɹ/, like the English word 'super'.
 
+## Migrating to spr 2.0
+
+spr 2.0 is available as a [pre-release](#pre-releases). Coming from spr 1.x, these changes may affect you:
+
+- **spr's fields in commit messages are Git trailers now.** Git treats `Key: value` lines in the last paragraph of a commit message as [trailers](https://git-scm.com/docs/git-interpret-trailers), like `Signed-off-by:`, and tools can read them (e.g. `git log --format='%(trailers)'`). spr 1.x wrote `Pull Request:`, `Reviewers:` and `Reviewed By:` fields, which weren't trailers: keys can't contain spaces. spr 2.0 writes the trailers `Pull-request:`, `Reviewers:` and `Reviewed-by:`. It still recognises the old fields, and converts them when it next updates a commit message.
+- **No more `Summary:` and `Test Plan:` sections.** The body of the commit message is the pull request's description, as it is. The option `spr.requireTestPlan` is gone.
+- **spr doesn't run `git` anymore.** It fetches and pushes directly to the repository's HTTPS URL, with its GitHub token (pushing via SSH, e.g. with `pushInsteadOf`, still works). The option `spr.githubRemoteName` is gone.
+- **Configuration options have new names.** spr still reads the old ones for now, and shows a note on how to replace them. `spr init` replaces them in the repository's configuration.
+
+  | spr 1.x                                             | spr 2.0                                                                       |
+  | --------------------------------------------------- | ----------------------------------------------------------------------------- |
+  | `spr.githubRepository` and `spr.githubMasterBranch` | `spr.target`, e.g. `github:owner/repo:main`                                   |
+  | `spr.githubAuthToken`                               | `spr.auth.github.token` (for GitHub Enterprise: `spr.auth.github.HOST.token`) |
+  | `--github-repository` and `--github-master-branch`  | `--target`                                                                    |
+  | `--github-auth-token`                               | `--auth-token`                                                                |
+
+- **Building spr needs Rust 1.91** or newer.
+
+See the [changelog](./CHANGELOG.md) for everything that's new.
+
 ## Documentation
 
 Comprehensive documentation is available here: https://spacedentist.github.io/spr/
@@ -44,6 +64,15 @@ If you have Cargo installed (the Rust build tool), you can install spr by runnin
 
 ```shell
 cargo install spr
+```
+
+### Pre-releases
+
+Pre-releases are on [GitHub](https://github.com/spacedentist/spr/releases) and crates.io. Homebrew, nixpkgs and a plain `cargo install spr` stay with the latest stable release. To install a pre-release, give its version (e.g. `2.0.0-beta.1`):
+
+```shell
+cargo install spr --version 2.0.0-beta.1
+nix run github:spacedentist/spr/v2.0.0-beta.1
 ```
 
 ### Install from Source
@@ -103,6 +132,12 @@ The minimum Rust version is what spr and its dependencies need. We raise it when
 Feel free to submit an issue on [GitHub](https://github.com/spacedentist/spr) if you have found a problem. If you can even provide a fix, please raise a pull request!
 
 If there are larger changes or features that you would like to work on, please raise an issue on GitHub first to discuss.
+
+See [AGENTS.md](./AGENTS.md) for an overview of the code base and its conventions, and [CodingGuidelines.md](./CodingGuidelines.md) for the coding style.
+
+### AI Coding Tools
+
+If you use AI coding tools, please read and understand all code changes before submitting them as a PR. Please refrain from listing your AI coding tools or models as co-contributors. Only submit PRs that you are happy to give your name to and be responsible for.
 
 ### License
 
