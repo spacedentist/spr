@@ -817,7 +817,7 @@ mod tests {
         let config = crate::config::Config::new(
             "github:acme/codez:master".parse().unwrap(),
             "spr/foo/".into(),
-            "xyz".into(),
+            Default::default(),
             false,
             crate::config::MergeMethod::Squash,
             crate::config::StackingMode::BaseBranches,

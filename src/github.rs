@@ -1,12 +1,13 @@
-//! The forge implementation for GitHub (github.com), via its REST and
-//! GraphQL APIs
+//! The forge implementation for GitHub — github.com, GitHub Enterprise
+//! Server, and GitHub Enterprise Cloud with data residency (`*.ghe.com`) —
+//! via its REST and GraphQL APIs
 
-use color_eyre::eyre::{Error, Result, WrapErr as _, eyre};
+use color_eyre::eyre::{Error, Result, WrapErr as _, bail, eyre};
 use graphql_client::{GraphQLQuery, Response};
 use serde::Deserialize;
 
 use crate::{
-    config::{Config, MergeMethod},
+    config::{Config, MergeMethod, StackingMode, auth_token_key},
     forge::{
         AsyncMergeStatus, Branch, Forge, OpenPullRequest, PullRequest,
         PullRequestMergeability, PullRequestRefs, PullRequestRequestReviewers,
@@ -16,7 +17,7 @@ use crate::{
     git::Git,
     git_remote::GitRemote,
     message::CommitMessage,
-    target::Target,
+    target::{Repository, Target},
 };
 use std::collections::{BTreeSet, HashMap};
 
@@ -25,7 +26,83 @@ pub struct GitHub {
     config: Config,
     git: Git,
     git_remote: GitRemote,
+    /// The client for the REST API
     octocrab: octocrab::Octocrab,
+    /// The client for the GraphQL API (at `/graphql` relative to its base)
+    graphql: octocrab::Octocrab,
+}
+
+/// The base addresses of GitHub's APIs on a host
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ApiUrls {
+    /// The base of the REST API
+    pub rest: String,
+    /// The base of the GraphQL API, which is at `/graphql` relative to it.
+    /// (On GitHub Enterprise Server, the GraphQL API isn't below the REST
+    /// API's base, and octocrab puts all paths below its base address.)
+    pub graphql: String,
+}
+
+impl ApiUrls {
+    /// The APIs of GitHub on the host: github.com, GitHub Enterprise Cloud
+    /// with data residency (`SUBDOMAIN.ghe.com`), or else GitHub Enterprise
+    /// Server
+    pub fn for_host(host: &str) -> Self {
+        if host == "github.com" {
+            Self::at("https://api.github.com")
+        } else if host.ends_with(".ghe.com") {
+            Self::at(&format!("https://api.{host}"))
+        } else {
+            Self::enterprise_server(&format!("https://{host}"))
+        }
+    }
+
+    /// Both APIs at the same base address (github.com and GHE.com)
+    fn at(base: &str) -> Self {
+        Self {
+            rest: base.to_string(),
+            graphql: base.to_string(),
+        }
+    }
+
+    /// GitHub Enterprise Server at the address (e.g.
+    /// `https://ghe.example.com`)
+    fn enterprise_server(address: &str) -> Self {
+        Self {
+            rest: format!("{address}/api/v3"),
+            graphql: format!("{address}/api"),
+        }
+    }
+}
+
+/// An octocrab client for one of GitHub's APIs
+pub fn api_client(base: &str, token: &str) -> Result<octocrab::Octocrab> {
+    Ok(octocrab::Octocrab::builder()
+        .base_uri(base)?
+        .personal_token(token.to_string())
+        .build()?)
+}
+
+/// How to get a token for GitHub on the repository's host, ending with how
+/// to configure it
+pub fn token_instructions(repository: &Repository) -> String {
+    let host = repository.host();
+    let gh_host = if host == "github.com" {
+        String::new()
+    } else {
+        format!(" --hostname {host}")
+    };
+    format!(
+        "Create a personal access token (classic) with the scopes repo, \
+         read:org and workflow, at\n\
+         https://{host}/settings/tokens/new?scopes=repo,read:org,workflow&description=spr\n\
+         or, if you use the GitHub CLI and are logged in there, get its token \
+         with `gh auth token{gh_host}`. (Fine-grained tokens work too, but \
+         spr can't check their permissions.)\n\
+         To configure it for all your repositories:\n\
+         git config --global {key} TOKEN",
+        key = auth_token_key(repository),
+    )
 }
 
 /// A Pull Request's description as GitHub returns it, with Unix line endings
@@ -75,20 +152,54 @@ fn is_not_found(error: &octocrab::Error) -> bool {
 }
 
 impl GitHub {
-    pub fn new(config: Config, git: Git, auth_token: String) -> Result<Self> {
+    /// GitHub for the target in the configuration, with the token
+    /// configured for its host
+    pub fn new(config: Config, git: Git) -> Result<Self> {
+        let urls = ApiUrls::for_host(config.target.repository().host());
+        Self::with_api_urls(config, git, &urls)
+    }
+
+    /// GitHub with its APIs at the given addresses (e.g. a mock server in
+    /// tests)
+    pub fn with_api_urls(
+        config: Config,
+        git: Git,
+        urls: &ApiUrls,
+    ) -> Result<Self> {
+        let repository = config.target.repository();
+        let Some(token) = config.auth_tokens.get(repository) else {
+            bail!(
+                "There's no token for {} configured. Run `spr init`, or \
+                 configure one yourself:\n{}",
+                repository.host(),
+                token_instructions(repository)
+            );
+        };
+        // GitHub Enterprise doesn't have stacked pull requests (yet)
+        if config.stacking_mode == StackingMode::GitHubStack
+            && !repository.is_on_public_instance()
+        {
+            bail!(
+                "The stacking mode 'github-stack' needs GitHub's stacked pull \
+                 requests, which only github.com has (so far), not {}. Use \
+                 'base-branches' or 'chain' (git config spr.stackingMode).",
+                repository.host()
+            );
+        }
+
         let git_remote = GitRemote::new(
             git.repo().clone(),
-            format!("{}.git", config.target.repository().web_url()),
-            auth_token.clone(),
+            format!("{}.git", repository.web_url()),
+            token.to_string(),
         );
-        let octocrab = octocrab::Octocrab::builder()
-            .personal_token(auth_token)
-            .build()?;
+        let octocrab = api_client(&urls.rest, token)?;
+        let graphql = api_client(&urls.graphql, token)?;
         Ok(Self {
             config,
             git,
             git_remote,
             octocrab,
+            graphql,
         })
     }
 
@@ -134,11 +245,7 @@ impl GitHub {
 
 impl Forge for GitHub {
     fn for_target(&self, target: Target) -> Result<Self> {
-        GitHub::new(
-            self.config.for_target(target)?,
-            self.git.clone(),
-            self.config.auth_token.clone(),
-        )
+        GitHub::new(self.config.for_target(target)?, self.git.clone())
     }
 
     fn config(&self) -> &Config {
@@ -185,7 +292,7 @@ impl Forge for GitHub {
         let GitHub {
             config,
             git_remote,
-            octocrab,
+            graphql,
             ..
         } = self;
 
@@ -196,7 +303,7 @@ impl Forge for GitHub {
         };
         let request_body = PullRequestQuery::build_query(variables);
         let response_body: Response<pull_request_query::ResponseData> =
-            octocrab.post("/graphql", Some(&request_body)).await?;
+            graphql.post("/graphql", Some(&request_body)).await?;
 
         if let Some(errors) = response_body.errors {
             let error = Err(eyre!("fetching PR #{number} failed"));
@@ -371,7 +478,7 @@ impl Forge for GitHub {
         let request_body = PullRequestMergeabilityQuery::build_query(variables);
         let response_body: Response<
             pull_request_mergeability_query::ResponseData,
-        > = self.octocrab.post("/graphql", Some(&request_body)).await?;
+        > = self.graphql.post("/graphql", Some(&request_body)).await?;
 
         if let Some(errors) = response_body.errors {
             let error = Err(eyre!("querying PR #{number} mergeability failed"));
@@ -410,7 +517,7 @@ impl Forge for GitHub {
         };
         let request_body = SearchQuery::build_query(variables);
         let response_body: Response<search_query::ResponseData> =
-            self.octocrab.post("/graphql", Some(&request_body)).await?;
+            self.graphql.post("/graphql", Some(&request_body)).await?;
 
         let nodes = response_body
             .data
@@ -590,7 +697,7 @@ impl Forge for GitHub {
     }
 
     fn supports_stacks(&self) -> bool {
-        true
+        self.config.target.repository().is_on_public_instance()
     }
 
     async fn find_pull_request_stack(
@@ -694,6 +801,202 @@ impl Forge for GitHub {
 mod tests {
     // Note this useful idiom: importing names from outer (for mod tests) scope.
     use super::*;
+    use crate::test_utils::TestRepo;
+    use wiremock::matchers::{header, method, path, query_param};
+    use wiremock::{Mock, MockServer, ResponseTemplate};
+
+    fn config(
+        target: &str,
+        stacking_mode: StackingMode,
+        token: Option<&str>,
+    ) -> Config {
+        let target: Target = target.parse().unwrap();
+        let mut tokens = crate::config::AuthTokens::default();
+        if let Some(token) = token {
+            tokens.set(target.repository(), token.into());
+        }
+        Config::new(
+            target,
+            "spr/test/".into(),
+            tokens,
+            false,
+            MergeMethod::Squash,
+            stacking_mode,
+            false,
+            false,
+        )
+        .unwrap()
+    }
+
+    #[test]
+    fn test_api_urls() {
+        assert_eq!(
+            ApiUrls::for_host("github.com"),
+            ApiUrls {
+                rest: "https://api.github.com".into(),
+                graphql: "https://api.github.com".into(),
+            }
+        );
+        // GitHub Enterprise Cloud with data residency
+        assert_eq!(
+            ApiUrls::for_host("acme.ghe.com"),
+            ApiUrls {
+                rest: "https://api.acme.ghe.com".into(),
+                graphql: "https://api.acme.ghe.com".into(),
+            }
+        );
+        // GitHub Enterprise Server
+        assert_eq!(
+            ApiUrls::for_host("ghe.example.com:8443"),
+            ApiUrls {
+                rest: "https://ghe.example.com:8443/api/v3".into(),
+                graphql: "https://ghe.example.com:8443/api".into(),
+            }
+        );
+    }
+
+    /// On GitHub Enterprise Server, REST requests go below `/api/v3`, and
+    /// GraphQL requests to `/api/graphql`, with the token for the host
+    #[tokio::test]
+    async fn test_enterprise_server_requests() {
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/api/v3/repos/acme/codez/pulls"))
+            .and(query_param("base", "main"))
+            .and(header("authorization", "Bearer secret"))
+            .respond_with(
+                ResponseTemplate::new(200).set_body_json(serde_json::json!([])),
+            )
+            .expect(1)
+            .mount(&server)
+            .await;
+        Mock::given(method("POST"))
+            .and(path("/api/graphql"))
+            .and(header("authorization", "Bearer secret"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(
+                serde_json::json!({ "data": { "search": { "nodes": [] } } }),
+            ))
+            .expect(1)
+            .mount(&server)
+            .await;
+
+        let repo = TestRepo::new();
+        let gh = GitHub::with_api_urls(
+            config(
+                "github://ghe.example.com/acme/codez:main",
+                StackingMode::Chain,
+                Some("secret"),
+            ),
+            repo.git.clone(),
+            &ApiUrls::enterprise_server(&server.uri()),
+        )
+        .unwrap();
+        let main = gh.config.new_branch("main");
+        assert_eq!(
+            gh.list_pull_requests_with_base(&main).await.unwrap(),
+            Vec::<u64>::new()
+        );
+        assert!(gh.list_open_pull_requests().await.unwrap().is_empty());
+        assert!(!gh.supports_stacks());
+        // The mock server checks the expected requests when it's dropped
+    }
+
+    /// The stacks API gets the API version it needs
+    #[tokio::test]
+    async fn test_stacks_api_version() {
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/repos/acme/codez/stacks"))
+            .and(query_param("pull_request", "12"))
+            .and(header("x-github-api-version", STACKS_API_VERSION))
+            .and(header("authorization", "Bearer secret"))
+            .respond_with(
+                ResponseTemplate::new(200).set_body_json(serde_json::json!([])),
+            )
+            .expect(1)
+            .mount(&server)
+            .await;
+
+        let repo = TestRepo::new();
+        let gh = GitHub::with_api_urls(
+            config(
+                "github:acme/codez:main",
+                StackingMode::GitHubStack,
+                Some("secret"),
+            ),
+            repo.git.clone(),
+            &ApiUrls::at(&server.uri()),
+        )
+        .unwrap();
+        assert!(gh.supports_stacks());
+        assert!(gh.find_pull_request_stack(12).await.unwrap().is_none());
+    }
+
+    #[test]
+    fn test_no_github_stack_on_enterprise() {
+        let repo = TestRepo::new();
+        let error = GitHub::new(
+            config(
+                "github://ghe.example.com/acme/codez:main",
+                StackingMode::GitHubStack,
+                Some("secret"),
+            ),
+            repo.git.clone(),
+        )
+        .err()
+        .unwrap();
+        assert!(
+            error.to_string().contains("only github.com has (so far)"),
+            "{error}"
+        );
+    }
+
+    #[test]
+    fn test_missing_token() {
+        let repo = TestRepo::new();
+        let error = GitHub::new(
+            config(
+                "github://ghe.example.com/acme/codez:main",
+                StackingMode::Chain,
+                None,
+            ),
+            repo.git.clone(),
+        )
+        .err()
+        .unwrap()
+        .to_string();
+        assert!(
+            error.starts_with("There's no token for ghe.example.com"),
+            "{error}"
+        );
+        assert!(
+            error.contains(
+                "https://ghe.example.com/settings/tokens/new?scopes=repo,\
+                 read:org,workflow&description=spr\n"
+            ),
+            "{error}"
+        );
+        assert!(
+            error.contains("`gh auth token --hostname ghe.example.com`"),
+            "{error}"
+        );
+        assert!(
+            error.ends_with(
+                "\ngit config --global spr.auth.github.ghe.example.com.token \
+                 TOKEN"
+            ),
+            "{error}"
+        );
+
+        // On github.com
+        let instructions =
+            token_instructions(&"github:acme/codez".parse().unwrap());
+        assert!(instructions.contains("`gh auth token`"), "{instructions}");
+        assert!(
+            instructions.ends_with("spr.auth.github.token TOKEN"),
+            "{instructions}"
+        );
+    }
 
     #[test]
     fn test_normalize_body() {

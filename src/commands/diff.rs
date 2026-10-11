@@ -1444,7 +1444,7 @@ mod tests {
         Config::new(
             "github:acme/codez:master".parse().unwrap(),
             "spr/foo/".into(),
-            "xyz".into(),
+            Default::default(),
             false,
             MergeMethod::Squash,
             StackingMode::BaseBranches,

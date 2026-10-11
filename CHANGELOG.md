@@ -76,6 +76,21 @@
   so later commands know it; all commits of a stack must have the same
   target, and `spr diff --cherry-pick --refs …` sends each commit to its
   own target (see the new page "Target Another Branch" in the docs)
+- GitHub Enterprise (Server, and Cloud with data residency on `*.ghe.com`):
+  targets on other hosts than github.com, e.g.
+  `github://ghe.example.com/owner/repo:main`; `spr init` suggests them
+  from the `origin` remote, and asks for a token (with a link to create
+  one, or from `gh auth token --hostname HOST`); the stacking mode
+  `github-stack` is github.com only (#137, #158)
+- tokens are configured per forge and host: `spr.auth.github.token` for
+  github.com (replacing `spr.githubAuthToken`, which is still read, but
+  deprecated: spr shows a note on how to replace it, and `spr init`
+  replaces it in the repository's `.git/config`), and
+  `spr.auth.github.HOST.token` for GitHub Enterprise; `--auth-token`
+  replaces `--github-auth-token`
+- `spr init` on github.com lets you choose between logging in with GitHub
+  and pasting a token (e.g. if your organisation doesn't allow spr's
+  OAuth app)
 
 ### Fixes
 

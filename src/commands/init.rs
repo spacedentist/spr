@@ -4,6 +4,8 @@ use lazy_regex::regex;
 use octocrab::FromResponse;
 use secrecy::ExposeSecret as _;
 
+use crate::config::{AuthTokens, OLD_TOKEN_OPTION, auth_token_key};
+use crate::github::{ApiUrls, api_client, token_instructions};
 use crate::output::output;
 use crate::target::{ForgeKind, Repository, Target};
 
@@ -18,141 +20,122 @@ pub async fn init() -> Result<()> {
     ))?;
     let mut config = repo.config()?;
 
-    // GitHub authentication token: keep a configured one if it works and
-    // has the scopes spr needs, otherwise log in with GitHub to get one
-
-    let configured_token = config
-        .get_string("spr.githubAuthToken")
-        .ok()
-        .filter(|value| !value.is_empty());
-
-    let keep_token = match configured_token.as_deref() {
-        None => false,
-        Some(token) => check_token(token).await?,
-    };
-
-    let github_auth_token = if keep_token {
-        configured_token.unwrap()
-    } else {
-        console::Term::stdout().write_line("")?;
-
-        let client_id = "Ov23liD6WOMYlLy12wkg";
-
-        let client = octocrab::OctocrabBuilder::new()
-            .base_uri("https://github.com")?
-            .add_header(
-                http::HeaderName::from_static("accept"),
-                "application/json".into(),
-            )
-            .build()?;
-
-        let device_codes = client
-            .authenticate_as_device(
-                &client_id.into(),
-                [REQUIRED_SCOPES.join(" ")],
-            )
-            .await?;
-
-        output(
-            "🔑",
-            &formatdoc!(
-                "
-            Okay, let's get started.
-
-            To authenticate spr with GitHub, please go to
-
-            -----> {} <-----
-
-            and enter code
-
-            > > > > > {} < < < < <",
-                &device_codes.verification_uri,
-                &device_codes.user_code,
-            ),
-        )?;
-
-        // For convenience, open the link in the web browser. That's not
-        // possible everywhere (e.g. on a server via SSH), and not needed: the
-        // link and code above are all the user needs.
-        if open::that_detached(&device_codes.verification_uri).is_ok() {
-            output("🌐", "The link should open in your web browser now.")?;
-        }
-
-        let auth = device_codes
-            .poll_until_available(&client, &client_id.into())
-            .await?;
-        let token: String = auth.access_token.expose_secret().into();
-
-        config.set_str("spr.githubAuthToken", &token)?;
-
-        token
-    };
-
-    let octocrab = octocrab::OctocrabBuilder::new()
-        .personal_token(github_auth_token.clone())
-        .build()?;
-    let github_user = octocrab.current().user().await?;
-
-    output("👋", &formatdoc!("Hello {}!", github_user.login))?;
-
-    // Name of the GitHub repo
+    // The repository comes first, as it decides where to authenticate
 
     console::Term::stdout().write_line("")?;
 
     output(
         "❓",
         &formatdoc!(
-            "What's the name of the GitHub repository. Please enter \
-             'OWNER/REPOSITORY' (basically the bit that follow \
-             'github.com/' in the address.)"
+            "What's the GitHub repository? Please enter 'OWNER/REPOSITORY' \
+             for one on github.com (basically the bit that follows \
+             'github.com/' in the address), or \
+             'github://HOST/OWNER/REPOSITORY' for one on GitHub Enterprise."
         ),
     )?;
 
-    let regex =
-        lazy_regex::regex!(r#"github\.com[/:]([\w\-\.]+/[\w\-\.]+?)(.git)?$"#);
     // The configured target: spr.target, or the options it replaces
     let configured_target = crate::config::configured_target(&config)
         .ok()
         .flatten()
-        .filter(|target| {
-            target.repository().forge() == ForgeKind::GitHub
-                && target.repository().is_on_public_instance()
-        });
-    let github_repo = configured_target
+        .filter(|target| target.repository().forge() == ForgeKind::GitHub);
+    let suggestion = configured_target
         .as_ref()
-        .map(|target| target.repository().path().to_string())
+        .map(|target| target.repository().clone())
         .or_else(|| {
-            // We can provide a default value in case the remote "origin" is pointing to github.com
+            // A suggestion from where the remote "origin" points to
             repo.find_remote("origin")
                 .ok()
                 .and_then(|remote| remote.url().ok().map(String::from))
-                .and_then(|url| {
-                    regex.captures(&url).and_then(|caps| {
-                        caps.get(1).map(|m| m.as_str().to_string())
-                    })
-                })
+                .and_then(|url| repository_from_url(&url))
         })
+        .map(|repository| repository_input(&repository))
         .unwrap_or_default();
 
-    let github_repo = dialoguer::Input::<String>::new()
+    let input = dialoguer::Input::<String>::new()
         .with_prompt("GitHub repository")
-        .with_initial_text(github_repo)
+        .with_initial_text(suggestion)
         .validate_with(|input: &String| -> Result<()> {
-            Repository::new(ForgeKind::GitHub, None, input).map(|_| ())
+            parse_repository(input).map(|_| ())
         })
         .interact_text()?;
-    let repository = Repository::new(ForgeKind::GitHub, None, &github_repo)?;
+    let repository = parse_repository(&input)?;
+    let urls = ApiUrls::for_host(repository.host());
+
+    // The token for the repository's host: keep a configured one if it
+    // works and has the scopes spr needs, otherwise get one
+
+    let token_key = auth_token_key(&repository);
+    let configured_token = AuthTokens::from_git_config(&config)?
+        .get(&repository)
+        .map(String::from);
+
+    let keep_token = match configured_token.as_deref() {
+        None => false,
+        Some(token) => check_token(&urls, token, "configured").await?,
+    };
+
+    let token = match configured_token {
+        Some(token) if keep_token => token,
+        _ => {
+            console::Term::stdout().write_line("")?;
+            // Logging in needs spr's OAuth app, which is on github.com only.
+            // There, the user may still prefer to give a token (e.g. if
+            // their organisation doesn't allow spr's app). Without a
+            // terminal to ask, log in.
+            let log_in = repository.is_on_public_instance()
+                && (!console::Term::stdout().is_term()
+                    || dialoguer::Select::new()
+                        .with_prompt("How should spr get a token for GitHub?")
+                        .items([
+                            "Log in with GitHub in the web browser",
+                            "Paste a token (e.g. from the GitHub CLI)",
+                        ])
+                        .default(0)
+                        .interact()?
+                        == 0);
+            if log_in {
+                log_in_with_github().await?
+            } else {
+                ask_for_token(&repository, &urls).await?
+            }
+        }
+    };
+
+    // Store the token under its key, unless it's there already (it may have
+    // come from spr.githubAuthToken, or be new)
+    if config.get_string(&token_key).ok().as_deref() != Some(token.as_str()) {
+        config.set_str(&token_key, &token)?;
+    }
+    // spr.auth.github.token replaces spr.githubAuthToken: remove that from
+    // the repository's configuration (as the target options below)
+    if repository.is_on_public_instance() {
+        let mut local_config = config.open_level(git2::ConfigLevel::Local)?;
+        match local_config.remove(OLD_TOKEN_OPTION) {
+            Ok(()) => output(
+                "🧹",
+                &format!("Replaced {OLD_TOKEN_OPTION} with {token_key}"),
+            )?,
+            Err(error) if error.code() == git2::ErrorCode::NotFound => {}
+            Err(error) => return Err(error.into()),
+        }
+    }
+
+    let octocrab = api_client(&urls.rest, &token)?;
+    let github_user = octocrab.current().user().await?;
+
+    output("👋", &formatdoc!("Hello {}!", github_user.login))?;
 
     // Target branch: the configured one if the repository stays the same,
     // otherwise the repository's default branch on GitHub
 
     let github_repo_info = octocrab
         .get::<octocrab::models::Repository, _, _>(
-            format!("/repos/{}", github_repo),
+            format!("/repos/{}", repository.path()),
             None::<&()>,
         )
         .await
-        .context("Getting github repo info".to_string())?;
+        .wrap_err_with(|| format!("Getting the repository {repository}"))?;
     let default_branch = github_repo_info
         .default_branch
         .unwrap_or_else(|| "master".to_string());
@@ -243,6 +226,125 @@ pub async fn init() -> Result<()> {
     Ok(())
 }
 
+/// Log in with GitHub (github.com) through spr's OAuth app (device flow).
+/// Returns the new token.
+async fn log_in_with_github() -> Result<String> {
+    let client_id = "Ov23liD6WOMYlLy12wkg";
+
+    let client = octocrab::OctocrabBuilder::new()
+        .base_uri("https://github.com")?
+        .add_header(
+            http::HeaderName::from_static("accept"),
+            "application/json".into(),
+        )
+        .build()?;
+
+    let device_codes = client
+        .authenticate_as_device(&client_id.into(), [REQUIRED_SCOPES.join(" ")])
+        .await?;
+
+    output(
+        "🔑",
+        &formatdoc!(
+            "
+        Okay, let's get started.
+
+        To authenticate spr with GitHub, please go to
+
+        -----> {} <-----
+
+        and enter code
+
+        > > > > > {} < < < < <",
+            &device_codes.verification_uri,
+            &device_codes.user_code,
+        ),
+    )?;
+
+    // For convenience, open the link in the web browser. That's not possible
+    // everywhere (e.g. on a server via SSH), and not needed: the link and
+    // code above are all the user needs.
+    if open::that_detached(&device_codes.verification_uri).is_ok() {
+        output("🌐", "The link should open in your web browser now.")?;
+    }
+
+    let auth = device_codes
+        .poll_until_available(&client, &client_id.into())
+        .await?;
+    Ok(auth.access_token.expose_secret().into())
+}
+
+/// Ask the user for a token for GitHub on the repository's host, until
+/// they give one that works
+async fn ask_for_token(
+    repository: &Repository,
+    urls: &ApiUrls,
+) -> Result<String> {
+    output(
+        "🔑",
+        &format!(
+            "spr needs a token for {}. {}\n\
+             Or simply paste the token here, and spr init configures it for \
+             this repository.",
+            repository.host(),
+            token_instructions(repository),
+        ),
+    )?;
+    loop {
+        let token =
+            dialoguer::Password::new().with_prompt("Token").interact()?;
+        let token = token.trim();
+        if !token.is_empty() && check_token(urls, token, "given").await? {
+            return Ok(token.to_string());
+        }
+    }
+}
+
+/// The repository as the user enters it: `OWNER/REPO` on github.com, or in
+/// the full notation (e.g. `github://ghe.example.com/OWNER/REPO`)
+fn parse_repository(input: &str) -> Result<Repository> {
+    let input = input.trim();
+    let repository = if input.contains(':') {
+        input.parse()?
+    } else {
+        Repository::new(ForgeKind::GitHub, None, input)?
+    };
+    if repository.forge() != ForgeKind::GitHub {
+        bail!("spr supports repositories on GitHub only (so far)");
+    }
+    Ok(repository)
+}
+
+/// A repository as the user would enter it (see `parse_repository`)
+fn repository_input(repository: &Repository) -> String {
+    if repository.is_on_public_instance() {
+        repository.path().to_string()
+    } else {
+        repository.to_string()
+    }
+}
+
+/// The GitHub repository that a Git remote's URL points to, e.g.
+/// `https://github.com/OWNER/REPO.git`, `git@github.com:OWNER/REPO.git` or
+/// `ssh://git@ghe.example.com/OWNER/REPO.git`. On another host than
+/// github.com, it's a guess that it's GitHub Enterprise there.
+fn repository_from_url(url: &str) -> Option<Repository> {
+    let (_, https_host, ssh_host, scp_host, path) = lazy_regex::regex_captures!(
+        r#"^(?:https?://(?:[^@/]+@)?([^/]+)/|ssh://(?:[^@/]+@)?([^/:]+)(?::\d+)?/|(?:[^@/:]+@)?([^/:]+):)([\w\-\.]+/[\w\-\.]+?)(?:\.git)?/?$"#,
+        url
+    )?;
+    let host = [https_host, ssh_host, scp_host]
+        .into_iter()
+        .find(|host| !host.is_empty())?
+        .to_ascii_lowercase();
+    // GitHub's SSH over the HTTPS port
+    let host = match host.as_str() {
+        "ssh.github.com" => "github.com".to_string(),
+        _ => host,
+    };
+    Repository::new(ForgeKind::GitHub, Some(&host), path).ok()
+}
+
 fn validate_branch_prefix(branch_prefix: &str) -> Result<()> {
     // They can include slash / for hierarchical (directory) grouping, but no slash-separated component can begin with a dot . or end with the sequence .lock.
     if branch_prefix.contains("/.")
@@ -302,15 +404,12 @@ fn missing_scopes(scopes: &[String]) -> Vec<&'static str> {
         .collect()
 }
 
-/// Check whether to keep using the configured token. Explains why not, if
-/// it shouldn't be kept.
-async fn check_token(token: &str) -> Result<bool> {
-    let response: octocrab::Result<AuthScopes> =
-        octocrab::OctocrabBuilder::new()
-            .personal_token(token)
-            .build()?
-            .get("/user", None::<&()>)
-            .await;
+/// Check whether to use a token (`which` one: e.g. "configured"). Explains
+/// why not, if it shouldn't be used.
+async fn check_token(urls: &ApiUrls, token: &str, which: &str) -> Result<bool> {
+    let response: octocrab::Result<AuthScopes> = api_client(&urls.rest, token)?
+        .get("/user", None::<&()>)
+        .await;
 
     match response {
         Ok(AuthScopes { scopes: None }) => {
@@ -318,9 +417,11 @@ async fn check_token(token: &str) -> Result<bool> {
             // of scopes, which GitHub doesn't tell us about
             output(
                 "🔑",
-                "Using the configured GitHub token. It has no OAuth scopes \
-                 (e.g. a fine-grained personal access token), so spr can't \
-                 check its permissions.",
+                &format!(
+                    "Using the {which} GitHub token. It has no OAuth scopes \
+                     (e.g. a fine-grained personal access token), so spr \
+                     can't check its permissions."
+                ),
             )?;
             Ok(true)
         }
@@ -334,7 +435,7 @@ async fn check_token(token: &str) -> Result<bool> {
             output(
                 "⚠️",
                 &format!(
-                    "The configured GitHub token is missing scopes that spr \
+                    "The {which} GitHub token is missing scopes that spr \
                      needs ({}), so let's get a new one.",
                     missing.join(", ")
                 ),
@@ -352,7 +453,7 @@ async fn check_token(token: &str) -> Result<bool> {
             output(
                 "⚠️",
                 &format!(
-                    "The configured GitHub token doesn't work ({reason}), so \
+                    "The {which} GitHub token doesn't work ({reason}), so \
                      let's get a new one."
                 ),
             )?;
@@ -398,7 +499,73 @@ impl FromResponse for AuthScopes {
 
 #[cfg(test)]
 mod tests {
-    use super::{missing_scopes, validate_branch_prefix};
+    use super::{
+        missing_scopes, parse_repository, repository_from_url,
+        repository_input, validate_branch_prefix,
+    };
+
+    #[test]
+    fn test_repository_from_url() {
+        let repository = |url: &str| {
+            repository_from_url(url).map(|repository| repository.to_string())
+        };
+        for url in [
+            "https://github.com/acme/codez.git",
+            "https://github.com/acme/codez",
+            "https://github.com/acme/codez/",
+            "https://user@GitHub.com/acme/codez.git",
+            "git@github.com:acme/codez.git",
+            "github.com:acme/codez",
+            "ssh://git@github.com/acme/codez.git",
+            "ssh://git@ssh.github.com:443/acme/codez.git",
+        ] {
+            assert_eq!(repository(url).as_deref(), Some("github:acme/codez"));
+        }
+        assert_eq!(
+            repository("https://ghe.example.com:8443/acme/my.repo.git")
+                .as_deref(),
+            Some("github://ghe.example.com:8443/acme/my.repo")
+        );
+        // The SSH port isn't the one for HTTPS
+        assert_eq!(
+            repository("ssh://git@ghe.example.com:2222/acme/codez.git")
+                .as_deref(),
+            Some("github://ghe.example.com/acme/codez")
+        );
+        assert_eq!(
+            repository("git@acme.ghe.com:acme/codez.git").as_deref(),
+            Some("github://acme.ghe.com/acme/codez")
+        );
+        for url in [
+            "/home/user/codez",
+            "../codez",
+            "https://gitlab.example.com/group/sub/project.git",
+        ] {
+            assert_eq!(repository(url), None, "{url}");
+        }
+    }
+
+    #[test]
+    fn test_parse_repository() {
+        let repository = parse_repository(" acme/codez ").unwrap();
+        assert_eq!(repository.to_string(), "github:acme/codez");
+        assert_eq!(repository_input(&repository), "acme/codez");
+
+        let repository =
+            parse_repository("github://GHE.example.com/acme/codez").unwrap();
+        assert_eq!(
+            repository.to_string(),
+            "github://ghe.example.com/acme/codez"
+        );
+        assert_eq!(
+            repository_input(&repository),
+            "github://ghe.example.com/acme/codez"
+        );
+
+        assert!(parse_repository("gitlab:group/project").is_err());
+        assert!(parse_repository("acme").is_err());
+        assert!(parse_repository("ghe.example.com/acme/codez").is_err());
+    }
 
     fn scopes(scopes: &[&str]) -> Vec<String> {
         scopes.iter().map(|s| s.to_string()).collect()

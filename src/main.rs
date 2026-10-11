@@ -20,9 +20,14 @@ pub struct Cli {
     #[clap(long, value_name = "DIR")]
     cd: Option<String>,
 
-    /// GitHub personal access token (if not given taken from git config
-    /// spr.githubAuthToken)
+    /// Token for the forge and host of the target (if not given, taken
+    /// from git config spr.auth.github.token for github.com, or
+    /// spr.auth.github.HOST.token for GitHub Enterprise)
     #[clap(long)]
+    auth_token: Option<String>,
+
+    /// Deprecated: use --auth-token
+    #[clap(long, hide = true)]
     github_auth_token: Option<String>,
 
     /// Where Pull Requests get merged, for commits without a Spr-Target
@@ -57,6 +62,10 @@ impl std::fmt::Debug for Cli {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("Cli")
             .field("cd", &self.cd)
+            .field(
+                "auth_token",
+                &self.auth_token.as_ref().map(|_| "[redacted]"),
+            )
             .field(
                 "github_auth_token",
                 &self.github_auth_token.as_ref().map(|_| "[redacted]"),
@@ -223,13 +232,25 @@ pub async fn spr() -> Result<()> {
         Err(_) => spr::config::StackingMode::default_for(merge_method),
     };
 
-    let github_auth_token =
-        required(cli.github_auth_token, "spr.githubAuthToken")?;
+    let cli_token = match (cli.auth_token, cli.github_auth_token) {
+        (Some(_), Some(_)) => bail!(
+            "--github-auth-token can't be used together with --auth-token, \
+             which replaces it"
+        ),
+        (None, Some(token)) => {
+            spr::output::output(
+                "⚠️",
+                "--github-auth-token is deprecated: use --auth-token",
+            )?;
+            Some(token)
+        }
+        (token, None) => token,
+    };
 
     let mut config = spr::config::Config::new(
         default_target.clone(),
         branch_prefix,
-        github_auth_token.clone(),
+        spr::config::AuthTokens::from_git_config(&git_config)?,
         require_approval,
         merge_method,
         stacking_mode,
@@ -256,6 +277,11 @@ pub async fn spr() -> Result<()> {
             config = config.for_target(head_target)?;
         }
     }
+    // The token given on the command line is for the run's target
+    if let Some(token) = cli_token {
+        let repository = config.target.repository().clone();
+        config.auth_tokens.set(&repository, token);
+    }
     debug!("config: {:?}", config);
 
     let git = spr::git::Git::new(repo)?;
@@ -263,11 +289,7 @@ pub async fn spr() -> Result<()> {
     // The forge implementation for the target's kind of forge
     match config.target.repository().forge() {
         ForgeKind::GitHub => {
-            let gh = spr::github::GitHub::new(
-                config.clone(),
-                git.clone(),
-                github_auth_token,
-            )?;
+            let gh = spr::github::GitHub::new(config.clone(), git.clone())?;
             run(command, &git, gh, &config).await
         }
         // `Config::new` refuses targets on other forges (so far)

@@ -1,3 +1,5 @@
+use std::collections::{BTreeMap, BTreeSet};
+
 use color_eyre::eyre::{Result, WrapErr as _, bail};
 
 use crate::forge::Branch;
@@ -17,12 +19,12 @@ pub struct Config {
     /// one means a branch in this target's repository.
     pub configured_target: Target,
     /// The owner and name of the target repository on GitHub (as long as
-    /// spr only supports GitHub)
+    /// spr only supports GitHub forges)
     pub owner: String,
     pub repo: String,
     pub master_ref: Branch,
     pub branch_prefix: String,
-    pub auth_token: String,
+    pub auth_tokens: AuthTokens,
     pub require_approval: bool,
     pub use_commit_title_for_initial_commit: bool,
     pub merge_method: MergeMethod,
@@ -38,7 +40,7 @@ impl std::fmt::Debug for Config {
             .field("default_target", &self.default_target.to_string())
             .field("configured_target", &self.configured_target.to_string())
             .field("branch_prefix", &self.branch_prefix)
-            .field("auth_token", &"[redacted]")
+            .field("auth_tokens", &self.auth_tokens)
             .field("require_approval", &self.require_approval)
             .field("merge_method", &self.merge_method)
             .field("stacking_mode", &self.stacking_mode)
@@ -151,7 +153,7 @@ impl Config {
     pub fn new(
         target: Target,
         branch_prefix: String,
-        auth_token: String,
+        auth_tokens: AuthTokens,
         require_approval: bool,
         merge_method: MergeMethod,
         stacking_mode: StackingMode,
@@ -181,7 +183,7 @@ impl Config {
             repo,
             master_ref,
             branch_prefix,
-            auth_token,
+            auth_tokens,
             require_approval,
             merge_method,
             stacking_mode,
@@ -260,15 +262,13 @@ impl Config {
 }
 
 /// The owner and name of a target's repository, as long as spr only
-/// supports github.com
+/// supports GitHub (github.com, and GitHub Enterprise on other hosts)
 fn github_owner_and_repo(target: &Target) -> Result<(String, String)> {
     let repository = target.repository();
-    if repository.forge() != ForgeKind::GitHub
-        || !repository.is_on_public_instance()
-    {
+    if repository.forge() != ForgeKind::GitHub {
         bail!(
-            "Target {target}: spr supports repositories on github.com only \
-             (so far)"
+            "Target {target}: spr supports repositories on GitHub only (so \
+             far)"
         );
     }
     let (owner, repo) = repository
@@ -277,6 +277,105 @@ fn github_owner_and_repo(target: &Target) -> Result<(String, String)> {
         .expect("GitHub repository paths are OWNER/REPO");
     Ok((owner.to_string(), repo.to_string()))
 }
+
+/// The tokens spr authenticates with on forges, from the Git configuration:
+/// `spr.auth.<forge>.token` for a forge's public instance (e.g.
+/// `spr.auth.github.token` for github.com), `spr.auth.<forge>.<host>.token`
+/// for any other host (e.g. `spr.auth.github.ghe.example.com.token`).
+#[derive(Clone, Default)]
+pub struct AuthTokens {
+    /// The tokens by forge and host, as in their key (e.g. `github`,
+    /// `github.ghe.example.com`), in lower case
+    tokens: BTreeMap<String, String>,
+}
+
+// Not derived, so the tokens don't end up in debug output (e.g. logs).
+impl std::fmt::Debug for AuthTokens {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_map()
+            .entries(self.tokens.keys().map(|key| (key, "[redacted]")))
+            .finish()
+    }
+}
+
+impl AuthTokens {
+    /// The tokens configured in the Git configuration. For setups from
+    /// before spr supported other hosts, `spr.githubAuthToken` is the token
+    /// for github.com, unless `spr.auth.github.token` is set.
+    pub fn from_git_config(git_config: &git2::Config) -> Result<Self> {
+        // Git keeps the case of subsections (the part between the first and
+        // the last dot), but host names are case-insensitive. So look at
+        // all spr settings, and read each token key found with its own
+        // case, which gives the value with the highest priority.
+        let mut names = BTreeSet::new();
+        let mut entries = git_config.entries(Some("^spr\\."))?;
+        while let Some(entry) = entries.next() {
+            if let Ok(name) = entry?.name() {
+                names.insert(name.to_string());
+            }
+        }
+
+        let mut tokens = BTreeMap::new();
+        for name in names {
+            let lower = name.to_ascii_lowercase();
+            let Some(forge_and_host) = lower
+                .strip_prefix("spr.auth.")
+                .and_then(|rest| rest.strip_suffix(".token"))
+            else {
+                continue;
+            };
+            if let Ok(token) = git_config.get_string(&name)
+                && !token.is_empty()
+            {
+                tokens.entry(forge_and_host.to_string()).or_insert(token);
+            }
+        }
+
+        if let Ok(token) = git_config.get_string(OLD_TOKEN_OPTION)
+            && !token.is_empty()
+        {
+            tokens
+                .entry(ForgeKind::GitHub.name().to_string())
+                .or_insert(token);
+        }
+
+        Ok(Self { tokens })
+    }
+
+    /// The token for the forge and host of the repository
+    pub fn get(&self, repository: &Repository) -> Option<&str> {
+        self.tokens
+            .get(&auth_forge_and_host(repository))
+            .map(String::as_str)
+    }
+
+    /// Use the token for the forge and host of the repository (e.g. given
+    /// on the command line)
+    pub fn set(&mut self, repository: &Repository, token: String) {
+        self.tokens.insert(auth_forge_and_host(repository), token);
+    }
+}
+
+/// The forge and host of a repository, as in the Git configuration key of
+/// its token: the forge alone for its public instance
+fn auth_forge_and_host(repository: &Repository) -> String {
+    let forge = repository.forge().name();
+    if repository.is_on_public_instance() {
+        forge.to_string()
+    } else {
+        format!("{forge}.{}", repository.host())
+    }
+}
+
+/// The Git configuration key of the token for the forge and host of a
+/// repository, e.g. `spr.auth.github.token` (github.com) or
+/// `spr.auth.github.ghe.example.com.token`
+pub fn auth_token_key(repository: &Repository) -> String {
+    format!("spr.auth.{}.token", auth_forge_and_host(repository))
+}
+
+/// The option that `spr.auth.github.token` replaces
+pub const OLD_TOKEN_OPTION: &str = "spr.githubAuthToken";
 
 /// The URL of a Pull Request in the given repository
 pub fn pull_request_url(repository: &Repository, number: u64) -> String {
@@ -354,22 +453,55 @@ pub const OLD_TARGET_OPTIONS: [&str; 2] =
     ["spr.githubRepository", "spr.githubMasterBranch"];
 
 /// A note on the deprecated options in the Git configuration (those that
-/// `spr.target` replaces), with how to replace or remove them. `None` if
-/// none of them is set.
+/// `spr.target` and `spr.auth.github.token` replace), with how to replace
+/// or remove them. `None` if none of them is set.
 pub fn deprecation_note(git_config: &git2::Config) -> Option<String> {
-    // The `git config` option for writing to where an option is set
-    let scope = |key: &str| {
-        let level = git_config.get_entry(key).ok()?.level();
-        Some(match level {
-            git2::ConfigLevel::Global | git2::ConfigLevel::XDG => "--global ",
-            git2::ConfigLevel::System => "--system ",
-            git2::ConfigLevel::Worktree => "--worktree ",
-            _ => "",
-        })
-    };
+    let notes: Vec<String> = [
+        target_deprecation_note(git_config),
+        token_deprecation_note(git_config),
+    ]
+    .into_iter()
+    .flatten()
+    .collect();
+    (!notes.is_empty()).then(|| notes.join("\n"))
+}
+
+/// The `git config` option for writing to where an option is set, e.g.
+/// `--global ` (with a space, empty for the repository's configuration).
+/// `None` if the option isn't set.
+fn config_scope(git_config: &git2::Config, key: &str) -> Option<&'static str> {
+    let level = git_config.get_entry(key).ok()?.level();
+    Some(match level {
+        git2::ConfigLevel::Global | git2::ConfigLevel::XDG => "--global ",
+        git2::ConfigLevel::System => "--system ",
+        git2::ConfigLevel::Worktree => "--worktree ",
+        _ => "",
+    })
+}
+
+fn token_deprecation_note(git_config: &git2::Config) -> Option<String> {
+    let scope = config_scope(git_config, OLD_TOKEN_OPTION)?;
+    let new = "spr.auth.github.token";
+    let unset = format!("git config {scope}--unset {OLD_TOKEN_OPTION}");
+    if git_config.get_entry(new).is_ok() {
+        return Some(format!(
+            "{OLD_TOKEN_OPTION} is deprecated, and ignored as {new} is set. \
+             To remove it:\n{unset}"
+        ));
+    }
+    // Copied with Git, so the token isn't shown
+    Some(format!(
+        "{OLD_TOKEN_OPTION} is deprecated: {new} replaces it. Run `spr init` \
+         to update the configuration, or:\n\
+         git config {scope}{new} \"$(git config {scope}{OLD_TOKEN_OPTION})\"\n\
+         {unset}"
+    ))
+}
+
+fn target_deprecation_note(git_config: &git2::Config) -> Option<String> {
     let old: Vec<(&str, &str)> = OLD_TARGET_OPTIONS
         .into_iter()
-        .filter_map(|key| Some((key, scope(key)?)))
+        .filter_map(|key| Some((key, config_scope(git_config, key)?)))
         .collect();
     if old.is_empty() {
         return None;
@@ -414,11 +546,17 @@ mod tests {
     // Note this useful idiom: importing names from outer (for mod tests) scope.
     use super::*;
 
+    fn tokens() -> AuthTokens {
+        let mut tokens = AuthTokens::default();
+        tokens.set(&"github:acme/codez".parse().unwrap(), "xyz".into());
+        tokens
+    }
+
     fn config_factory() -> Config {
         crate::config::Config::new(
             "github:acme/codez:master".parse().unwrap(),
             "spr/foo/".into(),
-            "xyz".into(),
+            tokens(),
             false,
             MergeMethod::Squash,
             StackingMode::BaseBranches,
@@ -547,12 +685,12 @@ mod tests {
     }
 
     #[test]
-    fn test_config_only_for_github_com() {
+    fn test_config_only_for_github() {
         let config = |target: &str| {
             Config::new(
                 target.parse().unwrap(),
                 "spr/foo/".into(),
-                "xyz".into(),
+                tokens(),
                 false,
                 MergeMethod::Squash,
                 StackingMode::BaseBranches,
@@ -567,7 +705,20 @@ mod tests {
             c.pull_request_url(12),
             "https://github.com/acme/codez/pull/12"
         );
-        assert!(config("github://ghe.example.com/acme/codez:main").is_err());
+        let c = config("github://ghe.example.com/acme/codez:main").unwrap();
+        assert_eq!((c.owner.as_str(), c.repo.as_str()), ("acme", "codez"));
+        assert_eq!(
+            c.pull_request_url(12),
+            "https://ghe.example.com/acme/codez/pull/12"
+        );
+        assert_eq!(
+            c.parse_pull_request_field(&c.pull_request_url(12)),
+            Some(12)
+        );
+        assert_eq!(
+            c.parse_pull_request_field("https://github.com/acme/codez/pull/12"),
+            None
+        );
         assert!(config("gitlab:acme/codez:main").is_err());
     }
 
@@ -634,7 +785,7 @@ mod tests {
             Config::new(
                 "github:acme/codez:master".parse().unwrap(),
                 "spr/foo/".into(),
-                "xyz".into(),
+                tokens(),
                 false,
                 merge_method,
                 stacking_mode,
@@ -782,6 +933,149 @@ mod tests {
         assert!(
             n.ends_with(
                 ":\ngit config --global --unset spr.githubMasterBranch"
+            ),
+            "{n}"
+        );
+    }
+
+    #[test]
+    fn test_auth_tokens() {
+        let dir = tempfile::tempdir().unwrap();
+        // Tokens in a global and a local file
+        let tokens = |global: &[(&str, &str)], local: &[(&str, &str)]| {
+            let mut git_config = git2::Config::new().unwrap();
+            for (name, level, settings) in [
+                ("global", git2::ConfigLevel::Global, global),
+                ("local", git2::ConfigLevel::Local, local),
+            ] {
+                let path = dir.path().join(name);
+                let _ = std::fs::remove_file(&path);
+                let mut file = git2::Config::open(&path).unwrap();
+                for (key, value) in settings {
+                    file.set_str(key, value).unwrap();
+                }
+                git_config.add_file(&path, level, true).unwrap();
+            }
+            AuthTokens::from_git_config(&git_config).unwrap()
+        };
+        let github: Repository = "github:acme/codez".parse().unwrap();
+        let ghe: Repository =
+            "github://ghe.example.com/acme/codez".parse().unwrap();
+        let ghe_port: Repository =
+            "github://ghe.example.com:8443/acme/codez".parse().unwrap();
+
+        assert_eq!(auth_token_key(&github), "spr.auth.github.token");
+        assert_eq!(
+            auth_token_key(&ghe),
+            "spr.auth.github.ghe.example.com.token"
+        );
+        assert_eq!(
+            auth_token_key(&ghe_port),
+            "spr.auth.github.ghe.example.com:8443.token"
+        );
+
+        let t = tokens(&[], &[]);
+        assert_eq!(t.get(&github), None);
+
+        let t = tokens(
+            &[
+                ("spr.auth.github.token", "global"),
+                ("spr.auth.github.ghe.example.com.token", "ghe-global"),
+            ],
+            &[
+                ("spr.auth.github.token", "local"),
+                ("spr.auth.github.ghe.example.com:8443.token", "ghe-port"),
+            ],
+        );
+        // The repository's configuration wins, as usual
+        assert_eq!(t.get(&github), Some("local"));
+        assert_eq!(t.get(&ghe), Some("ghe-global"));
+        assert_eq!(t.get(&ghe_port), Some("ghe-port"));
+
+        // Hosts are case-insensitive, and so are Git's section and variable
+        // names
+        let t =
+            tokens(&[("Spr.Auth.GitHub.GHE.Example.COM.Token", "ghe")], &[]);
+        assert_eq!(t.get(&ghe), Some("ghe"));
+        assert_eq!(t.get(&github), None);
+
+        // The deprecated option, unless the new one is set
+        let t = tokens(&[("spr.githubAuthToken", "old")], &[]);
+        assert_eq!(t.get(&github), Some("old"));
+        assert_eq!(t.get(&ghe), None);
+        let t = tokens(
+            &[("spr.auth.github.token", "new")],
+            &[("spr.githubAuthToken", "old")],
+        );
+        assert_eq!(t.get(&github), Some("new"));
+
+        // Given on the command line
+        let mut t = tokens(&[("spr.auth.github.token", "configured")], &[]);
+        t.set(&github, "given".into());
+        assert_eq!(t.get(&github), Some("given"));
+    }
+
+    #[test]
+    fn test_token_deprecation_note() {
+        let dir = tempfile::tempdir().unwrap();
+        let note = |global: &[(&str, &str)], local: &[(&str, &str)]| {
+            let mut git_config = git2::Config::new().unwrap();
+            for (name, level, settings) in [
+                ("global", git2::ConfigLevel::Global, global),
+                ("local", git2::ConfigLevel::Local, local),
+            ] {
+                let path = dir.path().join(name);
+                let _ = std::fs::remove_file(&path);
+                let mut file = git2::Config::open(&path).unwrap();
+                for (key, value) in settings {
+                    file.set_str(key, value).unwrap();
+                }
+                git_config.add_file(&path, level, true).unwrap();
+            }
+            deprecation_note(&git_config)
+        };
+
+        assert_eq!(note(&[("spr.auth.github.token", "secret")], &[]), None);
+
+        let n = note(&[("spr.githubAuthToken", "secret")], &[]).unwrap();
+        assert!(!n.contains("secret"), "{n}");
+        assert!(
+            n.contains(
+                "\ngit config --global spr.auth.github.token \"$(git config \
+                 --global spr.githubAuthToken)\"\n"
+            ),
+            "{n}"
+        );
+        assert!(
+            n.ends_with("\ngit config --global --unset spr.githubAuthToken"),
+            "{n}"
+        );
+
+        let n = note(
+            &[("spr.auth.github.token", "secret")],
+            &[("spr.githubAuthToken", "secret")],
+        )
+        .unwrap();
+        assert!(!n.contains("secret"), "{n}");
+        assert!(n.contains("ignored as spr.auth.github.token is set"), "{n}");
+        assert!(
+            n.ends_with(":\ngit config --unset spr.githubAuthToken"),
+            "{n}"
+        );
+
+        // Together with the target options: one note after the other
+        let n = note(
+            &[],
+            &[
+                ("spr.githubRepository", "acme/codez"),
+                ("spr.githubAuthToken", "secret"),
+            ],
+        )
+        .unwrap();
+        assert!(
+            n.contains(
+                "--unset spr.githubRepository\nspr.githubAuthToken is \
+                 deprecated"
             ),
             "{n}"
         );

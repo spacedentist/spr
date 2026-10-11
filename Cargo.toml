@@ -56,3 +56,4 @@ used-underscore-binding = "deny"
 
 [dev-dependencies]
 tempfile = "^3.27.0"
+wiremock = "^0.6.5"
