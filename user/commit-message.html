@@ -35,10 +35,10 @@
             const path_to_root = "../";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "../searchindex-423cd2a3.js";
+            window.path_to_searchindex_js = "../searchindex-27f5000a.js";
         </script>
         <!-- Start loading toc.js asap -->
-        <script src="../toc-16f64144.js"></script>
+        <script src="../toc-ee48e442.js"></script>
     </head>
     <body>
     <div id="mdbook-help-container">
@@ -224,8 +224,14 @@ Reviewers: github-username-a, github-username-b
 </code></pre>
 <p>It gives the commit a stable identity across amends and rebases (like Gerrit’s <code>Change-Id</code>), which spr uses to keep track of the PR’s state locally. It only appears in your local commit message: not in the PR, and not in the commit that lands. See <a href="spr-ids.html">Identify Commits with Spr-Ids</a>.</p>
 </li>
+<li>
+<p><code>spr --target BRANCH diff</code> adds a trailer like this to commits for another target than the default one (the <code>spr.target</code> <a href="../reference/configuration.html">config option</a>):</p>
+<pre><code>Spr-Target: github:example/project:release/1.2
+</code></pre>
+<p>It tells spr where the commit’s PR gets merged, so later commands don’t need <code>--target</code>. You can also write it yourself, with a branch name alone for a branch in the default target’s repository (<code>Spr-Target: release/1.2</code>). Like <code>Spr-Id</code>, it only appears in your local commit message. See <a href="targets.html">Target Another Branch</a>.</p>
+</li>
 </ul>
-<p>All of these (<code>Pull-request</code>, <code>Reviewers</code>, <code>Reviewed-by</code>, <code>Spr-Id</code>) follow git’s trailer conventions, so you can also read and edit them with tools like <a href="https://git-scm.com/docs/git-interpret-trailers"><code>git interpret-trailers</code></a>.</p>
+<p>All of these (<code>Pull-request</code>, <code>Reviewers</code>, <code>Reviewed-by</code>, <code>Spr-Id</code>, <code>Spr-Target</code>) follow git’s trailer conventions, so you can also read and edit them with tools like <a href="https://git-scm.com/docs/git-interpret-trailers"><code>git interpret-trailers</code></a>.</p>
 <h3 id="backwards-compatibility"><a class="header" href="#backwards-compatibility">Backwards compatibility</a></h3>
 <p>Older versions of spr didn’t use trailers, and wrote these lines with spaces instead of hyphens (<code>Pull Request:</code> instead of <code>Pull-request:</code>, and <code>Reviewed By:</code> instead of <code>Reviewed-by:</code>). Current versions of spr can read commit messages written by older versions and will automatically recognize these old-style lines. When spr updates a commit message (e.g., when running <code>spr diff</code> or <code>spr land</code>), it will rewrite them as trailers.</p>
 <p>If you have old commits in the previous format, they will continue to work seamlessly — spr will read them correctly and update them to the new format when it next modifies the commit message.</p>

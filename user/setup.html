@@ -35,10 +35,10 @@
             const path_to_root = "../";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "../searchindex-423cd2a3.js";
+            window.path_to_searchindex_js = "../searchindex-27f5000a.js";
         </script>
         <!-- Start loading toc.js asap -->
-        <script src="../toc-16f64144.js"></script>
+        <script src="../toc-ee48e442.js"></script>
     </head>
     <body>
     <div id="mdbook-help-container">
@@ -182,8 +182,9 @@
                     <main>
                         <h1 id="set-up-spr"><a class="header" href="#set-up-spr">Set up spr</a></h1>
 <p>In the repo you want to use spr in, run <code>spr init</code>; this will ask you several questions.</p>
+<p>First, <code>spr init</code> asks for the GitHub repository. It suggests the one that your <code>origin</code> remote points to; if your repository has no such remote, enter the repository as <code>owner/repo</code> (for one on github.com), or as <code>github://HOST/owner/repo</code> for one on <a href="#github-enterprise">GitHub Enterprise</a>.</p>
 <p>You’ll need to authorise spr with your GitHub account. <code>spr init</code> will guide you through the process (see <a href="#authentication">Authentication</a> below).</p>
-<p>The rest of the settings that <code>spr init</code> asks for have sensible defaults, so almost all users can simply accept the defaults. <code>spr init</code> suggests the GitHub repository that your <code>origin</code> remote points to; if your repository has no such remote, enter the repository as <code>owner/repo</code>.</p>
+<p>The rest of the settings that <code>spr init</code> asks for have sensible defaults, so almost all users can simply accept the defaults.</p>
 <p><code>spr init</code> doesn’t ask how pull requests get merged or stacked. The defaults are spr’s original workflow: squash-merging, and synthetic base branches for stacked pull requests. If your team merges pull requests with merge commits, or you want to use GitHub’s stacked pull requests, see <a href="./stacking-modes.html">Choose a Merge Method and Stacking Mode</a>.</p>
 <p>See the <a href="../reference/configuration.html">Configuration</a> reference page for full details about the available settings.</p>
 <p>After initial setup, you can update your settings in several ways:</p>
@@ -199,8 +200,8 @@
 </li>
 </ul>
 <h2 id="authentication"><a class="header" href="#authentication">Authentication</a></h2>
-<p>spr needs a GitHub token to talk to GitHub on your behalf. It’s stored in the <code>spr.githubAuthToken</code> <a href="../reference/configuration.html">setting</a>.</p>
-<p>By default, <code>spr init</code> gets one by logging you in with GitHub: it shows a link and a code to enter there. (It also tries to open the link in your web browser, but you can open it anywhere, e.g. when you run <code>spr init</code> on a server via SSH.) This authorises spr’s OAuth app with these scopes:</p>
+<p>spr needs a GitHub token to talk to GitHub on your behalf. It’s stored in the <code>spr.auth.github.token</code> <a href="../reference/configuration.html">setting</a> (for GitHub Enterprise, <code>spr.auth.github.HOST.token</code>).</p>
+<p>On github.com, <code>spr init</code> asks how to get one: by logging you in with GitHub (the default), or by pasting a token (see <a href="#using-your-own-token">Using your own token</a>). Logging in with GitHub works like this: it shows a link and a code to enter there. (It also tries to open the link in your web browser, but you can open it anywhere, e.g. when you run <code>spr init</code> on a server via SSH.) This authorises spr’s OAuth app with these scopes:</p>
 <ul>
 <li><code>repo</code>: pushing pull request branches, and creating, updating and merging pull requests. GitHub has no narrower scope for this, which is why the authorisation page lists access to much more (e.g. wikis) — spr doesn’t use that.</li>
 <li><code>read:org</code>: looking up teams named as reviewers (<code>Reviewers: #team</code>).</li>
@@ -208,11 +209,11 @@
 </ul>
 <p>Older development versions of spr also asked for the <code>user</code> scope (“Update all user data”), which spr doesn’t need. To get rid of it, revoke spr under <a href="https://github.com/settings/applications">Authorized OAuth Apps</a> in your GitHub settings, and run <code>spr init</code> again.</p>
 <h3 id="using-your-own-token"><a class="header" href="#using-your-own-token">Using your own token</a></h3>
-<p>If a token is configured already, <code>spr init</code> keeps using it, as long as it works and has the scopes above. So you can also set a token yourself before running <code>spr init</code>, e.g. if your organisation <a href="https://docs.github.com/en/organizations/managing-oauth-access-to-your-organizations-data/about-oauth-app-access-restrictions">restricts access by OAuth apps</a>:</p>
+<p>You can also give spr a token of your own, e.g. if your organisation <a href="https://docs.github.com/en/organizations/managing-oauth-access-to-your-organizations-data/about-oauth-app-access-restrictions">restricts access by OAuth apps</a>: paste it when <code>spr init</code> asks for it, or configure it before running <code>spr init</code> — if a token is configured already, <code>spr init</code> keeps using it, as long as it works and has the scopes above. To use the same token in all your repositories, configure it globally:</p>
 <ul>
 <li>
 <p>The token of the GitHub CLI has the right scopes:</p>
-<pre><code class="language-shell">git config spr.githubAuthToken "$(gh auth token)"
+<pre><code class="language-shell">git config --global spr.auth.github.token "$(gh auth token)"
 </code></pre>
 </li>
 <li>
@@ -222,6 +223,13 @@
 <p>A <a href="https://github.com/settings/personal-access-tokens">fine-grained personal access token</a>, which lets you limit access to particular repositories and permissions. spr needs these repository permissions: <em>Contents</em>, <em>Pull requests</em> and <em>Workflows</em> (read and write); and for team reviewers, the organisation permission <em>Members</em> (read). GitHub doesn’t tell spr the permissions of such a token, so <code>spr init</code> can’t check them.</p>
 </li>
 </ul>
+<h2 id="github-enterprise"><a class="header" href="#github-enterprise">GitHub Enterprise</a></h2>
+<p>spr works with GitHub Enterprise Server, and with GitHub Enterprise Cloud with data residency (<code>SUBDOMAIN.ghe.com</code>). Repositories there are written with their host, e.g. <code>github://ghe.example.com/owner/repo</code> (<code>spr init</code> suggests that, if your <code>origin</code> remote points there), and spr’s target is then e.g. <code>github://ghe.example.com/owner/repo:main</code>. spr talks to the host’s API (<code>https://HOST/api/v3</code> and <code>https://HOST/api/graphql</code> for GitHub Enterprise Server, <code>https://api.SUBDOMAIN.ghe.com</code> for GHE.com).</p>
+<p>Logging in with GitHub only works on github.com, so <code>spr init</code> asks you for a token instead. It shows a link that creates a classic personal access token with the right scopes (<code>https://HOST/settings/tokens/new?scopes=repo,read:org,workflow&amp;description=spr</code>). If you use the GitHub CLI with your GitHub Enterprise host, you can take its token instead (<code>gh auth token --hostname HOST</code>). The token is stored in <code>spr.auth.github.HOST.token</code>, e.g.:</p>
+<pre><code class="language-shell">git config --global spr.auth.github.ghe.example.com.token "$(gh auth token --hostname ghe.example.com)"
+</code></pre>
+<p>GitHub’s stacked pull requests are only on github.com so far, so the stacking mode <code>github-stack</code> doesn’t work with GitHub Enterprise; the other <a href="./stacking-modes.html">stacking modes</a> do.</p>
+<p>Support for GitHub Enterprise is new, and tested against a simulation of its API only. If something doesn’t work, please <a href="https://github.com/spacedentist/spr/issues">open an issue</a>.</p>
 
                     </main>
 

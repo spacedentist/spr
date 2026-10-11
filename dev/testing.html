@@ -35,10 +35,10 @@
             const path_to_root = "../";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "../searchindex-423cd2a3.js";
+            window.path_to_searchindex_js = "../searchindex-27f5000a.js";
         </script>
         <!-- Start loading toc.js asap -->
-        <script src="../toc-16f64144.js"></script>
+        <script src="../toc-ee48e442.js"></script>
     </head>
     <body>
     <div id="mdbook-help-container">
@@ -233,6 +233,12 @@ cargo run -p spr-livetest -- --repo OWNER/REPO live --list       # what there is
 cargo run -p spr-livetest -- --help
 </code></pre>
 <p>They build and test spr from your working copy. To test another spr binary, e.g. a release, pass <code>--spr PATH</code>.</p>
+<h3 id="on-github-enterprise"><a class="header" href="#on-github-enterprise">On GitHub Enterprise</a></h3>
+<p>For a test repository on GitHub Enterprise, give it with its host, and a token for that host:</p>
+<pre><code class="language-shell">export SPR_GITHUB_LIVETEST_TOKEN=$(gh auth token --hostname ghe.example.com)
+cargo run -p spr-livetest -- --repo github://ghe.example.com/OWNER/REPO live
+</code></pre>
+<p>The tests then talk to that host’s API, clone from it, and configure spr for it (<code>spr.target</code>, <code>spr.auth.github.HOST.token</code>). Tests of what only github.com has are skipped, with the reason: GitHub’s stacked pull requests (<code>stack-github</code>), and the options from before spr supported other hosts (<code>old-config</code>).</p>
 <h3 id="what-they-do-in-the-repository"><a class="header" href="#what-they-do-in-the-repository">What they do in the repository</a></h3>
 <p>Each run gets an ID (e.g. <code>20261008-153012-1a2b</code>), and works on branches of its own:</p>
 <ul>
@@ -244,12 +250,12 @@ cargo run -p spr-livetest -- --help
 </code></pre>
 <p>Cleanup only ever touches branches and pull requests of test runs.</p>
 <h3 id="the-controlled-environment"><a class="header" href="#the-controlled-environment">The controlled environment</a></h3>
-<p>Your own Git configuration must not influence the tests (e.g. a <code>spr.githubAuthToken</code> in your global configuration). So each test runs spr in a fresh clone, in a temporary directory with a home directory of its own, and with a cleared environment. Before each test, it checks that spr sees no <code>spr.*</code> setting from outside that clone. The token never appears on a command line or in the output.</p>
+<p>Your own Git configuration must not influence the tests (e.g. a <code>spr.auth.github.token</code> in your global configuration). So each test runs spr in a fresh clone, in a temporary directory with a home directory of its own, and with a cleared environment. Before each test, it checks that spr sees no <code>spr.*</code> setting from outside that clone. The token never appears on a command line or in the output.</p>
 <h2 id="manual-tests"><a class="header" href="#manual-tests">Manual tests</a></h2>
 <p>Some things need a person: logging in with GitHub in a web browser, and checking what GitHub’s pages show. Manual tests guide you through them:</p>
 <pre><code class="language-shell">cargo run -p spr-livetest -- --repo OWNER/REPO manual init
 </code></pre>
-<p><code>manual init</code> runs <code>spr init</code> in a fresh clone without any spr settings, so it starts with logging in. It explains beforehand what you need to do and what to look out for. Afterwards, it checks what it can on its own (the settings <code>spr init</code> wrote, and that the new token works and has exactly the scopes spr asks for), asks you about what only you could see (the permissions GitHub’s authorisation page listed), tries some variants without your help (a configured token is kept, a broken one replaced, logging in without a browser), and prints a report.</p>
+<p><code>manual init</code> runs <code>spr init</code> in a fresh clone without any spr settings, so it starts with logging in (on GitHub Enterprise: with asking for a token). It explains beforehand what you need to do and what to look out for. Afterwards, it checks what it can on its own (the settings <code>spr init</code> wrote, and that the new token works and has the scopes spr asks for), asks you about what only you could see (the permissions GitHub’s authorisation page listed), tries some variants without your help, and prints a report. The variants run <code>spr init</code> in a pseudo-terminal and answer its questions: a configured token is kept, a broken one replaced (by logging in without a browser, and by pasting a token), and <code>spr.githubAuthToken</code> replaced by <code>spr.auth.github.token</code>.</p>
 <p>It needs the token like the live tests (for cloning the repository and its checks), but doesn’t change anything in the repository, so it doesn’t require the <code>.spr-livetest</code> file.</p>
 <h2 id="what-runs-in-ci"><a class="header" href="#what-runs-in-ci">What runs in CI</a></h2>
 <p>CI (<code>.github/workflows/test.yml</code>) runs on every push to <code>master</code> and on every pull request:</p>
