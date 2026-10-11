@@ -189,8 +189,7 @@ fn check_settings(
             .push(format!("spr.{key} is {value:?}, expected {expected:?}")),
         Err(_) => problems.push(format!("spr.{key} isn't set")),
     };
-    expect("githubRepository", repo);
-    expect("githubMasterBranch", default_branch);
+    expect("target", &format!("github:{repo}:{default_branch}"));
     if let Some(login) = login {
         expect("branchPrefix", &format!("spr/{login}/"));
     }

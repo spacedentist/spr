@@ -5,6 +5,7 @@ use octocrab::FromResponse;
 use secrecy::ExposeSecret as _;
 
 use crate::output::output;
+use crate::target::{Forge, Repository, Target};
 
 pub async fn init() -> Result<()> {
     output("👋", "Welcome to spr!")?;
@@ -109,10 +110,15 @@ pub async fn init() -> Result<()> {
 
     let regex =
         lazy_regex::regex!(r#"github\.com[/:]([\w\-\.]+/[\w\-\.]+?)(.git)?$"#);
-    let github_repo = config
-        .get_string("spr.githubRepository")
+    let github_repo = crate::config::configured_target(&config)
         .ok()
-        .filter(|value| !value.is_empty())
+        .flatten()
+        .map(|target| target.repository().clone())
+        .filter(|repository| {
+            repository.forge() == Forge::GitHub
+                && repository.is_on_public_instance()
+        })
+        .map(|repository| repository.path().to_string())
         .or_else(|| {
             // We can provide a default value in case the remote "origin" is pointing to github.com
             repo.find_remote("origin")
@@ -129,8 +135,11 @@ pub async fn init() -> Result<()> {
     let github_repo = dialoguer::Input::<String>::new()
         .with_prompt("GitHub repository")
         .with_initial_text(github_repo)
+        .validate_with(|input: &String| -> Result<()> {
+            Repository::new(Forge::GitHub, None, input).map(|_| ())
+        })
         .interact_text()?;
-    config.set_str("spr.githubRepository", &github_repo)?;
+    let repository = Repository::new(Forge::GitHub, None, &github_repo)?;
 
     // Master branch name (just query GitHub)
 
@@ -142,14 +151,14 @@ pub async fn init() -> Result<()> {
         .await
         .context("Getting github repo info".to_string())?;
 
-    config.set_str(
-        "spr.githubMasterBranch",
+    let target = Target::new(
+        repository,
         github_repo_info
             .default_branch
-            .as_ref()
-            .map(|s| &s[..])
+            .as_deref()
             .unwrap_or("master"),
     )?;
+    config.set_str("spr.target", &target.to_string())?;
 
     // Pull Request branch prefix
 

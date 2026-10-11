@@ -714,9 +714,7 @@ mod tests {
         let r = TestRepo::new();
         let m1 = r.commit("m1", &[]);
         let config = crate::config::Config::new(
-            "acme".into(),
-            "codez".into(),
-            "master".into(),
+            "github:acme/codez:master".parse().unwrap(),
             "spr/foo/".into(),
             "xyz".into(),
             false,

@@ -255,8 +255,7 @@ fn setup(env: &TestEnv, repo: &str, run: &Run, test: &str) -> Result<()> {
         &format!("origin/{}", run.target_branch),
     ])?;
     env.configure(&[
-        ("githubRepository", repo),
-        ("githubMasterBranch", &run.target_branch),
+        ("target", &format!("github:{repo}:{}", run.target_branch)),
         ("branchPrefix", &run.test_prefix(test)),
     ])?;
     env.set_token_in_config()?;

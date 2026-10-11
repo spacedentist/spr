@@ -62,6 +62,11 @@
   `nix run github:spacedentist/spr`
 - documentation: new pages on merge methods and stacking modes, on how
   stacked pull requests work, and on the plumbing commands
+- new config option `spr.target` (e.g. `github:owner/repo:master`): where
+  pull requests get merged, replacing `spr.githubRepository` and
+  `spr.githubMasterBranch` — a first step towards supporting other forges
+  than github.com. `spr init` writes it; the old options still work where
+  `spr.target` isn't set
 
 ### Fixes
 

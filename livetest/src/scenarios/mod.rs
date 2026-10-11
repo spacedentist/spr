@@ -29,6 +29,7 @@ pub struct Scenario {
 pub fn all() -> Vec<Scenario> {
     vec![
         basic::SCENARIO,
+        basic::OLD_CONFIG,
         land::SQUASH,
         land::MERGE,
         remote_changes::REMOTE_CHANGES,

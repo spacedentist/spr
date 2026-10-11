@@ -73,7 +73,7 @@ pub fn run_prefix(run_id: &str) -> String {
 }
 
 /// The branch a test run uses instead of the repository's default branch
-/// (`spr.githubMasterBranch`), so landing never touches the default branch
+/// (the branch of `spr.target`), so landing never touches the default branch
 pub fn target_branch(run_id: &str) -> String {
     format!("{TARGET_BRANCH_ROOT}{run_id}/main")
 }

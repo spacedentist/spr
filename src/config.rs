@@ -1,9 +1,14 @@
-use color_eyre::eyre::{Result, bail};
+use color_eyre::eyre::{Result, WrapErr as _, bail};
 
 use crate::github::GitHubBranch;
+use crate::target::{Forge, Repository, Target};
 
 #[derive(Clone)]
 pub struct Config {
+    /// The default target: where Pull Requests get merged
+    pub target: Target,
+    /// The owner and name of the target repository on GitHub (as long as
+    /// spr only supports GitHub)
     pub owner: String,
     pub repo: String,
     pub master_ref: GitHubBranch,
@@ -20,9 +25,7 @@ pub struct Config {
 impl std::fmt::Debug for Config {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("Config")
-            .field("owner", &self.owner)
-            .field("repo", &self.repo)
-            .field("master_ref", &self.master_ref)
+            .field("target", &self.target.to_string())
             .field("branch_prefix", &self.branch_prefix)
             .field("auth_token", &"[redacted]")
             .field("require_approval", &self.require_approval)
@@ -135,9 +138,7 @@ impl std::fmt::Display for MergeMethod {
 impl Config {
     #[allow(clippy::too_many_arguments)]
     pub fn new(
-        owner: String,
-        repo: String,
-        master_branch: String,
+        target: Target,
         branch_prefix: String,
         auth_token: String,
         require_approval: bool,
@@ -158,9 +159,27 @@ impl Config {
             );
         }
 
-        let master_ref =
-            GitHubBranch::new_from_branch_name(&master_branch, &master_branch);
+        let repository = target.repository();
+        if repository.forge() != Forge::GitHub
+            || !repository.is_on_public_instance()
+        {
+            bail!(
+                "Target {target}: spr supports repositories on github.com \
+                 only (so far)"
+            );
+        }
+        let (owner, repo) = repository
+            .path()
+            .split_once('/')
+            .expect("GitHub repository paths are OWNER/REPO");
+        let (owner, repo) = (owner.to_string(), repo.to_string());
+
+        let master_ref = GitHubBranch::new_from_branch_name(
+            target.branch(),
+            target.branch(),
+        );
         Ok(Self {
+            target,
             owner,
             repo,
             master_ref,
@@ -175,11 +194,7 @@ impl Config {
     }
 
     pub fn pull_request_url(&self, number: u64) -> String {
-        format!(
-            "https://github.com/{owner}/{repo}/pull/{number}",
-            owner = self.owner,
-            repo = self.repo
-        )
+        format!("{}/pull/{number}", self.target.repository().web_url())
     }
 
     pub fn parse_pull_request_field(&self, text: &str) -> Option<u64> {
@@ -194,15 +209,21 @@ impl Config {
         }
 
         let regex = lazy_regex::regex!(
-            r#"^\s*https?://github.com/([\w\-\.]+)/([\w\-\.]+)/pull/(\d+)([/?#].*)?\s*$"#
+            r#"^\s*https?://([^/\s]+)/([\w\-\.]+)/([\w\-\.]+)/pull/(\d+)([/?#].*)?\s*$"#
         );
         let m = regex.captures(text);
         if let Some(caps) = m
-            // GitHub's owner and repository names are case-insensitive
-            && self.owner.eq_ignore_ascii_case(caps.get(1).unwrap().as_str())
-            && self.repo.eq_ignore_ascii_case(caps.get(2).unwrap().as_str())
+            // Host names, and GitHub's owner and repository names, are
+            // case-insensitive
+            && self
+                .target
+                .repository()
+                .host()
+                .eq_ignore_ascii_case(caps.get(1).unwrap().as_str())
+            && self.owner.eq_ignore_ascii_case(caps.get(2).unwrap().as_str())
+            && self.repo.eq_ignore_ascii_case(caps.get(3).unwrap().as_str())
         {
-            return caps.get(3).unwrap().as_str().parse().ok();
+            return caps.get(4).unwrap().as_str().parse().ok();
         }
 
         None
@@ -238,6 +259,33 @@ impl Config {
     }
 }
 
+/// The default target in the Git configuration: `spr.target`, or for setups
+/// from before spr knew targets, `spr.githubRepository` (`OWNER/REPO` on
+/// github.com) and `spr.githubMasterBranch` (default: `master`). `None` if
+/// neither `spr.target` nor `spr.githubRepository` is set.
+pub fn configured_target(git_config: &git2::Config) -> Result<Option<Target>> {
+    let get = |key: &str| {
+        git_config
+            .get_string(key)
+            .ok()
+            .filter(|value| !value.is_empty())
+    };
+
+    if let Some(target) = get("spr.target") {
+        return target.parse().map(Some).wrap_err("Invalid spr.target");
+    }
+
+    let Some(repository) = get("spr.githubRepository") else {
+        return Ok(None);
+    };
+    let repository = Repository::new(Forge::GitHub, None, &repository)
+        .wrap_err("Invalid spr.githubRepository")?;
+    let branch = get("spr.githubMasterBranch");
+    Target::new(repository, branch.as_deref().unwrap_or("master"))
+        .wrap_err("Invalid spr.githubMasterBranch")
+        .map(Some)
+}
+
 #[cfg(test)]
 mod tests {
     // Note this useful idiom: importing names from outer (for mod tests) scope.
@@ -245,9 +293,7 @@ mod tests {
 
     fn config_factory() -> Config {
         crate::config::Config::new(
-            "acme".into(),
-            "codez".into(),
-            "master".into(),
+            "github:acme/codez:master".parse().unwrap(),
             "spr/foo/".into(),
             "xyz".into(),
             false,
@@ -368,7 +414,38 @@ mod tests {
             ),
             None
         );
+        assert_eq!(
+            gh.parse_pull_request_field(
+                "https://ghe.example.com/acme/codez/pull/123"
+            ),
+            None
+        );
         assert_eq!(gh.parse_pull_request_field("PR 123"), None);
+    }
+
+    #[test]
+    fn test_config_only_for_github_com() {
+        let config = |target: &str| {
+            Config::new(
+                target.parse().unwrap(),
+                "spr/foo/".into(),
+                "xyz".into(),
+                false,
+                MergeMethod::Squash,
+                StackingMode::BaseBranches,
+                false,
+                true,
+            )
+        };
+        let c = config("github:acme/codez:main").unwrap();
+        assert_eq!((c.owner.as_str(), c.repo.as_str()), ("acme", "codez"));
+        assert_eq!(c.master_ref.branch_name(), "main");
+        assert_eq!(
+            c.pull_request_url(12),
+            "https://github.com/acme/codez/pull/12"
+        );
+        assert!(config("github://ghe.example.com/acme/codez:main").is_err());
+        assert!(config("gitlab:acme/codez:main").is_err());
     }
 
     #[test]
@@ -433,9 +510,7 @@ mod tests {
     fn test_merge_method_and_stacking_mode_combinations() {
         let config = |merge_method, stacking_mode| {
             Config::new(
-                "acme".into(),
-                "codez".into(),
-                "master".into(),
+                "github:acme/codez:master".parse().unwrap(),
                 "spr/foo/".into(),
                 "xyz".into(),
                 false,
@@ -455,6 +530,58 @@ mod tests {
         assert!(config(MergeMethod::Merge, StackingMode::GitHubStack).is_ok());
         assert!(
             config(MergeMethod::Merge, StackingMode::BaseBranches).is_err()
+        );
+    }
+
+    #[test]
+    fn test_configured_target() {
+        let dir = tempfile::tempdir().unwrap();
+        let target = |settings: &[(&str, &str)]| {
+            let path = dir.path().join("config");
+            let _ = std::fs::remove_file(&path);
+            let mut git_config = git2::Config::open(&path).unwrap();
+            for (key, value) in settings {
+                git_config.set_str(key, value).unwrap();
+            }
+            configured_target(&git_config)
+                .map(|target| target.map(|target| target.to_string()))
+        };
+
+        assert_eq!(target(&[]).unwrap(), None);
+        assert_eq!(
+            target(&[("spr.target", "github:acme/codez:main")]).unwrap(),
+            Some("github:acme/codez:main".into())
+        );
+        assert!(target(&[("spr.target", "acme/codez")]).is_err());
+
+        // The options from before spr.target
+        assert_eq!(
+            target(&[("spr.githubRepository", "acme/codez")]).unwrap(),
+            Some("github:acme/codez:master".into())
+        );
+        assert_eq!(
+            target(&[
+                ("spr.githubRepository", "acme/codez"),
+                ("spr.githubMasterBranch", "main"),
+            ])
+            .unwrap(),
+            Some("github:acme/codez:main".into())
+        );
+        assert_eq!(
+            target(&[("spr.githubMasterBranch", "main")]).unwrap(),
+            None
+        );
+        assert!(target(&[("spr.githubRepository", "codez")]).is_err());
+
+        // spr.target takes precedence
+        assert_eq!(
+            target(&[
+                ("spr.target", "github:acme/new:trunk"),
+                ("spr.githubRepository", "acme/old"),
+                ("spr.githubMasterBranch", "main"),
+            ])
+            .unwrap(),
+            Some("github:acme/new:trunk".into())
         );
     }
 

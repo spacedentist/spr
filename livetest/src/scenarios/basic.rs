@@ -11,6 +11,14 @@ pub const SCENARIO: Scenario = Scenario {
     run,
 };
 
+/// Setups from before `spr.target` keep working
+pub const OLD_CONFIG: Scenario = Scenario {
+    name: "old-config",
+    description: "spr.githubRepository and spr.githubMasterBranch instead \
+                  of spr.target",
+    run: run_old_config,
+};
+
 fn run(ctx: &Ctx) -> Result<()> {
     // Create
     ctx.commit(
@@ -60,4 +68,29 @@ fn run(ctx: &Ctx) -> Result<()> {
         "the local commit has no Pull-request trailer anymore",
         ctx.trailer("HEAD", "Pull-request")?.is_none(),
     )
+}
+
+fn run_old_config(ctx: &Ctx) -> Result<()> {
+    ctx.env.git(&["config", "--unset", "spr.target"])?;
+    ctx.env.configure(&[
+        (
+            "githubRepository",
+            &format!("{}/{}", ctx.api.owner, ctx.api.repo),
+        ),
+        ("githubMasterBranch", &ctx.run.target_branch),
+    ])?;
+
+    ctx.commit(&[("old-config.txt", "one\n")], "Old config test")?;
+    ctx.env.spr_ok(&["diff"])?;
+    let number = ctx.pr_number("HEAD")?;
+    let (_, pr) = ctx.check_pr_matches(number, "HEAD")?;
+    check_eq(
+        format!("PR #{number} targets {}", ctx.run.target_branch),
+        &pr.base_ref,
+        &ctx.run.target_branch,
+    )?;
+
+    ctx.env.spr_ok(&["close"])?;
+    let pr = ctx.api.pull_request(number)?;
+    check(format!("PR #{number} is closed"), !pr.is_open())
 }

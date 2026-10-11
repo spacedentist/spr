@@ -1341,9 +1341,7 @@ mod tests {
 
     fn config(use_commit_title_for_initial_commit: bool) -> Config {
         Config::new(
-            "acme".into(),
-            "codez".into(),
-            "master".into(),
+            "github:acme/codez:master".parse().unwrap(),
             "spr/foo/".into(),
             "xyz".into(),
             false,

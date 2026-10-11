@@ -8,6 +8,7 @@ pub mod message;
 pub mod output;
 pub mod pr_commits;
 pub mod remote_changes;
+pub mod target;
 #[cfg(test)]
 pub mod test_utils;
 pub mod utils;

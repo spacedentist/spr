@@ -6,6 +6,7 @@ use clap::{Parser, Subcommand};
 use color_eyre::eyre::{Error, Result, eyre};
 use log::debug;
 use spr::commands;
+use spr::target::{Forge, Repository, Target};
 
 #[derive(Parser)]
 #[clap(
@@ -23,14 +24,13 @@ pub struct Cli {
     #[clap(long)]
     github_auth_token: Option<String>,
 
-    /// GitHub repository ('org/name', if not given taken from config
-    /// spr.githubRepository)
+    /// GitHub repository ('org/name'; if not given, taken from git config
+    /// spr.target)
     #[clap(long)]
     github_repository: Option<String>,
 
     /// The name of the centrally shared branch into which the pull requests
-    /// are merged (if not given taken from git config spr.githubMasterBranch,
-    /// defaulting to 'master')
+    /// are merged (if not given, taken from git config spr.target)
     #[clap(long)]
     github_master_branch: Option<String>,
 
@@ -138,32 +138,33 @@ pub async fn spr() -> Result<()> {
         }
     };
 
-    let github_repository =
-        required(cli.github_repository, "spr.githubRepository")?;
-
-    let github_master_branch = match cli.github_master_branch {
-        Some(v) => Ok::<String, git2::Error>(v),
-        None => git_config
-            .get_string("spr.githubMasterBranch")
-            .or_else(|_| Ok("master".to_string())),
-    }?;
+    // The default target: from the Git config, where the command line can
+    // override its repository and branch
+    let target = {
+        let configured = spr::config::configured_target(&git_config)?;
+        let repository = match cli.github_repository {
+            Some(repository) => {
+                Repository::new(Forge::GitHub, None, &repository)?
+            }
+            None => configured
+                .as_ref()
+                .map(|target| target.repository().clone())
+                .ok_or_else(|| {
+                    eyre!(
+                        "spr.target is not configured. Run `spr init` to set \
+                         up spr in this repository."
+                    )
+                })?,
+        };
+        let branch = cli
+            .github_master_branch
+            .or_else(|| configured.map(|target| target.branch().to_string()))
+            .or_else(|| git_config.get_string("spr.githubMasterBranch").ok())
+            .unwrap_or_else(|| "master".to_string());
+        Target::new(repository, &branch)?
+    };
 
     let branch_prefix = required(cli.branch_prefix, "spr.branchPrefix")?;
-
-    let (github_owner, github_repo) = {
-        let captures = lazy_regex::regex!(r#"^([\w\-\.]+)/([\w\-\.]+)$"#)
-            .captures(&github_repository)
-            .ok_or_else(|| {
-                eyre!(
-                    "GitHub repository must be given as 'OWNER/REPO', but given value was '{}'",
-                    &github_repository,
-                )
-            })?;
-        (
-            captures.get(1).unwrap().as_str().to_string(),
-            captures.get(2).unwrap().as_str().to_string(),
-        )
-    };
 
     let require_approval = git_config
         .get_bool("spr.requireApproval")
@@ -189,9 +190,7 @@ pub async fn spr() -> Result<()> {
         required(cli.github_auth_token, "spr.githubAuthToken")?;
 
     let config = spr::config::Config::new(
-        github_owner,
-        github_repo,
-        github_master_branch,
+        target,
         branch_prefix,
         github_auth_token.clone(),
         require_approval,
