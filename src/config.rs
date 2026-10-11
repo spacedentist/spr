@@ -1,12 +1,21 @@
 use color_eyre::eyre::{Result, WrapErr as _, bail};
 
 use crate::forge::Branch;
+use crate::message::{CommitMessage, SPR_TARGET_TRAILER};
 use crate::target::{ForgeKind, Repository, Target};
 
 #[derive(Clone)]
 pub struct Config {
-    /// The default target: where Pull Requests get merged
+    /// Where the Pull Requests of the commits spr works on get merged: the
+    /// target of the HEAD commit (see `commit_target`)
     pub target: Target,
+    /// The target of commits without a `Spr-Target` trailer: given with
+    /// `--target`, or else the configured default target
+    pub default_target: Target,
+    /// The default target in the Git config (`spr.target`). Commits for
+    /// other targets get a `Spr-Target` trailer, and a branch name alone in
+    /// one means a branch in this target's repository.
+    pub configured_target: Target,
     /// The owner and name of the target repository on GitHub (as long as
     /// spr only supports GitHub)
     pub owner: String,
@@ -26,6 +35,8 @@ impl std::fmt::Debug for Config {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("Config")
             .field("target", &self.target.to_string())
+            .field("default_target", &self.default_target.to_string())
+            .field("configured_target", &self.configured_target.to_string())
             .field("branch_prefix", &self.branch_prefix)
             .field("auth_token", &"[redacted]")
             .field("require_approval", &self.require_approval)
@@ -159,24 +170,12 @@ impl Config {
             );
         }
 
-        let repository = target.repository();
-        if repository.forge() != ForgeKind::GitHub
-            || !repository.is_on_public_instance()
-        {
-            bail!(
-                "Target {target}: spr supports repositories on github.com \
-                 only (so far)"
-            );
-        }
-        let (owner, repo) = repository
-            .path()
-            .split_once('/')
-            .expect("GitHub repository paths are OWNER/REPO");
-        let (owner, repo) = (owner.to_string(), repo.to_string());
-
+        let (owner, repo) = github_owner_and_repo(&target)?;
         let master_ref =
             Branch::new_from_branch_name(target.branch(), target.branch());
         Ok(Self {
+            default_target: target.clone(),
+            configured_target: target.clone(),
             target,
             owner,
             repo,
@@ -191,40 +190,49 @@ impl Config {
         })
     }
 
+    /// This configuration for another target (of the commits spr works on)
+    pub fn for_target(&self, target: Target) -> Result<Self> {
+        let (owner, repo) = github_owner_and_repo(&target)?;
+        Ok(Self {
+            master_ref: Branch::new_from_branch_name(
+                target.branch(),
+                target.branch(),
+            ),
+            target,
+            owner,
+            repo,
+            ..self.clone()
+        })
+    }
+
+    /// The target of a local commit: the one in its `Spr-Target` trailer,
+    /// or the default target. Also returns whether the commit has the
+    /// trailer.
+    pub fn commit_target(
+        &self,
+        message: &CommitMessage,
+    ) -> Result<(Target, bool)> {
+        match message.get_trailer(SPR_TARGET_TRAILER) {
+            Some(text) if !text.trim().is_empty() => {
+                let target = Target::parse_with_default(
+                    text.trim(),
+                    Some(&self.configured_target),
+                )
+                .wrap_err_with(|| {
+                    format!("Invalid {SPR_TARGET_TRAILER} trailer: {text}")
+                })?;
+                Ok((target, true))
+            }
+            _ => Ok((self.default_target.clone(), false)),
+        }
+    }
+
     pub fn pull_request_url(&self, number: u64) -> String {
-        format!("{}/pull/{number}", self.target.repository().web_url())
+        pull_request_url(self.target.repository(), number)
     }
 
     pub fn parse_pull_request_field(&self, text: &str) -> Option<u64> {
-        if text.is_empty() {
-            return None;
-        }
-
-        let regex = lazy_regex::regex!(r#"^\s*#?\s*(\d+)\s*$"#);
-        let m = regex.captures(text);
-        if let Some(caps) = m {
-            return caps.get(1).unwrap().as_str().parse().ok();
-        }
-
-        let regex = lazy_regex::regex!(
-            r#"^\s*https?://([^/\s]+)/([\w\-\.]+)/([\w\-\.]+)/pull/(\d+)([/?#].*)?\s*$"#
-        );
-        let m = regex.captures(text);
-        if let Some(caps) = m
-            // Host names, and GitHub's owner and repository names, are
-            // case-insensitive
-            && self
-                .target
-                .repository()
-                .host()
-                .eq_ignore_ascii_case(caps.get(1).unwrap().as_str())
-            && self.owner.eq_ignore_ascii_case(caps.get(2).unwrap().as_str())
-            && self.repo.eq_ignore_ascii_case(caps.get(3).unwrap().as_str())
-        {
-            return caps.get(4).unwrap().as_str().parse().ok();
-        }
-
-        None
+        parse_pull_request_field(self.target.repository(), text)
     }
 
     pub fn new_branch_from_ref(&self, name: &str) -> Result<Branch> {
@@ -249,6 +257,69 @@ impl Config {
     pub fn new_branch(&self, branch_name: &str) -> Branch {
         Branch::new_from_branch_name(branch_name, self.master_ref.branch_name())
     }
+}
+
+/// The owner and name of a target's repository, as long as spr only
+/// supports github.com
+fn github_owner_and_repo(target: &Target) -> Result<(String, String)> {
+    let repository = target.repository();
+    if repository.forge() != ForgeKind::GitHub
+        || !repository.is_on_public_instance()
+    {
+        bail!(
+            "Target {target}: spr supports repositories on github.com only \
+             (so far)"
+        );
+    }
+    let (owner, repo) = repository
+        .path()
+        .split_once('/')
+        .expect("GitHub repository paths are OWNER/REPO");
+    Ok((owner.to_string(), repo.to_string()))
+}
+
+/// The URL of a Pull Request in the given repository
+pub fn pull_request_url(repository: &Repository, number: u64) -> String {
+    format!("{}/pull/{number}", repository.web_url())
+}
+
+/// The number of a Pull Request in the given repository, from the value of
+/// a `Pull-request` trailer: the Pull Request's URL, or its number
+/// (`#12`). `None` if it's neither, or the URL is of another repository.
+pub fn parse_pull_request_field(
+    repository: &Repository,
+    text: &str,
+) -> Option<u64> {
+    if text.is_empty() {
+        return None;
+    }
+
+    let regex = lazy_regex::regex!(r#"^\s*#?\s*(\d+)\s*$"#);
+    let m = regex.captures(text);
+    if let Some(caps) = m {
+        return caps.get(1).unwrap().as_str().parse().ok();
+    }
+
+    let regex = lazy_regex::regex!(
+        r#"^\s*https?://([^/\s]+)/([\w\-\.]+)/([\w\-\.]+)/pull/(\d+)([/?#].*)?\s*$"#
+    );
+    let m = regex.captures(text);
+    if let Some(caps) = m
+        // Host names, and GitHub's owner and repository names, are
+        // case-insensitive
+        && repository
+            .host()
+            .eq_ignore_ascii_case(caps.get(1).unwrap().as_str())
+        && repository.path().eq_ignore_ascii_case(&format!(
+            "{}/{}",
+            caps.get(2).unwrap().as_str(),
+            caps.get(3).unwrap().as_str()
+        ))
+    {
+        return caps.get(4).unwrap().as_str().parse().ok();
+    }
+
+    None
 }
 
 /// The default target in the Git configuration: `spr.target`, or for setups

@@ -3,7 +3,7 @@
 //! stacked to allow for a series of code reviews of interdependent code.
 
 use clap::{Parser, Subcommand};
-use color_eyre::eyre::{Error, Result, eyre};
+use color_eyre::eyre::{Error, Result, WrapErr as _, bail, eyre};
 use log::debug;
 use spr::commands;
 use spr::forge::Forge;
@@ -25,14 +25,21 @@ pub struct Cli {
     #[clap(long)]
     github_auth_token: Option<String>,
 
-    /// GitHub repository ('org/name'; if not given, taken from git config
-    /// spr.target)
+    /// Where Pull Requests get merged, for commits without a Spr-Target
+    /// trailer: 'FORGE:REPOSITORY:BRANCH' (e.g. 'github:owner/repo:main'),
+    /// or a branch name alone for a branch in the repository of the default
+    /// target (git config spr.target). `spr diff` adds a Spr-Target trailer
+    /// to commits for other targets than the default one.
     #[clap(long)]
+    target: Option<String>,
+
+    /// Deprecated: use --target. GitHub repository ('org/name')
+    #[clap(long, hide = true)]
     github_repository: Option<String>,
 
-    /// The name of the centrally shared branch into which the pull requests
-    /// are merged (if not given, taken from git config spr.target)
-    #[clap(long)]
+    /// Deprecated: use --target. The branch into which the pull requests
+    /// are merged
+    #[clap(long, hide = true)]
     github_master_branch: Option<String>,
 
     /// prefix to be used for branches created for pull requests (if not given
@@ -54,6 +61,7 @@ impl std::fmt::Debug for Cli {
                 "github_auth_token",
                 &self.github_auth_token.as_ref().map(|_| "[redacted]"),
             )
+            .field("target", &self.target)
             .field("github_repository", &self.github_repository)
             .field("github_master_branch", &self.github_master_branch)
             .field("branch_prefix", &self.branch_prefix)
@@ -139,10 +147,23 @@ pub async fn spr() -> Result<()> {
         }
     };
 
-    // The default target: from the Git config, where the command line can
-    // override its repository and branch
-    let target = {
-        let configured = spr::config::configured_target(&git_config)?;
+    // The configured default target, where the deprecated command line
+    // options can override its repository and branch
+    let configured = spr::config::configured_target(&git_config)?;
+    let configured = if cli.github_repository.is_some()
+        || cli.github_master_branch.is_some()
+    {
+        if cli.target.is_some() {
+            bail!(
+                "--github-repository and --github-master-branch can't be \
+                 used together with --target, which replaces them"
+            );
+        }
+        spr::output::output(
+            "⚠️",
+            "--github-repository and --github-master-branch are \
+             deprecated: use --target",
+        )?;
         let repository = match cli.github_repository {
             Some(repository) => {
                 Repository::new(ForgeKind::GitHub, None, &repository)?
@@ -150,20 +171,31 @@ pub async fn spr() -> Result<()> {
             None => configured
                 .as_ref()
                 .map(|target| target.repository().clone())
-                .ok_or_else(|| {
-                    eyre!(
-                        "spr.target is not configured. Run `spr init` to set \
-                         up spr in this repository."
-                    )
-                })?,
+                .ok_or_else(not_configured)?,
         };
         let branch = cli
             .github_master_branch
             .or_else(|| configured.map(|target| target.branch().to_string()))
             .or_else(|| git_config.get_string("spr.githubMasterBranch").ok())
             .unwrap_or_else(|| "master".to_string());
-        Target::new(repository, &branch)?
+        Some(Target::new(repository, &branch)?)
+    } else {
+        configured
     };
+
+    // The target of commits without a Spr-Target trailer
+    let cli_target = cli
+        .target
+        .as_deref()
+        .map(|target| {
+            Target::parse_with_default(target, configured.as_ref())
+                .wrap_err("Invalid --target")
+        })
+        .transpose()?;
+    let default_target = cli_target
+        .clone()
+        .or_else(|| configured.clone())
+        .ok_or_else(not_configured)?;
 
     if let Some(note) = spr::config::deprecation_note(&git_config) {
         spr::output::output("⚠️", &note)?;
@@ -194,8 +226,8 @@ pub async fn spr() -> Result<()> {
     let github_auth_token =
         required(cli.github_auth_token, "spr.githubAuthToken")?;
 
-    let config = spr::config::Config::new(
-        target,
+    let mut config = spr::config::Config::new(
+        default_target.clone(),
         branch_prefix,
         github_auth_token.clone(),
         require_approval,
@@ -204,6 +236,26 @@ pub async fn spr() -> Result<()> {
         use_commit_title_for_initial_commit,
         spr_ids,
     )?;
+    config.configured_target = configured.unwrap_or(default_target);
+
+    // Commands that work on local commits work for the target of the HEAD
+    // commit
+    if !matches!(command, Commands::List | Commands::Patch(_))
+        && let Some(message) = head_commit_message(&repo)
+    {
+        let (head_target, has_trailer) = config.commit_target(&message)?;
+        if let Some(cli_target) = cli_target
+            && head_target != cli_target
+        {
+            bail!(
+                "The HEAD commit has the target {head_target} (Spr-Target \
+                 trailer), not {cli_target} as given with --target"
+            );
+        }
+        if has_trailer {
+            config = config.for_target(head_target)?;
+        }
+    }
     debug!("config: {:?}", config);
 
     let git = spr::git::Git::new(repo)?;
@@ -221,6 +273,23 @@ pub async fn spr() -> Result<()> {
         // `Config::new` refuses targets on other forges (so far)
         forge => Err(eyre!("{forge} is not supported (yet)")),
     }
+}
+
+fn not_configured() -> color_eyre::eyre::Report {
+    eyre!(
+        "spr.target is not configured. Run `spr init` to set up spr in this \
+         repository."
+    )
+}
+
+/// The message of the HEAD commit, if there is one
+fn head_commit_message(
+    repo: &git2::Repository,
+) -> Option<spr::message::CommitMessage> {
+    let commit = repo.head().ok()?.peel_to_commit().ok()?;
+    Some(spr::message::CommitMessage::parse(
+        &String::from_utf8_lossy(commit.message_bytes()),
+    ))
 }
 
 /// Run a command that works with the forge

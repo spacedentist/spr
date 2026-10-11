@@ -69,6 +69,13 @@
   `spr.target` isn't set, but are deprecated: spr shows a note on how to
   replace them, and `spr init` replaces them in the repository's
   configuration
+- pull requests for other branches than the configured target, e.g.
+  release branches: `spr --target BRANCH diff` (replacing
+  `--github-repository` and `--github-master-branch`, which still work but
+  are deprecated) records the target in a local-only `Spr-Target` trailer,
+  so later commands know it; all commits of a stack must have the same
+  target, and `spr diff --cherry-pick --refs …` sends each commit to its
+  own target (see the new page "Target Another Branch" in the docs)
 
 ### Fixes
 

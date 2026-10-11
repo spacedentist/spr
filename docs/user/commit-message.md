@@ -55,7 +55,15 @@ At various stages of a commit's lifecycle, `spr` will add trailers to the commit
 
   It gives the commit a stable identity across amends and rebases (like Gerrit's `Change-Id`), which spr uses to keep track of the PR's state locally. It only appears in your local commit message: not in the PR, and not in the commit that lands. See [Identify Commits with Spr-Ids](spr-ids.md).
 
-All of these (`Pull-request`, `Reviewers`, `Reviewed-by`, `Spr-Id`) follow git's trailer conventions, so you can also read and edit them with tools like [`git interpret-trailers`](https://git-scm.com/docs/git-interpret-trailers).
+- `spr --target BRANCH diff` adds a trailer like this to commits for another target than the default one (the `spr.target` [config option](../reference/configuration.md)):
+
+  ```
+  Spr-Target: github:example/project:release/1.2
+  ```
+
+  It tells spr where the commit's PR gets merged, so later commands don't need `--target`. You can also write it yourself, with a branch name alone for a branch in the default target's repository (`Spr-Target: release/1.2`). Like `Spr-Id`, it only appears in your local commit message. See [Target Another Branch](targets.md).
+
+All of these (`Pull-request`, `Reviewers`, `Reviewed-by`, `Spr-Id`, `Spr-Target`) follow git's trailer conventions, so you can also read and edit them with tools like [`git interpret-trailers`](https://git-scm.com/docs/git-interpret-trailers).
 
 ### Backwards compatibility
 

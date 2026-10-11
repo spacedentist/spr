@@ -1,7 +1,11 @@
 use color_eyre::eyre::{Error, Result, WrapErr as _, bail, eyre};
 use std::collections::{HashSet, VecDeque};
 
-use crate::{config::Config, message::CommitMessage};
+use crate::{
+    config::{Config, parse_pull_request_field, pull_request_url},
+    message::CommitMessage,
+    target::Target,
+};
 use git2::Oid;
 
 #[derive(Debug)]
@@ -11,6 +15,58 @@ pub struct PreparedCommit {
     pub parent_oid: Oid,
     pub message: CommitMessage,
     pub pull_request_number: Option<u64>,
+    /// Where the commit's Pull Request gets merged (see
+    /// `Config::commit_target`)
+    pub target: Target,
+    /// Whether the commit has a `Spr-Target` trailer
+    pub has_target_trailer: bool,
+}
+
+impl PreparedCommit {
+    /// Whether the commit's target is settled: it names its target, or it
+    /// has a Pull Request (whose target is the default target). Commits
+    /// without either take the target of the stack they're in.
+    pub fn has_fixed_target(&self) -> bool {
+        self.has_target_trailer || self.pull_request_number.is_some()
+    }
+}
+
+/// Check that the commits of a stack have the stack's target. With `all`,
+/// all of them must have it; otherwise only those whose target is settled
+/// (see `PreparedCommit::has_fixed_target`).
+pub fn check_stack_targets<'a>(
+    commits: impl IntoIterator<Item = &'a PreparedCommit>,
+    target: &Target,
+    all: bool,
+) -> Result<()> {
+    let mismatches: Vec<String> = commits
+        .into_iter()
+        .filter(|pc| (all || pc.has_fixed_target()) && pc.target != *target)
+        .map(|pc| {
+            format!(
+                "  {} {}: {}{}",
+                pc.short_id,
+                pc.message.title(),
+                pc.target,
+                if pc.has_target_trailer {
+                    ""
+                } else {
+                    " (no Spr-Target trailer)"
+                }
+            )
+        })
+        .collect();
+    if mismatches.is_empty() {
+        return Ok(());
+    }
+    bail!(
+        "These commits have another target than the HEAD commit \
+         ({target}):\n{}\n\
+         All commits of a stack must have the same target. Fix their \
+         Spr-Target trailers (e.g. with `git rebase --interactive` and \
+         `reword`), or give the target with `spr --target`.",
+        mismatches.join("\n")
+    )
 }
 
 #[derive(Clone)]
@@ -385,33 +441,40 @@ impl Git {
 
         let mut message = CommitMessage::parse(&message_text);
 
-        // A Pull-request trailer that doesn't refer to a Pull Request in this
-        // repository (e.g. on a commit cherry-picked from another one) is an
-        // error: dropping it silently would lose it, and keeping it would put
-        // a wrong link into the Pull Request spr creates for the commit.
+        let (target, has_target_trailer) =
+            config.commit_target(&message).wrap_err_with(|| {
+                format!("Commit {short_id} ({})", message.title())
+            })?;
+        let repository = target.repository();
+
+        // A Pull-request trailer that doesn't refer to a Pull Request in the
+        // commit's target repository (e.g. on a commit cherry-picked from
+        // another one) is an error: dropping it silently would lose it, and
+        // keeping it would put a wrong link into the Pull Request spr creates
+        // for the commit.
         let pull_request_number = match message.get_trailer("Pull-request") {
-            Some(text) if !text.trim().is_empty() => Some(
-                config.parse_pull_request_field(text).ok_or_else(|| {
-                    eyre!(
-                        "Commit {short_id} ({title}) has a Pull-request \
-                         trailer that doesn't refer to a Pull Request in \
-                         {owner}/{repo}: {text}\n\
-                         Remove it from the commit message (e.g. with \
-                         `git rebase --interactive` and `reword`), and spr \
-                         creates a new Pull Request for the commit.",
-                        title = message.title(),
-                        owner = config.owner,
-                        repo = config.repo,
-                    )
-                })?,
-            ),
+            Some(text) if !text.trim().is_empty() => {
+                Some(parse_pull_request_field(repository, text).ok_or_else(
+                    || {
+                        eyre!(
+                            "Commit {short_id} ({title}) has a Pull-request \
+                             trailer that doesn't refer to a Pull Request in \
+                             {repository}: {text}\n\
+                             Remove it from the commit message (e.g. with \
+                             `git rebase --interactive` and `reword`), and \
+                             spr creates a new Pull Request for the commit.",
+                            title = message.title(),
+                        )
+                    },
+                )?)
+            }
             _ => None,
         };
 
         if let Some(number) = pull_request_number {
             message.set_trailer(
                 "Pull-request".to_string(),
-                config.pull_request_url(number),
+                pull_request_url(repository, number),
             );
         } else {
             message.remove_trailer("Pull-request");
@@ -423,6 +486,8 @@ impl Git {
             parent_oid,
             message,
             pull_request_number,
+            target,
+            has_target_trailer,
         })
     }
 
@@ -652,7 +717,43 @@ mod tests {
             parent_oid,
             message: CommitMessage::parse(message),
             pull_request_number: None,
+            target: "github:o/r:main".parse().unwrap(),
+            has_target_trailer: false,
         }
+    }
+
+    #[test]
+    fn test_check_stack_targets() {
+        let (_r, m1, a) = repo_with_branch();
+        let main: Target = "github:o/r:main".parse().unwrap();
+        let release: Target = "github:o/r:release".parse().unwrap();
+        let commit = |target: &Target, trailer: bool, pr: Option<u64>| {
+            let mut pc = prepared_commit(a, m1, "A");
+            pc.target = target.clone();
+            pc.has_target_trailer = trailer;
+            pc.pull_request_number = pr;
+            pc
+        };
+
+        // Commits without trailer or Pull Request take the stack's target,
+        // unless all of them must have it
+        let free = commit(&main, false, None);
+        assert!(check_stack_targets([&free], &release, false).is_ok());
+        assert!(check_stack_targets([&free], &release, true).is_err());
+
+        // Commits with a trailer or a Pull Request must have it
+        let named = commit(&main, true, None);
+        let with_pr = commit(&main, false, Some(1));
+        for pc in [&named, &with_pr] {
+            assert!(check_stack_targets([pc], &release, false).is_err());
+            assert!(check_stack_targets([pc], &main, true).is_ok());
+        }
+
+        let error = check_stack_targets([&free, &named], &release, true)
+            .unwrap_err()
+            .to_string();
+        assert!(error.contains("A: github:o/r:main (no Spr-Target trailer)"));
+        assert!(error.contains("A: github:o/r:main\n"));
     }
 
     #[test]
@@ -766,5 +867,38 @@ mod tests {
         )
         .unwrap_err();
         assert!(error.to_string().contains("acme/other/pull/12"));
+
+        // Without a Spr-Target trailer, the commit has the default target
+        let prepared = commit("A\n").unwrap();
+        assert_eq!(prepared.target, config.default_target);
+        assert!(!prepared.has_target_trailer);
+        assert!(!prepared.has_fixed_target());
+
+        // A branch name alone is a branch in the default target's repository
+        let prepared =
+            commit("A\n\nSpr-Target: release/1.2\nPull-request: #12\n")
+                .unwrap();
+        assert_eq!(
+            prepared.target.to_string(),
+            "github:acme/codez:release/1.2"
+        );
+        assert!(prepared.has_target_trailer);
+        assert_eq!(prepared.pull_request_number, Some(12));
+
+        // A Pull-request trailer refers to the target's repository
+        let prepared = commit(
+            "A\n\nSpr-Target: github:acme/other:main\n\
+             Pull-request: https://github.com/acme/other/pull/12\n",
+        )
+        .unwrap();
+        assert_eq!(prepared.pull_request_number, Some(12));
+        assert_eq!(
+            prepared.message.get_trailer("Pull-request"),
+            Some("https://github.com/acme/other/pull/12")
+        );
+
+        // An invalid target is an error
+        let error = commit("A\n\nSpr-Target: github:acme:main\n").unwrap_err();
+        assert!(format!("{error:#}").contains("Invalid Spr-Target"));
     }
 }

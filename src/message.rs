@@ -6,6 +6,11 @@ use crate::output::output;
 /// The trailer with the ID spr gives a local commit (see `new_spr_id`)
 pub const SPR_ID_TRAILER: &str = "Spr-Id";
 
+/// The trailer with the target of a local commit's Pull Request, if it's
+/// not the default target. Like `Spr-Id`, it only exists locally: it's
+/// neither in the Pull Request's description nor in the landed commit.
+pub const SPR_TARGET_TRAILER: &str = "Spr-Target";
+
 /// A new random ID for a local commit: 128 bits, as 32 hex digits.
 ///
 /// It identifies a unit of work (a local commit and its Pull Request)
@@ -811,6 +816,24 @@ mod tests {
         let mut message = CommitMessage::new("Title".into(), String::new());
         message.set_trailer("Reviewed-by".into(), "alice".into());
         assert_eq!(message.to_github_body_for_merging(), "Reviewed-by: alice");
+    }
+
+    #[test]
+    fn test_spr_target_stays_local() {
+        let mut local = CommitMessage::parse(
+            "Title\n\nBody\n\n\
+             Spr-Target: github:o/r:release\n\
+             Pull-request: https://github.com/o/r/pull/1",
+        );
+        assert!(!local.to_github_body().contains("Spr-Target"));
+        assert!(!local.to_github_body_for_merging().contains("Spr-Target"));
+
+        let github = CommitMessage::new("New title".into(), "Body".into());
+        local.update_from_pull_request(&github);
+        assert_eq!(
+            local.get_trailer(SPR_TARGET_TRAILER),
+            Some("github:o/r:release")
+        );
     }
 
     #[test]

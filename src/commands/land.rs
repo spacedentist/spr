@@ -29,7 +29,13 @@ pub async fn land(
     config: &crate::config::Config,
 ) -> Result<()> {
     git.check_no_uncommitted_changes()?;
-    let mut prepared_commits = gh.get_prepared_commits()?;
+    // With --cherry-pick, the commits below the HEAD commit may be for
+    // other targets
+    let mut prepared_commits = if opts.cherry_pick {
+        gh.get_prepared_commits_for_any_target()?
+    } else {
+        gh.get_prepared_commits()?
+    };
 
     // In the github-stack stacking mode, if the Pull Request of this commit
     // is part of a stack on GitHub, we land it together with all Pull

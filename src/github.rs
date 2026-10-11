@@ -16,6 +16,7 @@ use crate::{
     git::Git,
     git_remote::GitRemote,
     message::CommitMessage,
+    target::Target,
 };
 use std::collections::{BTreeSet, HashMap};
 
@@ -132,6 +133,14 @@ impl GitHub {
 }
 
 impl Forge for GitHub {
+    fn for_target(&self, target: Target) -> Result<Self> {
+        GitHub::new(
+            self.config.for_target(target)?,
+            self.git.clone(),
+            self.config.auth_token.clone(),
+        )
+    }
+
     fn config(&self) -> &Config {
         &self.config
     }

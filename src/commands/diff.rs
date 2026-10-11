@@ -9,8 +9,9 @@ use crate::{
         Branch, Forge, PullRequest, PullRequestRequestReviewers,
         PullRequestStack, PullRequestState, PullRequestUpdate,
     },
-    git::PreparedCommit,
+    git::{PreparedCommit, check_stack_targets},
     git_remote::PushSpec,
+    message::SPR_TARGET_TRAILER,
     output::{output, write_commit_title},
     pr_commits::{
         self, BaseOutdated, CommitInfo, Conflict, HeadMoved, Plan,
@@ -46,8 +47,9 @@ pub struct DiffOptions {
     #[clap(long, short = 'r')]
     refs: Option<String>,
 
-    /// Submit this commit as if it was cherry-picked on master. Do not base it
-    /// on any intermediate changes between the master branch and this commit.
+    /// Submit this commit as if it was cherry-picked on its target branch. Do
+    /// not base it on any intermediate changes between the target branch and
+    /// this commit. With --refs, each commit goes to its own target.
     #[clap(long)]
     cherry_pick: bool,
 
@@ -91,19 +93,32 @@ fn get_oids(refs: &str, repo: &git2::Repository) -> Result<HashSet<Oid>> {
     walk.map(|r| Ok(r?)).collect()
 }
 
-pub async fn diff(
+pub async fn diff<F: Forge>(
     opts: DiffOptions,
     git: &crate::git::Git,
-    gh: &mut impl Forge,
+    gh: &mut F,
     config: &crate::config::Config,
 ) -> Result<()> {
+    if opts.cherry_pick && opts.all {
+        bail!(
+            "--cherry-pick can't be used with --all. To cherry-pick several \
+             commits, give them with --refs (e.g. --refs HEAD~3..HEAD)."
+        );
+    }
+
     // Abort right here if the local Git repository is not clean
     git.check_no_uncommitted_changes()?;
 
     let mut result = Ok(());
 
-    // Look up the commits on the local branch
-    let mut prepared_commits = gh.get_prepared_commits()?;
+    // Look up the commits on the local branch. They form a stack for the
+    // target of the HEAD commit, unless we cherry-pick them: then each
+    // commit goes to its own target.
+    let mut prepared_commits = if opts.cherry_pick {
+        gh.get_prepared_commits_for_any_target()?
+    } else {
+        gh.get_prepared_commits()?
+    };
 
     // The parent of the first commit in the list is the commit on master that
     // the local branch is based on
@@ -135,9 +150,14 @@ pub async fn diff(
     // local branch into a stack on GitHub at the end. Remember the Pull
     // Request numbers of all commits for that, before we possibly drop commits
     // from the list below.
+    // (Only those for the stack's target: cherry-picked commits may have
+    // Pull Requests for other targets, maybe in other repositories.)
     let mut branch_pull_request_numbers: Vec<Option<u64>> = prepared_commits
         .iter()
-        .map(|pc| pc.pull_request_number)
+        .map(|pc| {
+            pc.pull_request_number
+                .filter(|_| pc.target == config.target)
+        })
         .collect();
     let first_commit_index = if opts.refs.is_none() && !opts.all {
         prepared_commits.len() - 1
@@ -161,20 +181,64 @@ pub async fn diff(
         }
     };
 
+    let is_selected = |pc: &PreparedCommit| {
+        revs_to_pr
+            .as_ref()
+            .map(|revs| revs.contains(&pc.oid))
+            .unwrap_or(true)
+    };
+
+    // The commits we work on must have the stack's target, unless we
+    // cherry-pick them. For cherry-picked commits for other targets, we need
+    // the forge for that target, and the commit to cherry-pick them on: as
+    // for the stack's target, the commit of the target branch that the local
+    // branch is based on (the merge base).
+    let mut other_targets: Vec<(F, Oid)> = Vec::new();
+    let mut commit_forges: Vec<Option<usize>> = Vec::new();
+    if opts.cherry_pick {
+        let head_oid = git.head()?;
+        for pc in &prepared_commits {
+            if !is_selected(pc) || pc.target == config.target {
+                commit_forges.push(None);
+                continue;
+            }
+            let known = other_targets
+                .iter()
+                .position(|(forge, _)| forge.config().target == pc.target);
+            let index = match known {
+                Some(index) => index,
+                None => {
+                    let forge = gh.for_target(pc.target.clone())?;
+                    let target_head = forge.remote().fetch_branch(
+                        forge.config().master_ref.branch_name(),
+                    )?;
+                    let base = git.repo().merge_base(head_oid, target_head)?;
+                    other_targets.push((forge, base));
+                    other_targets.len() - 1
+                }
+            };
+            commit_forges.push(Some(index));
+        }
+    } else {
+        check_stack_targets(
+            prepared_commits.iter().filter(|pc| is_selected(pc)),
+            &config.target,
+            true,
+        )?;
+        commit_forges.resize(prepared_commits.len(), None);
+    }
+
     #[allow(clippy::needless_collect)]
-    let pull_request_tasks: Vec<_> = prepared_commits
-        .iter()
-        .map(|pc: &PreparedCommit| {
-            if revs_to_pr
-                .as_ref()
-                .map(|revs| revs.contains(&pc.oid))
-                .unwrap_or(true)
-            {
+    let pull_request_tasks: Vec<_> = zip(&prepared_commits, &commit_forges)
+        .map(|(pc, forge)| {
+            if is_selected(pc) {
                 // We are going to want to look at this pull request below.
                 pc.pull_request_number.map(|number| {
-                    tokio::task::spawn_local(
-                        gh.clone().get_pull_request(number),
-                    )
+                    let forge = match forge {
+                        Some(index) => other_targets[*index].0.clone(),
+                        None => gh.clone(),
+                    };
+                    tokio::task::spawn_local(forge.get_pull_request(number))
                 })
             } else {
                 // We will be skipping this commit below, because we have as set
@@ -187,9 +251,10 @@ pub async fn diff(
 
     let mut message_on_prompt = "".to_string();
 
-    for (prepared_commit, pull_request_task) in
-        zip(prepared_commits.iter_mut(), pull_request_tasks)
-    {
+    for ((prepared_commit, pull_request_task), forge) in zip(
+        zip(prepared_commits.iter_mut(), pull_request_tasks),
+        commit_forges,
+    ) {
         if result.is_err() {
             break;
         }
@@ -276,18 +341,38 @@ pub async fn diff(
         // commit message with all the changes that the implementation makes at
         // the end, even if the implementation encounters an error or exits
         // early.
-        result = diff_impl(
-            &opts,
-            &mut message_on_prompt,
-            git,
-            gh,
-            config,
-            prepared_commit,
-            master_base_oid,
-            pull_request,
-            stack_on,
-        )
-        .await;
+        result = match forge {
+            None => {
+                diff_impl(
+                    &opts,
+                    &mut message_on_prompt,
+                    git,
+                    gh,
+                    config,
+                    prepared_commit,
+                    master_base_oid,
+                    pull_request,
+                    stack_on,
+                )
+                .await
+            }
+            Some(index) => {
+                let (forge, base) = &mut other_targets[index];
+                let config = forge.config().clone();
+                diff_impl(
+                    &opts,
+                    &mut message_on_prompt,
+                    git,
+                    forge,
+                    &config,
+                    prepared_commit,
+                    *base,
+                    pull_request,
+                    stack_on,
+                )
+                .await
+            }
+        };
 
         parent_pull_request_number = prepared_commit.pull_request_number;
     }
@@ -303,7 +388,9 @@ pub async fn diff(
     if result.is_ok() && config.stacking_mode == StackingMode::GitHubStack {
         for (index, prepared_commit) in prepared_commits.iter().enumerate() {
             branch_pull_request_numbers[first_commit_index + index] =
-                prepared_commit.pull_request_number;
+                prepared_commit
+                    .pull_request_number
+                    .filter(|_| prepared_commit.target == config.target);
         }
         sync_github_stack(gh, config, &branch_pull_request_numbers).await?;
     }
@@ -609,6 +696,41 @@ async fn diff_impl(
                 config.pull_request_url(number)
             ),
         )?;
+    }
+
+    // A commit for another target than the configured default target
+    // records its target, so that later runs know it without --target
+    if config.target != config.configured_target {
+        output("🎯", &format!("Target: {}", config.target))?;
+        if !local_commit.has_target_trailer {
+            message.set_trailer(
+                SPR_TARGET_TRAILER.to_string(),
+                config.target.to_string(),
+            );
+            local_commit.has_target_trailer = true;
+        }
+
+        // An existing Pull Request must be for this target: based on the
+        // target branch, or on a branch spr created for it. (Changing the
+        // target of an existing Pull Request isn't supported.)
+        if let Some(ref pull_request) = pull_request {
+            let base = &pull_request.base;
+            if !base.is_master_branch()
+                && !config.is_spr_base_branch(base)
+                && !base.branch_name().starts_with(&config.branch_prefix)
+            {
+                bail!(
+                    "Pull Request #{} is based on {}, but the commit's target \
+                     is {}. spr can't change the target of an existing Pull \
+                     Request (yet): change it on GitHub, or remove the \
+                     Pull-request trailer from the commit message to create \
+                     a new Pull Request.",
+                    pull_request.number,
+                    base.branch_name(),
+                    config.target,
+                );
+            }
+        }
     }
 
     // Give the local commit an ID, if it doesn't have one yet and the user

@@ -11,9 +11,10 @@ use serde::Deserialize;
 
 use crate::{
     config::{Config, MergeMethod},
-    git::{Git, PreparedCommit},
+    git::{Git, PreparedCommit, check_stack_targets},
     git_remote::GitRemote,
     message::CommitMessage,
+    target::Target,
 };
 
 #[derive(Debug, Clone)]
@@ -256,9 +257,24 @@ pub trait Forge: Clone + 'static {
     /// The repository on the forge, for fetching and pushing
     fn remote(&self) -> &GitRemote;
 
+    /// The same forge, for another target (in a repository on the same
+    /// forge and host)
+    fn for_target(&self, target: Target) -> Result<Self>;
+
     /// The local commits on top of the target branch (fetched from the
-    /// forge first)
+    /// forge first), which form a stack: commits whose target is settled
+    /// must have the stack's target (see `check_stack_targets`)
     fn get_prepared_commits(&self) -> Result<Vec<PreparedCommit>> {
+        let commits = self.get_prepared_commits_for_any_target()?;
+        check_stack_targets(&commits, &self.config().target, false)?;
+        Ok(commits)
+    }
+
+    /// The local commits on top of the target branch, whatever their
+    /// targets
+    fn get_prepared_commits_for_any_target(
+        &self,
+    ) -> Result<Vec<PreparedCommit>> {
         let master_oid = self
             .remote()
             .fetch_branch(self.config().master_ref.branch_name())?;

@@ -6,6 +6,7 @@ mod commands;
 mod land;
 mod remote_changes;
 mod stacks;
+mod targets;
 
 use std::time::Duration;
 
@@ -39,6 +40,8 @@ pub fn all() -> Vec<Scenario> {
         stacks::BASE_BRANCHES,
         stacks::CHAIN,
         stacks::GITHUB_STACK,
+        targets::TARGET,
+        targets::CHERRY_PICK,
         commands::PATCH,
         commands::AMEND,
         commands::DRY_RUN,

@@ -250,6 +250,27 @@ impl Target {
     pub fn branch(&self) -> &str {
         &self.branch
     }
+
+    /// Parse a target given by the user (`--target`, `Spr-Target`), where
+    /// a branch name alone is a shorthand for that branch in the default
+    /// target's repository. (Full targets always contain a colon, branch
+    /// names never.)
+    pub fn parse_with_default(
+        s: &str,
+        default: Option<&Target>,
+    ) -> Result<Self> {
+        if s.contains(':') {
+            return s.parse();
+        }
+        match default {
+            Some(default) => Target::new(default.repository.clone(), s),
+            None => bail!(
+                "'{s}' is a branch name only, but there's no default target \
+                 (spr.target) for its repository. Give the full target, \
+                 e.g. 'github:OWNER/REPO:{s}'."
+            ),
+        }
+    }
 }
 
 impl std::str::FromStr for Target {
@@ -282,6 +303,28 @@ mod tests {
 
     fn target(text: &str) -> Target {
         text.parse().unwrap()
+    }
+
+    #[test]
+    fn test_parse_with_default() {
+        let default = target("github:spacedentist/spr:master");
+        assert_eq!(
+            Target::parse_with_default("release/1.2", Some(&default)).unwrap(),
+            target("github:spacedentist/spr:release/1.2")
+        );
+        assert_eq!(
+            Target::parse_with_default("github:o/r:main", Some(&default))
+                .unwrap(),
+            target("github:o/r:main")
+        );
+        assert_eq!(
+            Target::parse_with_default("github:o/r:main", None).unwrap(),
+            target("github:o/r:main")
+        );
+        assert!(Target::parse_with_default("main", None).is_err());
+        assert!(
+            Target::parse_with_default("bad..branch", Some(&default)).is_err()
+        );
     }
 
     #[test]
