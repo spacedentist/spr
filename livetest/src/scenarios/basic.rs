@@ -2,21 +2,26 @@
 
 use color_eyre::eyre::Result;
 
-use super::{Ctx, Scenario, check, check_eq};
+use super::{Ctx, Scenario, check, check_eq, check_output};
 use crate::log::short;
 
 pub const SCENARIO: Scenario = Scenario {
     name: "basic",
     description: "create, update and close a Pull Request",
     run,
+    only_on_github_com: None,
 };
 
-/// Setups from before `spr.target` keep working
+/// Setups from before `spr.target` and `spr.auth.github.token` keep working
 pub const OLD_CONFIG: Scenario = Scenario {
     name: "old-config",
-    description: "spr.githubRepository and spr.githubMasterBranch instead \
-                  of spr.target",
+    description: "spr.githubRepository, spr.githubMasterBranch and \
+                  spr.githubAuthToken instead of spr.target and \
+                  spr.auth.github.token",
     run: run_old_config,
+    only_on_github_com: Some(
+        "the old options are for repositories on github.com",
+    ),
 };
 
 fn run(ctx: &Ctx) -> Result<()> {
@@ -75,13 +80,19 @@ fn run_old_config(ctx: &Ctx) -> Result<()> {
     ctx.env.configure(&[
         (
             "githubRepository",
-            &format!("{}/{}", ctx.api.owner, ctx.api.repo),
+            &format!(
+                "{}/{}",
+                ctx.api.repository.owner, ctx.api.repository.name
+            ),
         ),
         ("githubMasterBranch", &ctx.run.target_branch),
     ])?;
+    ctx.env.set_old_token_in_config()?;
 
     ctx.commit(&[("old-config.txt", "one\n")], "Old config test")?;
-    ctx.env.spr_ok(&["diff"])?;
+    let output = ctx.env.spr_ok(&["diff"])?;
+    check_output(&output, "spr.target replaces them")?;
+    check_output(&output, "spr.auth.github.token replaces it")?;
     let number = ctx.pr_number("HEAD")?;
     let (_, pr) = ctx.check_pr_matches(number, "HEAD")?;
     check_eq(

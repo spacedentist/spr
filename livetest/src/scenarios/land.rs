@@ -9,12 +9,14 @@ pub const SQUASH: Scenario = Scenario {
     name: "land",
     description: "land a Pull Request (squash-merge)",
     run: land_squash,
+    only_on_github_com: None,
 };
 
 pub const MERGE: Scenario = Scenario {
     name: "land-merge",
     description: "land a Pull Request with a merge commit (spr.mergeMethod)",
     run: land_merge,
+    only_on_github_com: None,
 };
 
 /// Create a Pull Request and land it. Returns its number, and the landed

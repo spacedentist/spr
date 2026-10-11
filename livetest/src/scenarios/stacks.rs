@@ -9,18 +9,23 @@ pub const BASE_BRANCHES: Scenario = Scenario {
     name: "stack-base-branches",
     description: "a stack with synthetic base branches (the default)",
     run: base_branches,
+    only_on_github_com: None,
 };
 
 pub const CHAIN: Scenario = Scenario {
     name: "stack-chain",
     description: "a stack of chained Pull Requests (spr.stackingMode chain)",
     run: chain,
+    only_on_github_com: None,
 };
 
 pub const GITHUB_STACK: Scenario = Scenario {
     name: "stack-github",
     description: "a stack on GitHub (github-stack), landed as a whole",
     run: github_stack,
+    only_on_github_com: Some(
+        "GitHub Enterprise has no stacked pull requests (yet)",
+    ),
 };
 
 /// Two commits, each with a Pull Request (`spr diff --all`). Returns the

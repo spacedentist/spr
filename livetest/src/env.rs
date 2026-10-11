@@ -10,7 +10,7 @@ use std::{
 
 use color_eyre::eyre::{Result, WrapErr, bail, eyre};
 
-use crate::util::mask;
+use crate::util::{Repo, mask};
 
 pub struct TestEnv {
     dir: Option<tempfile::TempDir>,
@@ -20,6 +20,8 @@ pub struct TestEnv {
     pub repo_dir: PathBuf,
     spr: PathBuf,
     token: String,
+    /// The test repository
+    repository: Repo,
 }
 
 /// The result of running a program
@@ -48,8 +50,9 @@ impl RunOutput {
 }
 
 impl TestEnv {
-    /// A new environment in a fresh temporary directory
-    pub fn new(spr: &Path, token: &str) -> Result<Self> {
+    /// A new environment in a fresh temporary directory, for the test
+    /// repository
+    pub fn new(spr: &Path, token: &str, repository: &Repo) -> Result<Self> {
         let dir = tempfile::Builder::new().prefix("spr-livetest-").tempdir()?;
         let root = dir.path().to_path_buf();
         let home = root.join("home");
@@ -64,6 +67,7 @@ impl TestEnv {
             bin,
             spr: spr.to_path_buf(),
             token: token.to_string(),
+            repository: repository.clone(),
         })
     }
 
@@ -73,6 +77,11 @@ impl TestEnv {
             let _ = dir.keep();
         }
         &self.root
+    }
+
+    /// The test repository
+    pub fn repository(&self) -> &Repo {
+        &self.repository
     }
 
     /// The home directory of the environment
@@ -204,44 +213,87 @@ impl TestEnv {
         self.command(&self.spr)
     }
 
-    /// Run a command until its output contains `until`, or the timeout
-    /// expires, then stop it. For commands that would wait forever, e.g.
-    /// for a login.
-    pub fn run_until(
+    /// Run a command in a terminal (a pseudo-terminal, so it can ask
+    /// questions) until its output contains `until`, or the timeout
+    /// expires, then stop it. For interactive commands, and ones that would
+    /// wait forever, e.g. for a login. Answers questions on the way: when
+    /// the output (after the previous answer) contains the first text of an
+    /// answer, it types the second (e.g. `"\r"` for Return).
+    pub fn run_in_terminal(
         &self,
-        mut command: Command,
+        command: Command,
+        answers: &[(&str, &str)],
         until: &str,
         timeout: std::time::Duration,
     ) -> Result<RunOutput> {
-        use std::io::Read as _;
-        let mut child = command
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            .spawn()?;
-        let collect = |mut pipe: Box<dyn std::io::Read + Send>| {
-            let output = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
-            let collected = output.clone();
-            std::thread::spawn(move || {
-                let mut buffer = [0; 4096];
-                while let Ok(n) = pipe.read(&mut buffer) {
-                    if n == 0 {
-                        break;
-                    }
-                    collected.lock().unwrap().extend_from_slice(&buffer[..n]);
+        use std::io::{Read as _, Write as _};
+        fn pty_error(error: impl std::fmt::Display) -> color_eyre::Report {
+            eyre!("{error:#}")
+        }
+
+        let pty = portable_pty::native_pty_system()
+            .openpty(portable_pty::PtySize {
+                rows: 50,
+                cols: 200,
+                pixel_width: 0,
+                pixel_height: 0,
+            })
+            .map_err(pty_error)?;
+        let mut builder =
+            portable_pty::CommandBuilder::new(command.get_program());
+        builder.args(command.get_args());
+        // The same environment (`command` clears it)
+        builder.env_clear();
+        for (name, value) in command.get_envs() {
+            if let Some(value) = value {
+                builder.env(name, value);
+            }
+        }
+        if command.get_envs().all(|(name, _)| name != "TERM") {
+            builder.env("TERM", "xterm-256color");
+        }
+        if let Some(dir) = command.get_current_dir() {
+            builder.cwd(dir);
+        }
+        let mut child = pty.slave.spawn_command(builder).map_err(pty_error)?;
+        drop(pty.slave);
+
+        let mut reader = pty.master.try_clone_reader().map_err(pty_error)?;
+        let mut writer = pty.master.take_writer().map_err(pty_error)?;
+        let output = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+        let collected = output.clone();
+        std::thread::spawn(move || {
+            let mut buffer = [0; 4096];
+            while let Ok(n) = reader.read(&mut buffer) {
+                if n == 0 {
+                    break;
                 }
-            });
-            output
-        };
-        let stdout = collect(Box::new(child.stdout.take().unwrap()));
-        let stderr = collect(Box::new(child.stderr.take().unwrap()));
+                collected.lock().unwrap().extend_from_slice(&buffer[..n]);
+            }
+        });
+        let text =
+            || String::from_utf8_lossy(&output.lock().unwrap()).into_owned();
+
         let start = std::time::Instant::now();
+        let mut answers = answers.iter();
+        let mut next_answer = answers.next();
+        let mut answered_up_to = 0;
         let status = loop {
             if let Some(status) = child.try_wait()? {
                 break Some(status);
             }
-            let seen = String::from_utf8_lossy(&stdout.lock().unwrap())
-                .contains(until);
-            if seen || start.elapsed() > timeout {
+            let seen = text();
+            if let Some((question, answer)) = next_answer
+                && seen[answered_up_to..].contains(question)
+            {
+                // Give it a moment to wait for the answer
+                std::thread::sleep(std::time::Duration::from_millis(300));
+                writer.write_all(answer.as_bytes())?;
+                writer.flush()?;
+                answered_up_to = seen.len();
+                next_answer = answers.next();
+            }
+            if seen.contains(until) || start.elapsed() > timeout {
                 // Give it a moment to finish its output
                 std::thread::sleep(std::time::Duration::from_millis(500));
                 let _ = child.kill();
@@ -251,17 +303,11 @@ impl TestEnv {
             std::thread::sleep(std::time::Duration::from_millis(200));
         };
         std::thread::sleep(std::time::Duration::from_millis(100));
-        let text = |output: &std::sync::Arc<std::sync::Mutex<Vec<u8>>>| {
-            mask(
-                &String::from_utf8_lossy(&output.lock().unwrap()),
-                &self.token,
-            )
-        };
         Ok(RunOutput {
-            success: status.is_some_and(|status| status.success()),
-            code: status.and_then(|status| status.code()),
-            stdout: text(&stdout),
-            stderr: text(&stderr),
+            success: status.as_ref().is_some_and(|status| status.success()),
+            code: status.map(|status| status.exit_code() as i32),
+            stdout: mask(&text(), &self.token),
+            stderr: String::new(),
         })
     }
 
@@ -272,11 +318,10 @@ impl TestEnv {
         Ok(RunOutput::from_output(output, &self.token))
     }
 
-    /// Clone the repository (`OWNER/REPO`) into the environment, with a
-    /// plain HTTPS URL as `origin` and nothing else configured but a commit
-    /// identity
-    pub fn clone(&self, repo: &str) -> Result<()> {
-        let url = format!("https://github.com/{repo}.git");
+    /// Clone the test repository into the environment, with a plain HTTPS
+    /// URL as `origin` and nothing else configured but a commit identity
+    pub fn clone(&self) -> Result<()> {
+        let url = format!("{}.git", self.repository.web_url());
         let target = self.repo_dir.to_string_lossy().into_owned();
         self.git(&["clone", "--quiet", &url, &target])?;
         self.git(&["config", "user.name", "spr livetest"])?;
@@ -293,48 +338,69 @@ impl TestEnv {
         Ok(())
     }
 
-    /// Set `spr.githubAuthToken` in the test repository to the token of
-    /// the tests
+    /// Set spr's token for the host (`spr.auth.github[.HOST].token`) in the
+    /// test repository to the token of the tests
     pub fn set_token_in_config(&self) -> Result<()> {
         self.set_token(&self.token)
     }
 
-    /// Set `spr.githubAuthToken` in the test repository. Written to the
-    /// config file directly, so the token isn't on the command line of a
-    /// process (where others could see it).
+    /// Set spr's token for the host in the test repository
     pub fn set_token(&self, token: &str) -> Result<()> {
-        use std::io::Write as _;
         self.unset_token()?;
+        self.append_to_config(&format!(
+            "[spr \"{}\"]\n\ttoken = \"{token}\"",
+            self.repository.token_subsection()
+        ))
+    }
+
+    /// Set the tests' token as `spr.githubAuthToken`, the option that spr
+    /// read before it supported other hosts than github.com
+    pub fn set_old_token_in_config(&self) -> Result<()> {
+        self.unset_token()?;
+        self.append_to_config(&format!(
+            "[spr]\n\tgithubAuthToken = \"{}\"",
+            self.token
+        ))
+    }
+
+    /// Append to the test repository's Git configuration. Written to the
+    /// file directly, so tokens aren't on the command line of a process
+    /// (where others could see them).
+    fn append_to_config(&self, text: &str) -> Result<()> {
+        use std::io::Write as _;
         let mut file = std::fs::OpenOptions::new()
             .append(true)
             .open(self.repo_dir.join(".git/config"))?;
-        writeln!(file, "[spr]\n\tgithubAuthToken = \"{token}\"")?;
+        writeln!(file, "{text}")?;
         Ok(())
     }
 
-    /// Remove `spr.githubAuthToken` from the test repository
+    /// Remove spr's tokens from the test repository (also the old option)
     pub fn unset_token(&self) -> Result<()> {
-        // Exit code 5: it wasn't set
-        let output = self.run({
-            let mut command = self.command("git");
-            command.args(["config", "--unset-all", "spr.githubAuthToken"]);
-            command
-        })?;
-        if !output.success && output.code != Some(5) {
-            bail!(
-                "Removing the token from the config failed: {}",
-                output.all()
-            );
+        for key in [self.repository.token_key().as_str(), "spr.githubAuthToken"]
+        {
+            // Exit code 5: it wasn't set
+            let output = self.run({
+                let mut command = self.command("git");
+                command.args(["config", "--unset-all", key]);
+                command
+            })?;
+            if !output.success && output.code != Some(5) {
+                bail!(
+                    "Removing the token from the config failed: {}",
+                    output.all()
+                );
+            }
         }
         Ok(())
     }
 
-    /// The token configured in the test repository (e.g. by `spr init`).
-    /// Not to be printed!
+    /// The token configured for the host in the test repository (e.g. by
+    /// `spr init`). Not to be printed!
     pub fn configured_token(&self) -> Result<Option<String>> {
         let output = self
             .command("git")
-            .args(["config", "--get", "spr.githubAuthToken"])
+            .args(["config", "--get", &self.repository.token_key()])
             .output()?;
         Ok(output
             .status

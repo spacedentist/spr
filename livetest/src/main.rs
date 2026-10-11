@@ -21,7 +21,7 @@ mod util;
 use std::{
     path::PathBuf,
     process::{Command, ExitCode},
-    time::Instant,
+    time::{Duration, Instant},
 };
 
 use clap::{Parser, Subcommand};
@@ -32,10 +32,10 @@ use crate::{
     env::TestEnv,
     report::{Outcome, Report},
     run::Run,
-    util::mask,
+    util::{Repo, mask},
 };
 
-/// Live tests of spr against GitHub.
+/// Live tests of spr against GitHub (github.com or GitHub Enterprise).
 ///
 /// The tests run in a GitHub repository meant for testing: its default
 /// branch must contain a file `.spr-livetest`. Each run works on branches of
@@ -44,14 +44,16 @@ use crate::{
 #[derive(Parser)]
 #[command(name = "spr-github-livetest")]
 struct Cli {
-    /// The GitHub repository to run the tests in
-    #[arg(long, value_name = "OWNER/REPO")]
+    /// The GitHub repository to run the tests in: OWNER/REPO on github.com,
+    /// or github://HOST/OWNER/REPO on GitHub Enterprise
+    #[arg(long, value_name = "REPOSITORY")]
     repo: String,
 
-    /// GitHub token for the tests. Better pass it in the environment
-    /// variable SPR_GITHUB_LIVETEST_TOKEN: on the command line, others can
-    /// see it in the list of processes. E.g. to use the token of the GitHub
-    /// CLI: `SPR_GITHUB_LIVETEST_TOKEN=$(gh auth token) …`
+    /// GitHub token for the tests, for the repository's host. Better pass it
+    /// in the environment variable SPR_GITHUB_LIVETEST_TOKEN: on the command
+    /// line, others can see it in the list of processes. E.g. to use the
+    /// token of the GitHub CLI: `SPR_GITHUB_LIVETEST_TOKEN=$(gh auth token)
+    /// …` (for GitHub Enterprise: `gh auth token --hostname HOST`)
     #[arg(long, value_name = "TOKEN")]
     token: Option<String>,
 
@@ -86,6 +88,10 @@ enum Commands {
     Manual {
         #[arg(value_enum)]
         test: ManualTest,
+
+        /// Only run the parts that need no help (e.g. after changing them)
+        #[arg(long)]
+        automated_only: bool,
     },
 
     /// Remove what test runs left behind in the repository (e.g. after
@@ -133,8 +139,8 @@ fn main() -> ExitCode {
 
 /// Run the command. Returns whether all tests passed.
 fn run(cli: Cli, token: &str) -> Result<bool> {
-    let (owner, repo) = util::parse_repo(&cli.repo)?;
-    let api = Api::new(token, &owner, &repo)?;
+    let repo = Repo::parse(&cli.repo)?;
+    let api = Api::new(token, &repo)?;
 
     match cli.command {
         Commands::Live { tests, keep, .. } => {
@@ -142,10 +148,15 @@ fn run(cli: Cli, token: &str) -> Result<bool> {
             let spr = spr_binary(cli.spr)?;
             run_live(&api, &cli.repo, &spr, token, &selected, keep)
         }
-        Commands::Manual { test } => {
+        Commands::Manual {
+            test,
+            automated_only,
+        } => {
             let spr = spr_binary(cli.spr)?;
             match test {
-                ManualTest::Init => manual::init(&api, &cli.repo, &spr, token),
+                ManualTest::Init => {
+                    manual::init(&api, &spr, token, automated_only)
+                }
             }
         }
         Commands::Cleanup { run_id } => {
@@ -204,9 +215,13 @@ fn run_live(
     let mut report = Report::new();
     for scenario in selected {
         println!("{}: {}", scenario.name, scenario.description);
+        if let Some(reason) = scenario.unsupported(&api.repository) {
+            report.add(scenario.name, Outcome::Skipped(reason), Duration::ZERO);
+            continue;
+        }
         let start = Instant::now();
-        let mut env = TestEnv::new(spr, token)?;
-        let result = setup(&env, repo, &run, scenario.name).and_then(|()| {
+        let mut env = TestEnv::new(spr, token, &api.repository)?;
+        let result = setup(&env, &run, scenario.name).and_then(|()| {
             (scenario.run)(&scenarios::Ctx {
                 env: &env,
                 api,
@@ -245,8 +260,8 @@ fn run_live(
 /// Set up the environment of a scenario: a clone of the repository on a
 /// local branch `work` based on the run's target branch, with spr
 /// configured
-fn setup(env: &TestEnv, repo: &str, run: &Run, test: &str) -> Result<()> {
-    env.clone(repo)?;
+fn setup(env: &TestEnv, run: &Run, test: &str) -> Result<()> {
+    env.clone()?;
     env.git(&[
         "switch",
         "--quiet",
@@ -255,7 +270,10 @@ fn setup(env: &TestEnv, repo: &str, run: &Run, test: &str) -> Result<()> {
         &format!("origin/{}", run.target_branch),
     ])?;
     env.configure(&[
-        ("target", &format!("github:{repo}:{}", run.target_branch)),
+        (
+            "target",
+            &format!("{}:{}", env.repository().notation(), run.target_branch),
+        ),
         ("branchPrefix", &run.test_prefix(test)),
     ])?;
     env.set_token_in_config()?;

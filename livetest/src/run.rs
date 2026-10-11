@@ -44,8 +44,8 @@ impl Run {
             bail!("The default branch {} doesn't exist", run.default_branch);
         };
         println!(
-            "Test run {} in {}/{}, with branches under {}",
-            run.id, api.owner, api.repo, run.prefix
+            "Test run {} in {}, with branches under {}",
+            run.id, api.repository, run.prefix
         );
         api.create_branch(&run.target_branch, &sha)?;
         println!(
@@ -74,7 +74,7 @@ pub fn check_marker(api: &Api) -> Result<String> {
     let default_branch = api.default_branch()?;
     if !api.file_exists(&default_branch, MARKER)? {
         bail!(
-            "The repository {owner}/{repo} has no file {MARKER} on its \
+            "The repository {repository} has no file {MARKER} on its \
              default branch ({default_branch}).\n\n\
              The live tests create and close Pull Requests and branches in \
              the repository they run in. To make sure they only run in a \
@@ -84,8 +84,7 @@ pub fn check_marker(api: &Api) -> Result<String> {
              touch {MARKER} && git add {MARKER} && \
              git commit -m 'Allow spr live tests' && git push\n\n\
              Use a dedicated test repository, not a real project.",
-            owner = api.owner,
-            repo = api.repo,
+            repository = api.repository,
         );
     }
     Ok(default_branch)

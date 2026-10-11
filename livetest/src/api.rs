@@ -8,6 +8,8 @@ use color_eyre::eyre::{Result, bail, eyre};
 use http::{Method, StatusCode};
 use serde_json::{Value, json};
 
+use crate::util::Repo;
+
 /// API version for GitHub's stacked pull requests API (see spr's
 /// `GitHub::stacks_api_request`)
 const STACKS_API_VERSION: &str = "2026-03-10";
@@ -15,8 +17,7 @@ const STACKS_API_VERSION: &str = "2026-03-10";
 pub struct Api {
     runtime: tokio::runtime::Runtime,
     octocrab: octocrab::Octocrab,
-    pub owner: String,
-    pub repo: String,
+    pub repository: Repo,
 }
 
 /// A response: status, headers and JSON body (`Null` if empty)
@@ -75,25 +76,26 @@ impl PullRequest {
 }
 
 impl Api {
-    pub fn new(token: &str, owner: &str, repo: &str) -> Result<Self> {
+    pub fn new(token: &str, repository: &Repo) -> Result<Self> {
         let runtime = tokio::runtime::Builder::new_current_thread()
             .enable_all()
             .build()?;
         let octocrab = {
             let _guard = runtime.enter();
             octocrab::Octocrab::builder()
+                .base_uri(repository.api_url())?
                 .personal_token(token.to_string())
                 .build()?
         };
         Ok(Api {
             runtime,
             octocrab,
-            owner: owner.to_string(),
-            repo: repo.to_string(),
+            repository: repository.clone(),
         })
     }
 
-    /// A request to `path` (relative to `https://api.github.com`)
+    /// A request to `path` (relative to the REST API's base, e.g.
+    /// `https://api.github.com`)
     pub fn request(
         &self,
         method: Method,
@@ -136,7 +138,10 @@ impl Api {
         path: &str,
         body: Option<&Value>,
     ) -> Result<Response> {
-        let mut path = format!("/repos/{}/{}/{path}", self.owner, self.repo);
+        let mut path = format!(
+            "/repos/{}/{}/{path}",
+            self.repository.owner, self.repository.name
+        );
         if path.ends_with('/') {
             // The repository itself
             path.pop();
@@ -330,7 +335,7 @@ impl Api {
             Method::GET,
             &format!(
                 "/repos/{}/{}/stacks?pull_request={number}",
-                self.owner, self.repo
+                self.repository.owner, self.repository.name
             ),
             None,
             Some(STACKS_API_VERSION),
@@ -352,7 +357,7 @@ impl Api {
             Method::POST,
             &format!(
                 "/repos/{}/{}/stacks/{stack_number}/unstack",
-                self.owner, self.repo
+                self.repository.owner, self.repository.name
             ),
             None,
             Some(STACKS_API_VERSION),

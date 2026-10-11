@@ -17,18 +17,21 @@ pub const PATCH: Scenario = Scenario {
     name: "patch",
     description: "spr patch checks out a Pull Request (with --spr-id)",
     run: patch,
+    only_on_github_com: None,
 };
 
 pub const AMEND: Scenario = Scenario {
     name: "amend",
     description: "spr amend takes the title from GitHub; spr list shows it",
     run: amend,
+    only_on_github_com: None,
 };
 
 pub const DRY_RUN: Scenario = Scenario {
     name: "dry-run",
     description: "spr diff --dry-run creates nothing",
     run: dry_run,
+    only_on_github_com: None,
 };
 
 fn patch(ctx: &Ctx) -> Result<()> {

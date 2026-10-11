@@ -2,7 +2,7 @@
 
 use std::collections::BTreeSet;
 
-use color_eyre::eyre::{Result, bail};
+use color_eyre::eyre::{Result, eyre};
 
 /// Replace every occurrence of `secret` in `text`, so tokens never end up in
 /// output or error messages
@@ -13,19 +13,108 @@ pub fn mask(text: &str, secret: &str) -> String {
     text.replace(secret, "<token>")
 }
 
-/// Split `OWNER/REPO`
-pub fn parse_repo(repo: &str) -> Result<(String, String)> {
-    let valid = |part: &str| {
-        !part.is_empty()
-            && part
-                .chars()
-                .all(|c| c.is_ascii_alphanumeric() || "-_.".contains(c))
-    };
-    match repo.split_once('/') {
-        Some((owner, name)) if valid(owner) && valid(name) => {
-            Ok((owner.to_string(), name.to_string()))
+/// The test repository, on github.com or a GitHub Enterprise host
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Repo {
+    /// The host in lower case, e.g. `github.com`
+    pub host: String,
+    pub owner: String,
+    pub name: String,
+}
+
+impl Repo {
+    /// The repository as given on the command line: `OWNER/REPO` on
+    /// github.com, or in spr's notation `github:OWNER/REPO`, or
+    /// `github://HOST/OWNER/REPO` on another host (GitHub Enterprise)
+    pub fn parse(text: &str) -> Result<Self> {
+        let usage = || {
+            eyre!(
+                "The repository must be given as OWNER/REPO (on github.com) \
+                 or github://HOST/OWNER/REPO, not {text:?}"
+            )
+        };
+        let (host, path) = match text.strip_prefix("github:") {
+            Some(rest) => match rest.strip_prefix("//") {
+                Some(rest) => {
+                    let (host, path) =
+                        rest.split_once('/').ok_or_else(usage)?;
+                    (host.to_ascii_lowercase(), path)
+                }
+                None => ("github.com".to_string(), rest),
+            },
+            None => ("github.com".to_string(), text),
+        };
+        let valid = |part: &str| {
+            !part.is_empty()
+                && part
+                    .chars()
+                    .all(|c| c.is_ascii_alphanumeric() || "-_.".contains(c))
+        };
+        let valid_host = valid(&host.replace(':', ""));
+        match path.split_once('/') {
+            Some((owner, name))
+                if valid_host && valid(owner) && valid(name) =>
+            {
+                Ok(Repo {
+                    host,
+                    owner: owner.to_string(),
+                    name: name.to_string(),
+                })
+            }
+            _ => Err(usage()),
         }
-        _ => bail!("The repository must be given as OWNER/REPO, not {repo:?}"),
+    }
+
+    pub fn is_github_com(&self) -> bool {
+        self.host == "github.com"
+    }
+
+    /// The repository in spr's notation, e.g. `github:OWNER/REPO`
+    pub fn notation(&self) -> String {
+        if self.is_github_com() {
+            format!("github:{}/{}", self.owner, self.name)
+        } else {
+            format!("github://{}/{}/{}", self.host, self.owner, self.name)
+        }
+    }
+
+    /// The address of the repository, also the base of its Git URL
+    pub fn web_url(&self) -> String {
+        format!("https://{}/{}/{}", self.host, self.owner, self.name)
+    }
+
+    /// The base address of the REST API: github.com, GitHub Enterprise
+    /// Cloud with data residency (`*.ghe.com`), or else GitHub Enterprise
+    /// Server
+    pub fn api_url(&self) -> String {
+        if self.is_github_com() {
+            "https://api.github.com".to_string()
+        } else if self.host.ends_with(".ghe.com") {
+            format!("https://api.{}", self.host)
+        } else {
+            format!("https://{}/api/v3", self.host)
+        }
+    }
+
+    /// The subsection of spr's Git configuration with the token for the
+    /// host (`spr.auth.github[.HOST].token`)
+    pub fn token_subsection(&self) -> String {
+        if self.is_github_com() {
+            "auth.github".to_string()
+        } else {
+            format!("auth.github.{}", self.host)
+        }
+    }
+
+    /// The Git configuration key of spr's token for the host
+    pub fn token_key(&self) -> String {
+        format!("spr.{}.token", self.token_subsection())
+    }
+}
+
+impl std::fmt::Display for Repo {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.notation())
     }
 }
 
@@ -119,13 +208,46 @@ mod tests {
     }
 
     #[test]
-    fn test_parse_repo() {
+    fn test_repo() {
+        let repo = Repo::parse("spacedentist/spr-test").unwrap();
         assert_eq!(
-            parse_repo("spacedentist/spr-test").unwrap(),
-            ("spacedentist".into(), "spr-test".into())
+            repo,
+            Repo {
+                host: "github.com".into(),
+                owner: "spacedentist".into(),
+                name: "spr-test".into(),
+            }
         );
-        for bad in ["spr-test", "a/b/c", "/b", "a/", "a b/c"] {
-            assert!(parse_repo(bad).is_err(), "{bad}");
+        assert_eq!(repo.notation(), "github:spacedentist/spr-test");
+        assert_eq!(repo.web_url(), "https://github.com/spacedentist/spr-test");
+        assert_eq!(repo.api_url(), "https://api.github.com");
+        assert_eq!(repo.token_key(), "spr.auth.github.token");
+        assert_eq!(Repo::parse("github:spacedentist/spr-test").unwrap(), repo);
+
+        let repo =
+            Repo::parse("github://GHE.example.com:8443/acme/test").unwrap();
+        assert_eq!(repo.notation(), "github://ghe.example.com:8443/acme/test");
+        assert_eq!(repo.web_url(), "https://ghe.example.com:8443/acme/test");
+        assert_eq!(repo.api_url(), "https://ghe.example.com:8443/api/v3");
+        assert_eq!(
+            repo.token_key(),
+            "spr.auth.github.ghe.example.com:8443.token"
+        );
+
+        let repo = Repo::parse("github://acme.ghe.com/acme/test").unwrap();
+        assert_eq!(repo.api_url(), "https://api.acme.ghe.com");
+
+        for bad in [
+            "spr-test",
+            "a/b/c",
+            "/b",
+            "a/",
+            "a b/c",
+            "github://host",
+            "github:///a/b",
+            "gitlab:a/b",
+        ] {
+            assert!(Repo::parse(bad).is_err(), "{bad}");
         }
     }
 

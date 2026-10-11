@@ -11,24 +11,28 @@ pub const REMOTE_CHANGES: Scenario = Scenario {
     name: "remote-changes",
     description: "spr diff stops on changes others pushed; --force overwrites",
     run: remote_changes,
+    only_on_github_com: None,
 };
 
 pub const PULL: Scenario = Scenario {
     name: "pull",
     description: "spr pull applies changes others pushed",
     run: pull,
+    only_on_github_com: None,
 };
 
 pub const PULL_CONFLICT: Scenario = Scenario {
     name: "pull-conflict",
     description: "spr pull with conflicts: the cherry-pick route it explains",
     run: pull_conflict,
+    only_on_github_com: None,
 };
 
 pub const UPDATE_BRANCH: Scenario = Scenario {
     name: "update-branch",
     description: "after GitHub's \"Update branch\": rebase first",
     run: update_branch,
+    only_on_github_com: None,
 };
 
 /// A file with a few lines, to change them independently

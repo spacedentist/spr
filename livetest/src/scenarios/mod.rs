@@ -17,6 +17,7 @@ use crate::{
     env::TestEnv,
     log::{short, step, title},
     run::Run,
+    util::Repo,
 };
 
 /// A live test
@@ -24,6 +25,17 @@ pub struct Scenario {
     pub name: &'static str,
     pub description: &'static str,
     pub run: fn(&Ctx) -> Result<()>,
+    /// Why the test only works on github.com, if it does
+    pub only_on_github_com: Option<&'static str>,
+}
+
+impl Scenario {
+    /// Why the scenario can't run in the test repository, if it can't
+    pub fn unsupported(&self, repository: &Repo) -> Option<String> {
+        let reason = self.only_on_github_com?;
+        (!repository.is_github_com())
+            .then(|| format!("only on github.com: {reason}"))
+    }
 }
 
 /// All scenarios, in the order they run
@@ -291,9 +303,12 @@ pub fn check_eq<T: PartialEq + std::fmt::Debug>(
     }
 }
 
-/// Check that the output of a command contains the text
+/// Check that the output of a command contains the text, also if it's
+/// wrapped across lines there (spr wraps its messages)
 pub fn check_output(output: &str, text: &str) -> Result<()> {
-    if output.contains(text) {
+    let words =
+        |text: &str| text.split_whitespace().collect::<Vec<_>>().join(" ");
+    if words(output).contains(&words(text)) {
         step(format!("✓ the output says {text:?}"));
         Ok(())
     } else {

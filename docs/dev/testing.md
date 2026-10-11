@@ -60,6 +60,17 @@ cargo run -p spr-livetest -- --help
 
 They build and test spr from your working copy. To test another spr binary, e.g. a release, pass `--spr PATH`.
 
+### On GitHub Enterprise
+
+For a test repository on GitHub Enterprise, give it with its host, and a token for that host:
+
+```shell
+export SPR_GITHUB_LIVETEST_TOKEN=$(gh auth token --hostname ghe.example.com)
+cargo run -p spr-livetest -- --repo github://ghe.example.com/OWNER/REPO live
+```
+
+The tests then talk to that host's API, clone from it, and configure spr for it (`spr.target`, `spr.auth.github.HOST.token`). Tests of what only github.com has are skipped, with the reason: GitHub's stacked pull requests (`stack-github`), and the options from before spr supported other hosts (`old-config`).
+
 ### What they do in the repository
 
 Each run gets an ID (e.g. `20261008-153012-1a2b`), and works on branches of its own:
@@ -77,7 +88,7 @@ Cleanup only ever touches branches and pull requests of test runs.
 
 ### The controlled environment
 
-Your own Git configuration must not influence the tests (e.g. a `spr.githubAuthToken` in your global configuration). So each test runs spr in a fresh clone, in a temporary directory with a home directory of its own, and with a cleared environment. Before each test, it checks that spr sees no `spr.*` setting from outside that clone. The token never appears on a command line or in the output.
+Your own Git configuration must not influence the tests (e.g. a `spr.auth.github.token` in your global configuration). So each test runs spr in a fresh clone, in a temporary directory with a home directory of its own, and with a cleared environment. Before each test, it checks that spr sees no `spr.*` setting from outside that clone. The token never appears on a command line or in the output.
 
 ## Manual tests
 
@@ -87,7 +98,7 @@ Some things need a person: logging in with GitHub in a web browser, and checking
 cargo run -p spr-livetest -- --repo OWNER/REPO manual init
 ```
 
-`manual init` runs `spr init` in a fresh clone without any spr settings, so it starts with logging in. It explains beforehand what you need to do and what to look out for. Afterwards, it checks what it can on its own (the settings `spr init` wrote, and that the new token works and has exactly the scopes spr asks for), asks you about what only you could see (the permissions GitHub's authorisation page listed), tries some variants without your help (a configured token is kept, a broken one replaced, logging in without a browser), and prints a report.
+`manual init` runs `spr init` in a fresh clone without any spr settings, so it starts with logging in (on GitHub Enterprise: with asking for a token). It explains beforehand what you need to do and what to look out for. Afterwards, it checks what it can on its own (the settings `spr init` wrote, and that the new token works and has the scopes spr asks for), asks you about what only you could see (the permissions GitHub's authorisation page listed), tries some variants without your help, and prints a report. The variants run `spr init` in a pseudo-terminal and answer its questions: a configured token is kept, a broken one replaced (by logging in without a browser, and by pasting a token), and `spr.githubAuthToken` replaced by `spr.auth.github.token`.
 
 It needs the token like the live tests (for cloning the repository and its checks), but doesn't change anything in the repository, so it doesn't require the `.spr-livetest` file.
 

@@ -5,6 +5,8 @@ use std::time::Duration;
 pub enum Outcome {
     Passed,
     Failed(String),
+    /// Not run, for the given reason
+    Skipped(String),
 }
 
 pub struct Report {
@@ -23,6 +25,7 @@ impl Report {
             Outcome::Passed => {
                 println!("  ✅ {name} ({}s)", duration.as_secs())
             }
+            Outcome::Skipped(reason) => println!("  ⏭️  {name}: {reason}"),
             Outcome::Failed(message) => {
                 println!("  ❌ {name} ({}s)", duration.as_secs());
                 for line in message.lines() {
@@ -44,12 +47,22 @@ impl Report {
     /// Print the summary. Returns whether everything passed.
     pub fn print_summary(&self) -> bool {
         let failed = self.failed();
-        let total = self.results.len();
+        let skipped = self
+            .results
+            .iter()
+            .filter(|(_, outcome, _)| matches!(outcome, Outcome::Skipped(_)))
+            .count();
+        let total = self.results.len() - skipped;
         println!();
         if failed == 0 {
             match total {
                 1 => println!("The test passed."),
                 _ => println!("All {total} tests passed."),
+            }
+            match skipped {
+                0 => {}
+                1 => println!("1 test was skipped."),
+                _ => println!("{skipped} tests were skipped."),
             }
         } else {
             println!("{failed} of {total} tests failed:");

@@ -11,12 +11,14 @@ pub const TARGET: Scenario = Scenario {
     description: "a stack for another branch (--target, Spr-Target), and \
                   landing into it",
     run: target,
+    only_on_github_com: None,
 };
 
 pub const CHERRY_PICK: Scenario = Scenario {
     name: "cherry-pick-targets",
     description: "--cherry-pick commits for different targets in one run",
     run: cherry_pick_targets,
+    only_on_github_com: None,
 };
 
 /// Create another target branch for the test (e.g. a release branch), at
@@ -33,7 +35,7 @@ fn create_other_target(ctx: &Ctx, name: &str) -> Result<String> {
 
 /// The full notation of a target branch in the test repository
 fn full_target(ctx: &Ctx, branch: &str) -> String {
-    format!("github:{}/{}:{branch}", ctx.api.owner, ctx.api.repo)
+    format!("{}:{branch}", ctx.api.repository.notation())
 }
 
 fn target(ctx: &Ctx) -> Result<()> {
