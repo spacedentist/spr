@@ -211,7 +211,7 @@ pub async fn land(
             gh.remote()
                 .push_to_remote(&[PushSpec {
                     oid: Some(pr_head_oid),
-                    remote_ref: pull_request.head.on_github(),
+                    remote_ref: pull_request.head.ref_name(),
                 }])
                 .wrap_err("git push failed")?;
         }
@@ -402,7 +402,7 @@ pub async fn land(
     if delete_head_branch {
         push_specs.push(PushSpec {
             oid: None,
-            remote_ref: pull_request.head.on_github(),
+            remote_ref: pull_request.head.ref_name(),
         });
     }
 
@@ -412,7 +412,7 @@ pub async fn land(
     if config.is_spr_base_branch(&pull_request.base) {
         push_specs.push(PushSpec {
             oid: None,
-            remote_ref: pull_request.base.on_github(),
+            remote_ref: pull_request.base.ref_name(),
         });
     }
 
@@ -644,7 +644,7 @@ async fn land_stack(
             .iter()
             .map(|pr| PushSpec {
                 oid: None,
-                remote_ref: pr.head.on_github(),
+                remote_ref: pr.head.ref_name(),
             })
             .collect();
         // GitHub may have deleted the branches already, if the repository is

@@ -6,14 +6,13 @@
 
 use std::collections::HashMap;
 
-use color_eyre::eyre::{Result, bail};
+use color_eyre::eyre::{Result, bail, eyre};
 use serde::Deserialize;
 
 use crate::{
     config::{Config, MergeMethod},
     git::{Git, PreparedCommit},
     git_remote::GitRemote,
-    github::GitHubBranch,
     message::CommitMessage,
 };
 
@@ -24,8 +23,8 @@ pub struct PullRequest {
     pub title: String,
     pub body: Option<String>,
     pub message: CommitMessage,
-    pub base: GitHubBranch,
-    pub head: GitHubBranch,
+    pub base: Branch,
+    pub head: Branch,
     pub base_oid: git2::Oid,
     pub head_oid: git2::Oid,
     pub merge_commit: Option<git2::Oid>,
@@ -183,10 +182,63 @@ pub struct PullRequestRefs {
 
 #[derive(Debug, Clone)]
 pub struct PullRequestMergeability {
-    pub base: GitHubBranch,
+    pub base: Branch,
     pub head_oid: git2::Oid,
     pub mergeable: Option<bool>,
     pub merge_commit: Option<git2::Oid>,
+}
+
+/// A branch in the repository on the forge
+#[derive(Debug, Clone)]
+pub struct Branch {
+    ref_name: String,
+    is_master_branch: bool,
+}
+
+impl Branch {
+    pub fn new_from_ref(name: &str, master_branch_name: &str) -> Result<Self> {
+        let ref_name = if name.starts_with("refs/heads/") {
+            name.to_string()
+        } else if name.starts_with("refs/") {
+            return Err(eyre!("Ref '{name}' does not refer to a branch"));
+        } else {
+            format!("refs/heads/{name}")
+        };
+
+        // The branch name is `ref_name` with the `refs/heads/` prefix
+        // (length 11) removed
+        let branch_name = &ref_name[11..];
+        let is_master_branch = branch_name == master_branch_name;
+
+        Ok(Self {
+            ref_name,
+            is_master_branch,
+        })
+    }
+
+    pub fn new_from_branch_name(
+        branch_name: &str,
+        master_branch_name: &str,
+    ) -> Self {
+        Self {
+            ref_name: format!("refs/heads/{branch_name}"),
+            is_master_branch: branch_name == master_branch_name,
+        }
+    }
+
+    pub fn ref_name(&self) -> &str {
+        &self.ref_name
+    }
+
+    pub fn is_master_branch(&self) -> bool {
+        self.is_master_branch
+    }
+
+    pub fn branch_name(&self) -> &str {
+        // The branch name is `ref_name` with the `refs/heads/` prefix
+        // (length 11) removed
+        &self.ref_name[11..]
+    }
 }
 
 /// The operations spr needs from a forge, for the repository of the
@@ -241,7 +293,7 @@ pub trait Forge: Clone + 'static {
     /// The numbers of the open Pull Requests whose base is the given branch
     async fn list_pull_requests_with_base(
         &self,
-        branch: &GitHubBranch,
+        branch: &Branch,
     ) -> Result<Vec<u64>>;
 
     /// Create a Pull Request, returning its number
@@ -285,8 +337,8 @@ pub trait Forge: Clone + 'static {
     /// gets deleted (or base them on another branch than spr would).
     async fn retarget_pull_requests(
         &self,
-        from_branch: &GitHubBranch,
-        to_branch: &GitHubBranch,
+        from_branch: &Branch,
+        to_branch: &Branch,
     ) -> Result<Vec<u64>> {
         let mut numbers = Vec::new();
         for number in self.list_pull_requests_with_base(from_branch).await? {
@@ -394,6 +446,73 @@ pub trait Forge: Clone + 'static {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn test_new_from_ref_with_branch_name() {
+        let r = Branch::new_from_ref("foo", "masterbranch").unwrap();
+        assert_eq!(r.ref_name(), "refs/heads/foo");
+        assert_eq!(r.branch_name(), "foo");
+        assert!(!r.is_master_branch());
+    }
+
+    #[test]
+    fn test_new_from_ref_with_master_branch_name() {
+        let r = Branch::new_from_ref("masterbranch", "masterbranch").unwrap();
+        assert_eq!(r.ref_name(), "refs/heads/masterbranch");
+        assert_eq!(r.branch_name(), "masterbranch");
+        assert!(r.is_master_branch());
+    }
+
+    #[test]
+    fn test_new_from_ref_with_ref_name() {
+        let r = Branch::new_from_ref("refs/heads/foo", "masterbranch").unwrap();
+        assert_eq!(r.ref_name(), "refs/heads/foo");
+        assert_eq!(r.branch_name(), "foo");
+        assert!(!r.is_master_branch());
+    }
+
+    #[test]
+    fn test_new_from_ref_with_master_ref_name() {
+        let r = Branch::new_from_ref("refs/heads/masterbranch", "masterbranch")
+            .unwrap();
+        assert_eq!(r.ref_name(), "refs/heads/masterbranch");
+        assert_eq!(r.branch_name(), "masterbranch");
+        assert!(r.is_master_branch());
+    }
+
+    #[test]
+    fn test_new_from_branch_name() {
+        let r = Branch::new_from_branch_name("foo", "masterbranch");
+        assert_eq!(r.ref_name(), "refs/heads/foo");
+        assert_eq!(r.branch_name(), "foo");
+        assert!(!r.is_master_branch());
+    }
+
+    #[test]
+    fn test_new_from_master_branch_name() {
+        let r = Branch::new_from_branch_name("masterbranch", "masterbranch");
+        assert_eq!(r.ref_name(), "refs/heads/masterbranch");
+        assert_eq!(r.branch_name(), "masterbranch");
+        assert!(r.is_master_branch());
+    }
+
+    #[test]
+    fn test_new_from_ref_with_edge_case_ref_name() {
+        let r =
+            Branch::new_from_ref("refs/heads/refs/heads/foo", "masterbranch")
+                .unwrap();
+        assert_eq!(r.ref_name(), "refs/heads/refs/heads/foo");
+        assert_eq!(r.branch_name(), "refs/heads/foo");
+        assert!(!r.is_master_branch());
+    }
+
+    #[test]
+    fn test_new_from_edge_case_branch_name() {
+        let r = Branch::new_from_branch_name("refs/heads/foo", "masterbranch");
+        assert_eq!(r.ref_name(), "refs/heads/refs/heads/foo");
+        assert_eq!(r.branch_name(), "refs/heads/foo");
+        assert!(!r.is_master_branch());
+    }
 
     #[test]
     fn test_review_status_from_reviews() {

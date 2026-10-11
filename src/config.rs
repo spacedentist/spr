@@ -1,6 +1,6 @@
 use color_eyre::eyre::{Result, WrapErr as _, bail};
 
-use crate::github::GitHubBranch;
+use crate::forge::Branch;
 use crate::target::{ForgeKind, Repository, Target};
 
 #[derive(Clone)]
@@ -11,7 +11,7 @@ pub struct Config {
     /// spr only supports GitHub)
     pub owner: String,
     pub repo: String,
-    pub master_ref: GitHubBranch,
+    pub master_ref: Branch,
     pub branch_prefix: String,
     pub auth_token: String,
     pub require_approval: bool,
@@ -174,10 +174,8 @@ impl Config {
             .expect("GitHub repository paths are OWNER/REPO");
         let (owner, repo) = (owner.to_string(), repo.to_string());
 
-        let master_ref = GitHubBranch::new_from_branch_name(
-            target.branch(),
-            target.branch(),
-        );
+        let master_ref =
+            Branch::new_from_branch_name(target.branch(), target.branch());
         Ok(Self {
             target,
             owner,
@@ -229,11 +227,8 @@ impl Config {
         None
     }
 
-    pub fn new_github_branch_from_ref(
-        &self,
-        ghref: &str,
-    ) -> Result<GitHubBranch> {
-        GitHubBranch::new_from_ref(ghref, self.master_ref.branch_name())
+    pub fn new_branch_from_ref(&self, name: &str) -> Result<Branch> {
+        Branch::new_from_ref(name, self.master_ref.branch_name())
     }
 
     /// Whether the given branch is a base branch that spr created for a Pull
@@ -243,7 +238,7 @@ impl Config {
     /// Base branch names are the branch prefix, followed by the master branch
     /// name, a dot, and a slug of the commit title. Pull Request branch names
     /// never contain a dot after the prefix, as slugs don't contain dots.
-    pub fn is_spr_base_branch(&self, branch: &GitHubBranch) -> bool {
+    pub fn is_spr_base_branch(&self, branch: &Branch) -> bool {
         branch
             .branch_name()
             .strip_prefix(&self.branch_prefix)
@@ -251,11 +246,8 @@ impl Config {
             .is_some_and(|rest| rest.starts_with('.'))
     }
 
-    pub fn new_github_branch(&self, branch_name: &str) -> GitHubBranch {
-        GitHubBranch::new_from_branch_name(
-            branch_name,
-            self.master_ref.branch_name(),
-        )
+    pub fn new_branch(&self, branch_name: &str) -> Branch {
+        Branch::new_from_branch_name(branch_name, self.master_ref.branch_name())
     }
 }
 
@@ -523,9 +515,8 @@ mod tests {
     fn test_is_spr_base_branch() {
         let config = config_factory();
 
-        let is_base = |name: &str| {
-            config.is_spr_base_branch(&config.new_github_branch(name))
-        };
+        let is_base =
+            |name: &str| config.is_spr_base_branch(&config.new_branch(name));
 
         assert!(is_base("spr/foo/master.fix-the-bug"));
         assert!(is_base("spr/foo/master.fix-the-bug-1"));

@@ -8,7 +8,7 @@ use serde::Deserialize;
 use crate::{
     config::{Config, MergeMethod},
     forge::{
-        AsyncMergeStatus, Forge, OpenPullRequest, PullRequest,
+        AsyncMergeStatus, Branch, Forge, OpenPullRequest, PullRequest,
         PullRequestMergeability, PullRequestRefs, PullRequestRequestReviewers,
         PullRequestStack, PullRequestState, PullRequestUpdate, ReviewStatus,
         Team, User, review_status_from_reviews,
@@ -204,8 +204,8 @@ impl Forge for GitHub {
             .pull_request
             .ok_or_else(|| eyre!("failed to find PR"))?;
 
-        let base = config.new_github_branch_from_ref(&pr.base_ref_name)?;
-        let head = config.new_github_branch_from_ref(&pr.head_ref_name)?;
+        let base = config.new_branch_from_ref(&pr.base_ref_name)?;
+        let head = config.new_branch_from_ref(&pr.head_ref_name)?;
 
         let branch_names: Vec<_> =
             [&base, &head].iter().map(|&b| b.branch_name()).collect();
@@ -216,12 +216,10 @@ impl Forge for GitHub {
             unreachable!();
         };
 
-        let base_oid = base_oid.ok_or_else(|| {
-            eyre!("{} not found on GitHub", &base.ref_on_github)
-        })?;
-        let head_oid = head_oid.ok_or_else(|| {
-            eyre!("{} not found on GitHub", &head.ref_on_github)
-        })?;
+        let base_oid = base_oid
+            .ok_or_else(|| eyre!("{} not found on GitHub", base.ref_name()))?;
+        let head_oid = head_oid
+            .ok_or_else(|| eyre!("{} not found on GitHub", head.ref_name()))?;
 
         // Titles and descriptions edited on GitHub can have surrounding
         // whitespace, and descriptions edited in the web interface have
@@ -380,7 +378,7 @@ impl Forge for GitHub {
             .ok_or_else(|| eyre!("failed to find PR"))?;
 
         Ok::<_, Error>(PullRequestMergeability {
-            base: self.config.new_github_branch_from_ref(&pr.base_ref_name)?,
+            base: self.config.new_branch_from_ref(&pr.base_ref_name)?,
             head_oid: git2::Oid::from_str(&pr.head_ref_oid)?,
             mergeable: match pr.mergeable {
                 pull_request_mergeability_query::MergeableState::CONFLICTING => Some(false),
@@ -463,7 +461,7 @@ impl Forge for GitHub {
 
     async fn list_pull_requests_with_base(
         &self,
-        branch: &GitHubBranch,
+        branch: &Branch,
     ) -> Result<Vec<u64>> {
         let pulls = self
             .octocrab
@@ -683,140 +681,10 @@ impl Forge for GitHub {
     }
 }
 
-#[derive(Debug, Clone)]
-pub struct GitHubBranch {
-    ref_on_github: String,
-    is_master_branch: bool,
-}
-
-impl GitHubBranch {
-    pub fn new_from_ref(ghref: &str, master_branch_name: &str) -> Result<Self> {
-        let ref_on_github = if ghref.starts_with("refs/heads/") {
-            ghref.to_string()
-        } else if ghref.starts_with("refs/") {
-            return Err(eyre!("Ref '{ghref}' does not refer to a branch"));
-        } else {
-            format!("refs/heads/{ghref}")
-        };
-
-        // The branch name is `ref_on_github` with the `refs/heads/` prefix
-        // (length 11) removed
-        let branch_name = &ref_on_github[11..];
-        let is_master_branch = branch_name == master_branch_name;
-
-        Ok(Self {
-            ref_on_github,
-            is_master_branch,
-        })
-    }
-
-    pub fn new_from_branch_name(
-        branch_name: &str,
-        master_branch_name: &str,
-    ) -> Self {
-        Self {
-            ref_on_github: format!("refs/heads/{branch_name}"),
-            is_master_branch: branch_name == master_branch_name,
-        }
-    }
-
-    pub fn on_github(&self) -> &str {
-        &self.ref_on_github
-    }
-
-    pub fn is_master_branch(&self) -> bool {
-        self.is_master_branch
-    }
-
-    pub fn branch_name(&self) -> &str {
-        // The branch name is `ref_on_github` with the `refs/heads/` prefix
-        // (length 11) removed
-        &self.ref_on_github[11..]
-    }
-}
-
 #[cfg(test)]
 mod tests {
     // Note this useful idiom: importing names from outer (for mod tests) scope.
     use super::*;
-
-    #[test]
-    fn test_new_from_ref_with_branch_name() {
-        let r = GitHubBranch::new_from_ref("foo", "masterbranch").unwrap();
-        assert_eq!(r.on_github(), "refs/heads/foo");
-        assert_eq!(r.branch_name(), "foo");
-        assert!(!r.is_master_branch());
-    }
-
-    #[test]
-    fn test_new_from_ref_with_master_branch_name() {
-        let r =
-            GitHubBranch::new_from_ref("masterbranch", "masterbranch").unwrap();
-        assert_eq!(r.on_github(), "refs/heads/masterbranch");
-        assert_eq!(r.branch_name(), "masterbranch");
-        assert!(r.is_master_branch());
-    }
-
-    #[test]
-    fn test_new_from_ref_with_ref_name() {
-        let r = GitHubBranch::new_from_ref("refs/heads/foo", "masterbranch")
-            .unwrap();
-        assert_eq!(r.on_github(), "refs/heads/foo");
-        assert_eq!(r.branch_name(), "foo");
-        assert!(!r.is_master_branch());
-    }
-
-    #[test]
-    fn test_new_from_ref_with_master_ref_name() {
-        let r = GitHubBranch::new_from_ref(
-            "refs/heads/masterbranch",
-            "masterbranch",
-        )
-        .unwrap();
-        assert_eq!(r.on_github(), "refs/heads/masterbranch");
-        assert_eq!(r.branch_name(), "masterbranch");
-        assert!(r.is_master_branch());
-    }
-
-    #[test]
-    fn test_new_from_branch_name() {
-        let r = GitHubBranch::new_from_branch_name("foo", "masterbranch");
-        assert_eq!(r.on_github(), "refs/heads/foo");
-        assert_eq!(r.branch_name(), "foo");
-        assert!(!r.is_master_branch());
-    }
-
-    #[test]
-    fn test_new_from_master_branch_name() {
-        let r =
-            GitHubBranch::new_from_branch_name("masterbranch", "masterbranch");
-        assert_eq!(r.on_github(), "refs/heads/masterbranch");
-        assert_eq!(r.branch_name(), "masterbranch");
-        assert!(r.is_master_branch());
-    }
-
-    #[test]
-    fn test_new_from_ref_with_edge_case_ref_name() {
-        let r = GitHubBranch::new_from_ref(
-            "refs/heads/refs/heads/foo",
-            "masterbranch",
-        )
-        .unwrap();
-        assert_eq!(r.on_github(), "refs/heads/refs/heads/foo");
-        assert_eq!(r.branch_name(), "refs/heads/foo");
-        assert!(!r.is_master_branch());
-    }
-
-    #[test]
-    fn test_new_from_edge_case_branch_name() {
-        let r = GitHubBranch::new_from_branch_name(
-            "refs/heads/foo",
-            "masterbranch",
-        );
-        assert_eq!(r.on_github(), "refs/heads/refs/heads/foo");
-        assert_eq!(r.branch_name(), "refs/heads/foo");
-        assert!(!r.is_master_branch());
-    }
 
     #[test]
     fn test_normalize_body() {

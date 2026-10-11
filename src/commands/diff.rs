@@ -6,12 +6,11 @@ use color_eyre::eyre::{Error, Result, WrapErr as _, bail, eyre};
 use crate::{
     config::StackingMode,
     forge::{
-        Forge, PullRequest, PullRequestRequestReviewers, PullRequestStack,
-        PullRequestState, PullRequestUpdate,
+        Branch, Forge, PullRequest, PullRequestRequestReviewers,
+        PullRequestStack, PullRequestState, PullRequestUpdate,
     },
     git::PreparedCommit,
     git_remote::PushSpec,
-    github::GitHubBranch,
     output::{output, write_commit_title},
     pr_commits::{
         self, BaseOutdated, CommitInfo, Conflict, HeadMoved, Plan,
@@ -341,8 +340,8 @@ fn describe_dry_run(
     config: &crate::config::Config,
     message: &crate::message::CommitMessage,
     pull_request: Option<&PullRequest>,
-    pull_request_branch: &GitHubBranch,
-    base_branch: Option<&GitHubBranch>,
+    pull_request_branch: &Branch,
+    base_branch: Option<&Branch>,
     plan: &Plan,
     needs_new_base_branch: bool,
     keeps_base: bool,
@@ -730,15 +729,14 @@ async fn diff_impl(
 
     let title = message.title();
 
-    let pull_request_branch = match &pull_request {
-        Some(pr) => pr.head.clone(),
-        None => {
-            config.new_github_branch(&gh.remote().find_unused_branch_name(
+    let pull_request_branch =
+        match &pull_request {
+            Some(pr) => pr.head.clone(),
+            None => config.new_branch(&gh.remote().find_unused_branch_name(
                 &config.branch_prefix,
                 &slugify(title),
-            )?)
-        }
-    };
+            )?),
+        };
 
     // Determine what the Pull Request should be based on: the branch (if it's
     // not the master branch), the commit it's currently based on, and whether
@@ -756,7 +754,7 @@ async fn diff_impl(
     //   below if necessary. It's based on what the Pull Request is currently
     //   based on (a master commit, or the head of another Pull Request it
     //   was stacked on before).
-    let is_stacked_base = |branch: &GitHubBranch| {
+    let is_stacked_base = |branch: &Branch| {
         !branch.is_master_branch()
             && !config.is_spr_base_branch(branch)
             && branch.branch_name().starts_with(&config.branch_prefix)
@@ -862,16 +860,10 @@ async fn diff_impl(
         && (plan.new_base_parents.is_some()
             || !git.is_ancestor(base, master_base_oid)?);
     let base_branch = if needs_new_base_branch {
-        Some(
-            config.new_github_branch(&gh.remote().find_unused_branch_name(
-                &config.branch_prefix,
-                &format!(
-                    "{}.{}",
-                    config.master_ref.branch_name(),
-                    slugify(title)
-                ),
-            )?),
-        )
+        Some(config.new_branch(&gh.remote().find_unused_branch_name(
+            &config.branch_prefix,
+            &format!("{}.{}", config.master_ref.branch_name(), slugify(title)),
+        )?))
     } else {
         base_branch
     };
@@ -1026,7 +1018,7 @@ async fn diff_impl(
     if pull_request.is_none() || new_commits.head != commits.head {
         push_specs.push(PushSpec {
             oid: Some(new_commits.head),
-            remote_ref: pull_request_branch.on_github(),
+            remote_ref: pull_request_branch.ref_name(),
         });
     }
 
@@ -1037,7 +1029,7 @@ async fn diff_impl(
     {
         push_specs.push(PushSpec {
             oid: Some(new_commits.base),
-            remote_ref: base_branch.on_github(),
+            remote_ref: base_branch.ref_name(),
         });
     }
 
@@ -1275,8 +1267,8 @@ fn record_expected_head(
 fn base_changed(
     gh: &impl Forge,
     config: &crate::config::Config,
-    old_base: &GitHubBranch,
-    new_base: &GitHubBranch,
+    old_base: &Branch,
+    new_base: &Branch,
     stacked_on: Option<u64>,
 ) -> Result<()> {
     let description = if let Some(number) = stacked_on {
@@ -1303,7 +1295,7 @@ fn base_changed(
 
     let result = gh.remote().push_to_remote(&[PushSpec {
         oid: None,
-        remote_ref: old_base.on_github(),
+        remote_ref: old_base.ref_name(),
     }]);
     if let Err(error) = result {
         // The Pull Request is in the right state already, so this is not an

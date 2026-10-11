@@ -148,7 +148,7 @@ async fn close_impl(
 
     let mut push_specs = vec![PushSpec {
         oid: None,
-        remote_ref: pull_request.head.on_github(),
+        remote_ref: pull_request.head.ref_name(),
     }];
 
     // Delete the base branch too, if spr created it for this Pull Request. If
@@ -157,7 +157,7 @@ async fn close_impl(
     if config.is_spr_base_branch(&pull_request.base) {
         push_specs.push(PushSpec {
             oid: None,
-            remote_ref: pull_request.base.on_github(),
+            remote_ref: pull_request.base.ref_name(),
         });
     }
 
