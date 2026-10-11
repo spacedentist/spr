@@ -6,6 +6,7 @@ use clap::{Parser, Subcommand};
 use color_eyre::eyre::{Error, Result, eyre};
 use log::debug;
 use spr::commands;
+use spr::forge::Forge;
 use spr::target::{ForgeKind, Repository, Target};
 
 #[derive(Parser)]
@@ -207,44 +208,55 @@ pub async fn spr() -> Result<()> {
 
     let git = spr::git::Git::new(repo)?;
 
-    octocrab::initialise(
-        octocrab::Octocrab::builder()
-            .personal_token(github_auth_token.clone())
-            .build()?,
-    );
+    // The forge implementation for the target's kind of forge
+    match config.target.repository().forge() {
+        ForgeKind::GitHub => {
+            let gh = spr::github::GitHub::new(
+                config.clone(),
+                git.clone(),
+                github_auth_token,
+            )?;
+            run(command, &git, gh, &config).await
+        }
+        // `Config::new` refuses targets on other forges (so far)
+        forge => Err(eyre!("{forge} is not supported (yet)")),
+    }
+}
 
-    let mut gh = spr::github::GitHub::new(
-        config.clone(),
-        git.clone(),
-        github_auth_token,
-    );
-
+/// Run a command that works with the forge
+async fn run(
+    command: Commands,
+    git: &spr::git::Git,
+    mut gh: impl Forge,
+    config: &spr::config::Config,
+) -> Result<()> {
+    let gh = &mut gh;
     match command {
         Commands::Diff(opts) => {
-            commands::diff::diff(opts, &git, &mut gh, &config).await?
+            commands::diff::diff(opts, git, gh, config).await?
         }
         Commands::Land(opts) => {
-            commands::land::land(opts, &git, &mut gh, &config).await?
+            commands::land::land(opts, git, gh, config).await?
         }
         Commands::Amend(opts) => {
-            commands::amend::amend(opts, &git, &mut gh, &config).await?
+            commands::amend::amend(opts, git, gh, config).await?
         }
-        Commands::List => commands::list::list(&config).await?,
+        Commands::List => commands::list::list(gh).await?,
         Commands::Patch(opts) => {
-            commands::patch::patch(opts, &git, &mut gh, &config).await?
+            commands::patch::patch(opts, git, gh, config).await?
         }
         Commands::Close(opts) => {
-            commands::close::close(opts, &git, &mut gh, &config).await?
+            commands::close::close(opts, git, gh, config).await?
         }
         Commands::Pull(opts) => {
-            commands::pull::pull(opts, &git, &mut gh, &config).await?
+            commands::pull::pull(opts, git, gh, config).await?
         }
         Commands::Format(opts) => {
-            commands::format::format(opts, &git, &mut gh, &config).await?
+            commands::format::format(opts, git, gh, config).await?
         }
 
-        // The following commands are executed above and return from this
-        // function before it reaches this match.
+        // The following commands are executed in `spr` and return before
+        // they get here.
         Commands::Init | Commands::Plumbing(_) => (),
     };
 

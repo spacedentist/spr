@@ -3,8 +3,8 @@ use git2::Oid;
 use indoc::formatdoc;
 
 use crate::{
+    forge::{Forge, PullRequestState},
     git::PreparedCommit,
-    github::PullRequestState,
     output::{output, write_commit_title},
     pr_commits::merge_trees,
     remote_changes::{PullOutcome, pull_changes},
@@ -30,7 +30,7 @@ pub struct PullOptions {
 pub async fn pull(
     opts: PullOptions,
     git: &crate::git::Git,
-    gh: &mut crate::github::GitHub,
+    gh: &mut impl Forge,
     config: &crate::config::Config,
 ) -> Result<()> {
     if !opts.dry_run {
@@ -181,7 +181,7 @@ struct Context<'a> {
 /// it on pulled changes below) has the tree `tree`
 async fn pull_commit(
     context: &Context<'_>,
-    gh: &mut crate::github::GitHub,
+    gh: &mut impl Forge,
     prepared_commit: &PreparedCommit,
     tree: Oid,
 ) -> Result<Step> {

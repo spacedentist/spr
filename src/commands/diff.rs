@@ -5,12 +5,13 @@ use color_eyre::eyre::{Error, Result, WrapErr as _, bail, eyre};
 
 use crate::{
     config::StackingMode,
+    forge::{
+        Forge, PullRequest, PullRequestRequestReviewers, PullRequestStack,
+        PullRequestState, PullRequestUpdate,
+    },
     git::PreparedCommit,
     git_remote::PushSpec,
-    github::{
-        GitHub, GitHubBranch, PullRequest, PullRequestRequestReviewers,
-        PullRequestStack, PullRequestState, PullRequestUpdate,
-    },
+    github::GitHubBranch,
     output::{output, write_commit_title},
     pr_commits::{
         self, BaseOutdated, CommitInfo, Conflict, HeadMoved, Plan,
@@ -94,7 +95,7 @@ fn get_oids(refs: &str, repo: &git2::Repository) -> Result<HashSet<Oid>> {
 pub async fn diff(
     opts: DiffOptions,
     git: &crate::git::Git,
-    gh: &mut crate::github::GitHub,
+    gh: &mut impl Forge,
     config: &crate::config::Config,
 ) -> Result<()> {
     // Abort right here if the local Git repository is not clean
@@ -311,15 +312,6 @@ pub async fn diff(
     result
 }
 
-/// Whether an error is GitHub reporting that something doesn't exist
-fn is_not_found(error: &Error) -> bool {
-    matches!(
-        error.downcast_ref::<octocrab::Error>(),
-        Some(octocrab::Error::GitHub { source, .. })
-            if source.status_code == http::StatusCode::NOT_FOUND
-    )
-}
-
 /// The message of a new commit on the Pull Request branch: the update
 /// message the user gave, or, for the first commit of a new Pull Request,
 /// the title of the local commit or "[𝘀𝗽𝗿] initial version", depending on
@@ -445,7 +437,7 @@ fn describe_dry_run(
 /// GitHub refuses to change the base of a Pull Request that is part of a
 /// stack. Dissolve the Pull Request's stack, if there is one. (In the
 /// github-stack stacking mode, `spr diff` creates a new stack afterwards.)
-async fn leave_github_stack(gh: &GitHub, number: u64) -> Result<()> {
+async fn leave_github_stack(gh: &impl Forge, number: u64) -> Result<()> {
     // If the stacks API is not available (e.g. on older GitHub Enterprise
     // Server versions), the Pull Request can't be part of a stack either.
     let Ok(Some(stack)) = gh.find_pull_request_stack(number).await else {
@@ -469,7 +461,7 @@ async fn leave_github_stack(gh: &GitHub, number: u64) -> Result<()> {
 /// `pull_request_numbers` are the Pull Requests of the commits of the local
 /// branch, from bottom to top.
 async fn sync_github_stack(
-    gh: &GitHub,
+    gh: &impl Forge,
     config: &crate::config::Config,
     pull_request_numbers: &[Option<u64>],
 ) -> Result<()> {
@@ -569,7 +561,7 @@ async fn diff_impl(
     opts: &DiffOptions,
     message_on_prompt: &mut String,
     git: &crate::git::Git,
-    gh: &mut crate::github::GitHub,
+    gh: &mut impl Forge,
     config: &crate::config::Config,
     local_commit: &mut PreparedCommit,
     master_base_oid: Oid,
@@ -671,19 +663,14 @@ async fn diff_impl(
         for reviewer in reviewers {
             // Teams are indicated with a leading #
             if let Some(slug) = reviewer.strip_prefix('#') {
-                match GitHub::get_github_team(
-                    (&config.owner).into(),
-                    slug.into(),
-                )
-                .await
-                {
-                    Ok(team) => {
+                match gh.get_team(slug).await {
+                    Ok(Some(team)) => {
                         requested_reviewers
                             .team_reviewers
                             .push(team.slug.to_string());
                         checked_reviewers.push(reviewer);
                     }
-                    Err(error) if is_not_found(&error) => {
+                    Ok(None) => {
                         bail!(
                             "Reviewers field contains unknown team '{}'",
                             reviewer,
@@ -696,8 +683,8 @@ async fn diff_impl(
                     }
                 }
             } else {
-                match GitHub::get_github_user(reviewer.clone()).await {
-                    Ok(user) => {
+                match gh.get_user(&reviewer).await {
+                    Ok(Some(user)) => {
                         requested_reviewers.reviewers.push(user.login);
                         if let Some(name) = user.name {
                             checked_reviewers.push(format!(
@@ -709,7 +696,7 @@ async fn diff_impl(
                             checked_reviewers.push(reviewer);
                         }
                     }
-                    Err(error) if is_not_found(&error) => {
+                    Ok(None) => {
                         bail!(
                             "Reviewers field contains unknown user '{}'",
                             reviewer
@@ -1183,7 +1170,7 @@ async fn diff_impl(
 fn check_remote_changes(
     opts: &DiffOptions,
     git: &crate::git::Git,
-    gh: &crate::github::GitHub,
+    gh: &impl Forge,
     config: &crate::config::Config,
     message: &crate::message::CommitMessage,
     commits: &PullRequestCommits,
@@ -1286,7 +1273,7 @@ fn record_expected_head(
 /// This must only be called after the Pull Request's base has been changed:
 /// GitHub closes Pull Requests whose base branch gets deleted.
 fn base_changed(
-    gh: &crate::github::GitHub,
+    gh: &impl Forge,
     config: &crate::config::Config,
     old_base: &GitHubBranch,
     new_base: &GitHubBranch,

@@ -1,6 +1,7 @@
 use color_eyre::eyre::{Result, eyre};
 
 use crate::{
+    forge::Forge,
     git::PreparedCommit,
     output::{output, write_commit_title},
 };
@@ -15,7 +16,7 @@ pub struct AmendOptions {
 pub async fn amend(
     opts: AmendOptions,
     git: &crate::git::Git,
-    gh: &mut crate::github::GitHub,
+    gh: &mut impl Forge,
     config: &crate::config::Config,
 ) -> Result<()> {
     let mut pc = gh.get_prepared_commits()?;

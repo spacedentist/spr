@@ -1,5 +1,6 @@
 use color_eyre::eyre::{Result, eyre};
 
+use crate::forge::Forge;
 use crate::output::{output, write_commit_title};
 
 #[derive(Debug, clap::Parser)]
@@ -12,7 +13,7 @@ pub struct FormatOptions {
 pub async fn format(
     opts: FormatOptions,
     git: &crate::git::Git,
-    gh: &mut crate::github::GitHub,
+    gh: &mut impl Forge,
     config: &crate::config::Config,
 ) -> Result<()> {
     let mut pc = gh.get_prepared_commits()?;

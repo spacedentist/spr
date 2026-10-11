@@ -2,9 +2,9 @@ use color_eyre::eyre::{Result, bail};
 
 use crate::{
     config::StackingMode,
+    forge::{Forge, PullRequestState, PullRequestUpdate},
     git::PreparedCommit,
     git_remote::PushSpec,
-    github::{PullRequestState, PullRequestUpdate},
     message::SPR_ID_TRAILER,
     output::{output, write_commit_title},
 };
@@ -19,7 +19,7 @@ pub struct CloseOptions {
 pub async fn close(
     opts: CloseOptions,
     git: &crate::git::Git,
-    gh: &mut crate::github::GitHub,
+    gh: &mut impl Forge,
     config: &crate::config::Config,
 ) -> Result<()> {
     let mut result = Ok(());
@@ -60,7 +60,7 @@ pub async fn close(
 
 async fn close_impl(
     git: &crate::git::Git,
-    gh: &mut crate::github::GitHub,
+    gh: &mut impl Forge,
     config: &crate::config::Config,
     prepared_commit: &mut PreparedCommit,
 ) -> Result<()> {

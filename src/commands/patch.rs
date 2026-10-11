@@ -1,5 +1,6 @@
 use color_eyre::eyre::{Result, bail};
 
+use crate::forge::Forge;
 use crate::output::output;
 
 #[derive(Debug, clap::Parser)]
@@ -24,7 +25,7 @@ pub struct PatchOptions {
 pub async fn patch(
     opts: PatchOptions,
     git: &crate::git::Git,
-    gh: &mut crate::github::GitHub,
+    gh: &mut impl Forge,
     config: &crate::config::Config,
 ) -> Result<()> {
     let pr = gh.clone().get_pull_request(opts.pull_request).await?;

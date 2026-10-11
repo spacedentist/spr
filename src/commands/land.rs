@@ -1,15 +1,15 @@
-use color_eyre::eyre::{Error, Report, Result, WrapErr as _, bail, eyre};
+use color_eyre::eyre::{Error, Result, WrapErr as _, bail, eyre};
 use indoc::formatdoc;
 use std::time::Duration;
 
 use crate::{
     config::{MergeMethod, StackingMode},
+    forge::{
+        Forge, PullRequest, PullRequestStack, PullRequestState,
+        PullRequestUpdate, ReviewStatus,
+    },
     git::PreparedCommit,
     git_remote::PushSpec,
-    github::{
-        PullRequest, PullRequestStack, PullRequestState, PullRequestUpdate,
-        ReviewStatus,
-    },
     land_check::{LandCheck, land_check},
     output::{output, write_commit_title},
 };
@@ -25,7 +25,7 @@ pub struct LandOptions {
 pub async fn land(
     opts: LandOptions,
     git: &crate::git::Git,
-    gh: &mut crate::github::GitHub,
+    gh: &mut impl Forge,
     config: &crate::config::Config,
 ) -> Result<()> {
     git.check_no_uncommitted_changes()?;
@@ -291,39 +291,20 @@ pub async fn land(
             // used a base branch with this Pull Request or not. We have made sure the
             // target of the Pull Request is set to the master branch. So let GitHub do
             // the merge now!
-            octocrab::instance()
-                .pulls(&config.owner, &config.repo)
-                .merge(pull_request_number)
-                .method(match config.merge_method {
-                    MergeMethod::Squash => {
-                        octocrab::params::pulls::MergeMethod::Squash
-                    }
-                    MergeMethod::Merge => {
-                        octocrab::params::pulls::MergeMethod::Merge
-                    }
-                })
-                .title(pull_request.title)
-                .message(pull_request.message.to_github_body_for_merging())
-                .sha(format!("{}", pr_head_oid))
-                .send()
-                .await
-                .map_err(Report::new)
-                .and_then(|merge| {
-                    if merge.merged {
-                        Ok(merge)
-                    } else {
-                        Err(eyre!(
-                            "GitHub Pull Request merge failed: {}",
-                            merge.message.unwrap_or_default()
-                        ))
-                    }
-                })
+            gh.merge_pull_request(
+                pull_request_number,
+                pr_head_oid,
+                config.merge_method,
+                &pull_request.title,
+                &pull_request.message.to_github_body_for_merging(),
+            )
+            .await
         }
         Err(err) => Err(err),
     };
 
-    let merge = match result {
-        Ok(merge) => merge,
+    let merge_commit = match result {
+        Ok(merge_commit) => merge_commit,
         Err(mut error) => {
             output("❌", "GitHub Pull Request merge failed")?;
 
@@ -394,8 +375,7 @@ pub async fn land(
     };
 
     // Rebase us on top of the now-landed commit
-    if let Some(sha) = merge.sha {
-        let new_parent_oid = git2::Oid::from_str(&sha)?;
+    if let Some(new_parent_oid) = merge_commit {
         // Try this up to three times, because fetching the very moment after
         // the merge might still not find the new commit.
         for i in 0..3 {
@@ -456,7 +436,7 @@ pub async fn land(
 /// merges all Pull Requests in a stack up to the requested one.
 async fn land_stack(
     git: &crate::git::Git,
-    gh: &mut crate::github::GitHub,
+    gh: &mut impl Forge,
     config: &crate::config::Config,
     prepared_commits: &mut [PreparedCommit],
     stack: PullRequestStack,
