@@ -66,7 +66,8 @@
   pull requests get merged, replacing `spr.githubRepository` and
   `spr.githubMasterBranch` — a first step towards supporting other forges
   than github.com. `spr init` writes it; the old options still work where
-  `spr.target` isn't set
+  `spr.target` isn't set, but are deprecated: spr shows a note on how to
+  replace them
 
 ### Fixes
 

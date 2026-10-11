@@ -164,6 +164,10 @@ pub async fn spr() -> Result<()> {
         Target::new(repository, &branch)?
     };
 
+    if let Some(note) = spr::config::deprecation_note(&git_config) {
+        spr::output::output("⚠️", &note)?;
+    }
+
     let branch_prefix = required(cli.branch_prefix, "spr.branchPrefix")?;
 
     let require_approval = git_config

@@ -286,6 +286,66 @@ pub fn configured_target(git_config: &git2::Config) -> Result<Option<Target>> {
         .map(Some)
 }
 
+/// Options that `spr.target` replaces
+const OLD_TARGET_OPTIONS: [&str; 2] =
+    ["spr.githubRepository", "spr.githubMasterBranch"];
+
+/// A note on the deprecated options in the Git configuration (those that
+/// `spr.target` replaces), with how to replace or remove them. `None` if
+/// none of them is set.
+pub fn deprecation_note(git_config: &git2::Config) -> Option<String> {
+    // The `git config` option for writing to where an option is set
+    let scope = |key: &str| {
+        let level = git_config.get_entry(key).ok()?.level();
+        Some(match level {
+            git2::ConfigLevel::Global | git2::ConfigLevel::XDG => "--global ",
+            git2::ConfigLevel::System => "--system ",
+            git2::ConfigLevel::Worktree => "--worktree ",
+            _ => "",
+        })
+    };
+    let old: Vec<(&str, &str)> = OLD_TARGET_OPTIONS
+        .into_iter()
+        .filter_map(|key| Some((key, scope(key)?)))
+        .collect();
+    if old.is_empty() {
+        return None;
+    }
+
+    let names = old
+        .iter()
+        .map(|(key, _)| *key)
+        .collect::<Vec<_>>()
+        .join(" and ");
+    let unset = old
+        .iter()
+        .map(|(key, scope)| format!("git config {scope}--unset {key}"))
+        .collect::<Vec<_>>()
+        .join("\n");
+
+    if git_config.get_entry("spr.target").is_ok() {
+        return Some(format!(
+            "{names} {are} deprecated, and ignored as spr.target is set. \
+             To remove {them}:\n{unset}",
+            are = if old.len() == 1 { "is" } else { "are" },
+            them = if old.len() == 1 { "it" } else { "them" },
+        ));
+    }
+
+    let target = match configured_target(git_config) {
+        Ok(Some(target)) => target.to_string(),
+        _ => "github:OWNER/REPO:BRANCH".to_string(),
+    };
+    Some(format!(
+        "{names} {are} deprecated: spr.target replaces {them}. Run `spr \
+         init` to update the configuration, or:\n\
+         git config {scope}spr.target {target}\n{unset}",
+        are = if old.len() == 1 { "is" } else { "are" },
+        them = if old.len() == 1 { "it" } else { "them" },
+        scope = old[0].1,
+    ))
+}
+
 #[cfg(test)]
 mod tests {
     // Note this useful idiom: importing names from outer (for mod tests) scope.
@@ -582,6 +642,86 @@ mod tests {
             ])
             .unwrap(),
             Some("github:acme/new:trunk".into())
+        );
+    }
+
+    #[test]
+    fn test_deprecation_note() {
+        let dir = tempfile::tempdir().unwrap();
+        // A configuration from a global and a local file
+        let note = |global: &[(&str, &str)], local: &[(&str, &str)]| {
+            let mut git_config = git2::Config::new().unwrap();
+            for (name, level, settings) in [
+                ("global", git2::ConfigLevel::Global, global),
+                ("local", git2::ConfigLevel::Local, local),
+            ] {
+                let path = dir.path().join(name);
+                let _ = std::fs::remove_file(&path);
+                let mut file = git2::Config::open(&path).unwrap();
+                for (key, value) in settings {
+                    file.set_str(key, value).unwrap();
+                }
+                git_config.add_file(&path, level, true).unwrap();
+            }
+            deprecation_note(&git_config)
+        };
+
+        assert_eq!(note(&[], &[]), None);
+        assert_eq!(note(&[], &[("spr.target", "github:a/b:main")]), None);
+
+        let n = note(
+            &[],
+            &[
+                ("spr.githubRepository", "acme/codez"),
+                ("spr.githubMasterBranch", "main"),
+            ],
+        )
+        .unwrap();
+        assert!(
+            n.contains(
+                "spr.githubRepository and spr.githubMasterBranch are deprecated"
+            ),
+            "{n}"
+        );
+        assert!(
+            n.contains("\ngit config spr.target github:acme/codez:main\n"),
+            "{n}"
+        );
+        assert!(
+            n.contains("\ngit config --unset spr.githubRepository\n"),
+            "{n}"
+        );
+        assert!(
+            n.ends_with("\ngit config --unset spr.githubMasterBranch"),
+            "{n}"
+        );
+
+        // In the global configuration: changed there
+        let n = note(&[("spr.githubRepository", "acme/codez")], &[]).unwrap();
+        assert!(n.contains("spr.githubRepository is deprecated"), "{n}");
+        assert!(
+            n.contains(
+                "\ngit config --global spr.target github:acme/codez:master\n"
+            ),
+            "{n}"
+        );
+        assert!(
+            n.ends_with("\ngit config --global --unset spr.githubRepository"),
+            "{n}"
+        );
+
+        // Ignored, as spr.target is set
+        let n = note(
+            &[("spr.githubMasterBranch", "main")],
+            &[("spr.target", "github:a/b:main")],
+        )
+        .unwrap();
+        assert!(n.contains("ignored as spr.target is set"), "{n}");
+        assert!(
+            n.ends_with(
+                ":\ngit config --global --unset spr.githubMasterBranch"
+            ),
+            "{n}"
         );
     }
 
