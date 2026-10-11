@@ -11,7 +11,7 @@ use color_eyre::eyre::{Result, bail, eyre};
 
 /// The kinds of forges (Git hosting services) a target can be on
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum Forge {
+pub enum ForgeKind {
     GitHub,
     GitLab,
     Gitea,
@@ -19,33 +19,33 @@ pub enum Forge {
     Bitbucket,
 }
 
-impl Forge {
-    const ALL: [Forge; 5] = [
-        Forge::GitHub,
-        Forge::GitLab,
-        Forge::Gitea,
-        Forge::Forgejo,
-        Forge::Bitbucket,
+impl ForgeKind {
+    const ALL: [ForgeKind; 5] = [
+        ForgeKind::GitHub,
+        ForgeKind::GitLab,
+        ForgeKind::Gitea,
+        ForgeKind::Forgejo,
+        ForgeKind::Bitbucket,
     ];
 
     /// The forge's name in the target notation
     pub fn name(self) -> &'static str {
         match self {
-            Forge::GitHub => "github",
-            Forge::GitLab => "gitlab",
-            Forge::Gitea => "gitea",
-            Forge::Forgejo => "forgejo",
-            Forge::Bitbucket => "bitbucket",
+            ForgeKind::GitHub => "github",
+            ForgeKind::GitLab => "gitlab",
+            ForgeKind::Gitea => "gitea",
+            ForgeKind::Forgejo => "forgejo",
+            ForgeKind::Bitbucket => "bitbucket",
         }
     }
 
     /// The host of the forge's public instance, if there is one
     pub fn default_host(self) -> Option<&'static str> {
         match self {
-            Forge::GitHub => Some("github.com"),
-            Forge::GitLab => Some("gitlab.com"),
-            Forge::Gitea | Forge::Forgejo => None,
-            Forge::Bitbucket => Some("bitbucket.org"),
+            ForgeKind::GitHub => Some("github.com"),
+            ForgeKind::GitLab => Some("gitlab.com"),
+            ForgeKind::Gitea | ForgeKind::Forgejo => None,
+            ForgeKind::Bitbucket => Some("bitbucket.org"),
         }
     }
 
@@ -53,31 +53,31 @@ impl Forge {
     /// two (GitLab: groups and subgroups, then the project)
     fn path_segments(self) -> Option<usize> {
         match self {
-            Forge::GitLab => None,
+            ForgeKind::GitLab => None,
             _ => Some(2),
         }
     }
 
     fn path_format(self) -> &'static str {
         match self {
-            Forge::GitLab => "GROUP/…/PROJECT",
-            Forge::Bitbucket => "WORKSPACE/REPOSITORY",
+            ForgeKind::GitLab => "GROUP/…/PROJECT",
+            ForgeKind::Bitbucket => "WORKSPACE/REPOSITORY",
             _ => "OWNER/REPOSITORY",
         }
     }
 }
 
-impl std::str::FromStr for Forge {
+impl std::str::FromStr for ForgeKind {
     type Err = color_eyre::eyre::Report;
 
     fn from_str(s: &str) -> Result<Self> {
-        Forge::ALL
+        ForgeKind::ALL
             .into_iter()
             .find(|forge| forge.name().eq_ignore_ascii_case(s))
             .ok_or_else(|| {
                 eyre!(
                     "Unknown forge '{s}', must be one of {}",
-                    Forge::ALL
+                    ForgeKind::ALL
                         .map(|forge| format!("'{}'", forge.name()))
                         .join(", ")
                 )
@@ -85,7 +85,7 @@ impl std::str::FromStr for Forge {
     }
 }
 
-impl std::fmt::Display for Forge {
+impl std::fmt::Display for ForgeKind {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_str(self.name())
     }
@@ -94,7 +94,7 @@ impl std::fmt::Display for Forge {
 /// A repository on a forge, e.g. `github:spacedentist/spr`
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Repository {
-    forge: Forge,
+    forge: ForgeKind,
     /// The host (lower case, possibly with a port), or `None` for the
     /// forge's public instance
     host: Option<String>,
@@ -104,7 +104,11 @@ pub struct Repository {
 impl Repository {
     /// The repository `path` (e.g. `owner/repo`) on `host`, or on the
     /// forge's public instance if `host` is `None`
-    pub fn new(forge: Forge, host: Option<&str>, path: &str) -> Result<Self> {
+    pub fn new(
+        forge: ForgeKind,
+        host: Option<&str>,
+        path: &str,
+    ) -> Result<Self> {
         let host = match host {
             Some(host) => {
                 let host = host.to_ascii_lowercase();
@@ -154,7 +158,7 @@ impl Repository {
         })
     }
 
-    pub fn forge(&self) -> Forge {
+    pub fn forge(&self) -> ForgeKind {
         self.forge
     }
 
@@ -185,7 +189,7 @@ impl Repository {
 }
 
 /// Splits `<forge>:[//<host>]<rest>` into its parts
-fn split_forge_and_host(text: &str) -> Result<(Forge, Option<&str>, &str)> {
+fn split_forge_and_host(text: &str) -> Result<(ForgeKind, Option<&str>, &str)> {
     let (forge, rest) = text.split_once(':').ok_or_else(|| {
         eyre!("'{text}' must start with the forge, e.g. 'github:'")
     })?;
@@ -283,7 +287,7 @@ mod tests {
     #[test]
     fn test_parse_target() {
         let t = target("github:spacedentist/spr:master");
-        assert_eq!(t.repository().forge(), Forge::GitHub);
+        assert_eq!(t.repository().forge(), ForgeKind::GitHub);
         assert_eq!(t.repository().host(), "github.com");
         assert!(t.repository().is_on_public_instance());
         assert_eq!(t.repository().path(), "spacedentist/spr");
@@ -296,7 +300,7 @@ mod tests {
         assert_eq!(t.branch(), "release/1.2.3");
 
         let t = target("gitlab://gitlab.example.com:8443/group/sub/proj:main");
-        assert_eq!(t.repository().forge(), Forge::GitLab);
+        assert_eq!(t.repository().forge(), ForgeKind::GitLab);
         assert_eq!(t.repository().host(), "gitlab.example.com:8443");
         assert_eq!(t.repository().path(), "group/sub/proj");
         assert_eq!(t.branch(), "main");
@@ -307,7 +311,7 @@ mod tests {
         assert_eq!(t.repository().path(), "my.group/project");
 
         let t = target("forgejo://codeberg.org/owner/repo:main");
-        assert_eq!(t.repository().forge(), Forge::Forgejo);
+        assert_eq!(t.repository().forge(), ForgeKind::Forgejo);
         assert_eq!(t.repository().host(), "codeberg.org");
     }
 
@@ -367,7 +371,7 @@ mod tests {
     #[test]
     fn test_parse_repository() {
         let r: Repository = "github:svenover/spr".parse().unwrap();
-        assert_eq!(r.forge(), Forge::GitHub);
+        assert_eq!(r.forge(), ForgeKind::GitHub);
         assert_eq!(r.path(), "svenover/spr");
         assert_eq!(r.to_string(), "github:svenover/spr");
         assert_eq!(r.web_url(), "https://github.com/svenover/spr");

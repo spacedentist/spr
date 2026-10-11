@@ -6,7 +6,7 @@ use clap::{Parser, Subcommand};
 use color_eyre::eyre::{Error, Result, eyre};
 use log::debug;
 use spr::commands;
-use spr::target::{Forge, Repository, Target};
+use spr::target::{ForgeKind, Repository, Target};
 
 #[derive(Parser)]
 #[clap(
@@ -144,7 +144,7 @@ pub async fn spr() -> Result<()> {
         let configured = spr::config::configured_target(&git_config)?;
         let repository = match cli.github_repository {
             Some(repository) => {
-                Repository::new(Forge::GitHub, None, &repository)?
+                Repository::new(ForgeKind::GitHub, None, &repository)?
             }
             None => configured
                 .as_ref()

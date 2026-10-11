@@ -5,7 +5,7 @@ use octocrab::FromResponse;
 use secrecy::ExposeSecret as _;
 
 use crate::output::output;
-use crate::target::{Forge, Repository, Target};
+use crate::target::{ForgeKind, Repository, Target};
 
 pub async fn init() -> Result<()> {
     output("👋", "Welcome to spr!")?;
@@ -115,7 +115,7 @@ pub async fn init() -> Result<()> {
         .ok()
         .flatten()
         .filter(|target| {
-            target.repository().forge() == Forge::GitHub
+            target.repository().forge() == ForgeKind::GitHub
                 && target.repository().is_on_public_instance()
         });
     let github_repo = configured_target
@@ -138,10 +138,10 @@ pub async fn init() -> Result<()> {
         .with_prompt("GitHub repository")
         .with_initial_text(github_repo)
         .validate_with(|input: &String| -> Result<()> {
-            Repository::new(Forge::GitHub, None, input).map(|_| ())
+            Repository::new(ForgeKind::GitHub, None, input).map(|_| ())
         })
         .interact_text()?;
-    let repository = Repository::new(Forge::GitHub, None, &github_repo)?;
+    let repository = Repository::new(ForgeKind::GitHub, None, &github_repo)?;
 
     // Target branch: the configured one if the repository stays the same,
     // otherwise the repository's default branch on GitHub

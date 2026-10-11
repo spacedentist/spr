@@ -1,7 +1,7 @@
 use color_eyre::eyre::{Result, WrapErr as _, bail};
 
 use crate::github::GitHubBranch;
-use crate::target::{Forge, Repository, Target};
+use crate::target::{ForgeKind, Repository, Target};
 
 #[derive(Clone)]
 pub struct Config {
@@ -160,7 +160,7 @@ impl Config {
         }
 
         let repository = target.repository();
-        if repository.forge() != Forge::GitHub
+        if repository.forge() != ForgeKind::GitHub
             || !repository.is_on_public_instance()
         {
             bail!(
@@ -278,7 +278,7 @@ pub fn configured_target(git_config: &git2::Config) -> Result<Option<Target>> {
     let Some(repository) = get("spr.githubRepository") else {
         return Ok(None);
     };
-    let repository = Repository::new(Forge::GitHub, None, &repository)
+    let repository = Repository::new(ForgeKind::GitHub, None, &repository)
         .wrap_err("Invalid spr.githubRepository")?;
     let branch = get("spr.githubMasterBranch");
     Target::new(repository, branch.as_deref().unwrap_or("master"))
