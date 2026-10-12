@@ -51,6 +51,11 @@ textwrap = "^0.16.4"
 tokio = { version = "^1.53.1", features = ["macros", "rt", "time"] }
 unicode-normalization = "^0.1.25"
 
+[features]
+# Build OpenSSL and libgit2 from source and link them statically, instead of
+# using the system's (e.g. for self-contained release binaries)
+vendored = ["git2/vendored-libgit2", "git2/vendored-openssl"]
+
 [lints.clippy]
 used-underscore-binding = "deny"
 

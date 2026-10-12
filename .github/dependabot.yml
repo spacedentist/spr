@@ -1,0 +1,12 @@
+# Keeps the actions used in .github/workflows up to date, with one pull
+# request a month for all of them
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: monthly
+    groups:
+      github-actions:
+        patterns:
+          - "*"

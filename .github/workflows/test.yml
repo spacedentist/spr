@@ -8,6 +8,11 @@ on:
 permissions:
   contents: read
 
+# A new push to a pull request supersedes the checks of the previous one
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 # Make sure CI fails on all warnings, including Clippy lints
 env:
   RUSTFLAGS: "-Dwarnings"
@@ -16,12 +21,14 @@ jobs:
   ci:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
+
+      - uses: Swatinem/rust-cache@v2
 
       - name: Linter
         id: lint
         if: "!cancelled()"
-        run: cargo clippy --workspace --all-targets --all-features
+        run: cargo clippy --locked --workspace --all-targets --all-features
 
       - name: Code formatter
         id: format
@@ -31,7 +38,7 @@ jobs:
       - name: Tests
         id: test
         if: "!cancelled()"
-        run: cargo test --workspace --all-features
+        run: cargo test --locked --workspace --all-features
 
   # Check that spr builds with the minimum supported Rust version, as
   # declared in Cargo.toml (`rust-version`). Lints are the job above's
@@ -41,14 +48,16 @@ jobs:
     env:
       RUSTFLAGS: ""
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
 
       - name: Install the minimum supported Rust version
         run: |
           msrv=$(sed -n 's/^rust-version = "\(.*\)"$/\1/p' Cargo.toml)
           echo "Rust $msrv"
           rustup toolchain install "$msrv" --profile minimal
-          echo "MSRV=$msrv" >> "$GITHUB_ENV"
+          rustup default "$msrv"
+
+      - uses: Swatinem/rust-cache@v2
 
       - name: Build
-        run: cargo "+$MSRV" check --locked --workspace --all-targets --all-features
+        run: cargo check --locked --workspace --all-targets --all-features

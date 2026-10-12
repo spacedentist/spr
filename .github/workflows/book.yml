@@ -1,8 +1,7 @@
 name: Build and deploy spr documentation
 
-concurrency:
-  group: gh-pages
-
+# Builds the documentation for pull requests too, so that a broken build shows
+# up before it's merged. Only pushes to master deploy it.
 on:
   push:
     branches:
@@ -10,6 +9,18 @@ on:
     paths:
       - "book.toml"
       - "docs/**"
+      - ".github/workflows/book.yml"
+  pull_request:
+    paths:
+      - "book.toml"
+      - "docs/**"
+      - ".github/workflows/book.yml"
+
+concurrency:
+  group: gh-pages-${{ github.ref }}
+
+permissions:
+  contents: write
 
 env:
   MDBOOK_VERSION: 0.5.4
@@ -20,11 +31,11 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v2
+        uses: actions/checkout@v7
 
       - name: Cache mdbook
         id: cache-mdbook
-        uses: actions/cache@v3
+        uses: actions/cache@v6
         with:
           path: |
             ~/.cargo/bin/mdbook
@@ -43,7 +54,8 @@ jobs:
           mdbook build
 
       - name: Deploy
-        uses: peaceiris/actions-gh-pages@v3
+        if: github.event_name == 'push'
+        uses: peaceiris/actions-gh-pages@v4
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
           publish_dir: ./book

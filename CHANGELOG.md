@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+### Other
+
+- GitHub releases get a macOS binary again (universal: Apple silicon and
+  Intel), built when the release is published
+- new cargo feature `vendored`: build OpenSSL and libgit2 from source and
+  link them statically
+
 ## [2.0.0-beta.1] - 2026-10-12
 
 ### Improvements

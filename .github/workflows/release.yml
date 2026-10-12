@@ -1,52 +1,66 @@
 name: Release
 
+# Builds spr for macOS and attaches it to a GitHub release. Runs when a
+# release (or pre-release) is published, or by hand for an existing release.
 on:
-  push:
-    tags:
-      - "v*"
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Tag of an existing release, e.g. v2.0.0-beta.1"
+        required: true
+
+permissions:
+  contents: write
 
 jobs:
   macos:
-    name: Build for MacOS
-    runs-on: macos-10.15
+    name: Build for macOS
+    runs-on: macos-latest
     env:
       CARGO_TERM_COLOR: always
+      TAG: ${{ github.event.release.tag_name || inputs.tag }}
 
     steps:
-      - uses: actions/checkout@v2
-
-      - name: Get version
-        id: get_version
-        run: echo ::set-output name=version::${GITHUB_REF/refs\/tags\/v/}
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ env.TAG }}
 
       - name: Install Rust
-        uses: actions-rs/toolchain@v1
-        with:
-          toolchain: stable
-          profile: minimal
-          components: clippy
+        run: |
+          rustup toolchain install stable --profile minimal \
+            --target aarch64-apple-darwin,x86_64-apple-darwin
+          rustup default stable
 
       - name: Run tests
-        run: cargo test
+        run: cargo test --locked
 
-      - name: Build Release Mac
+      # A universal binary (Apple silicon and Intel). OpenSSL and libgit2 are
+      # built in (feature `vendored`), so that the binary only needs system
+      # libraries, not e.g. Homebrew's.
+      - name: Build
         run: |
-          cargo build --release
-          strip target/release/spr
-          tar vczC target/release/ spr >spr-${{ steps.get_version.outputs.version }}-macos.tar.gz
+          for target in aarch64-apple-darwin x86_64-apple-darwin; do
+            cargo build --locked --release --features vendored \
+              --target "$target"
+          done
+          lipo -create -output spr \
+            target/aarch64-apple-darwin/release/spr \
+            target/x86_64-apple-darwin/release/spr
+          strip spr
+          lipo -info spr
+          otool -L spr
+          if otool -L spr | grep -E '^\s' |
+            grep -v -E '^\s+/(usr/lib|System)/'
+          then
+            echo "spr links libraries that aren't part of macOS"
+            exit 1
+          fi
+          tar vczf "spr-${TAG#v}-macos.tar.gz" spr
           ls -lh spr-*.tar.gz
 
-      - name: Extract release notes
-        id: release_notes
-        uses: ffurrer2/extract-release-notes@v1
-
-      - name: Release
-        uses: softprops/action-gh-release@v1
-        with:
-          body: ${{ steps.release_notes.outputs.release_notes }}
-          prerelease: ${{ contains(github.ref, '-') }}
-          files: |
-            ./spr-*.tar.gz
-
+      - name: Upload to the release
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ github.token }}
+        run: gh release upload "$TAG" spr-*.tar.gz --clobber
