@@ -7,7 +7,7 @@ default-members = ["."]
 
 [package]
 name = "spr"
-version = "2.0.0-beta.1"
+version = "2.0.0-beta.2"
 authors = ["Sven Over <sp@cedenti.st>", "Jozef Mokry <jozef.mokry@gmail.com>"]
 description = "Submit pull requests for individual, amendable, rebaseable commits to GitHub"
 repository = "https://github.com/spacedentist/spr"

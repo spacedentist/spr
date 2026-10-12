@@ -1,5 +1,7 @@
 # Changelog
 
+## Unreleased
+
 ## [2.0.0-beta.1] - 2026-10-12
 
 ### Improvements
