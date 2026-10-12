@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## [2.0.0-beta.1] - 2026-10-12
 
 ### Improvements
 
@@ -326,3 +326,4 @@
 [1.3.5]: https://github.com/spacedentist/spr/releases/tag/v1.3.5
 [1.3.6]: https://github.com/spacedentist/spr/releases/tag/v1.3.6
 [1.3.7]: https://github.com/spacedentist/spr/releases/tag/v1.3.7
+[2.0.0-beta.1]: https://github.com/spacedentist/spr/releases/tag/v2.0.0-beta.1
