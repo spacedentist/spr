@@ -36,7 +36,7 @@
             const path_to_root = "";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "searchindex-27f5000a.js";
+            window.path_to_searchindex_js = "searchindex-dbb42d69.js";
         </script>
         <!-- Start loading toc.js asap -->
         <script src="toc-ee48e442.js"></script>
@@ -569,7 +569,7 @@ This describes the change you are making with this commit.
 
 Reviewers: github-username-a, github-username-b
 </code></pre>
-<p>The first line will be the title of the PR created by <code>spr diff</code>, and the rest of the message except for the <code>Reviewers</code> line will be the PR description (i.e. the content of the first comment). The GitHub users named on the <code>Reviewers</code> line will be added to the PR as reviewers. That line is a <a href="https://git-scm.com/docs/git-interpret-trailers">git trailer</a>: a key-value line in the last paragraph of the commit message.</p>
+<p>The first line will be the title of the PR created by <code>spr diff</code>, and the rest of the message except for the <code>Reviewers</code> line will be the PR description (i.e. the content of the first comment). The GitHub users named on the <code>Reviewers</code> line will be added to the PR as reviewers. That line is a <a href="https://git-scm.com/docs/git-interpret-trailers">git trailer</a>: a key-value line in the last paragraph of the commit message. Other trailers, like <code>Co-authored-by</code> or <code>Signed-off-by</code>, are part of the PR description (see <a href="#your-own-trailers">Your own trailers</a>).</p>
 <h2 id="updating-the-commit-message"><a class="header" href="#updating-the-commit-message">Updating the commit message</a></h2>
 <p>When you create a PR with <code>spr diff</code>, <strong>the PR becomes the source of truth</strong> for the title and description. When you land a commit with <code>spr land</code>, its commit message will be amended to match the PR’s title and description, regardless of what is in your local repo.</p>
 <p>If you want to update the title or description, there are two ways to do so:</p>
@@ -612,6 +612,28 @@ Reviewers: github-username-a, github-username-b
 </li>
 </ul>
 <p>All of these (<code>Pull-request</code>, <code>Reviewers</code>, <code>Reviewed-by</code>, <code>Spr-Id</code>, <code>Spr-Target</code>) follow git’s trailer conventions, so you can also read and edit them with tools like <a href="https://git-scm.com/docs/git-interpret-trailers"><code>git interpret-trailers</code></a>.</p>
+<p>These are the trailers spr manages. None of them appear in the PR’s description: <code>Pull-request</code>, <code>Reviewers</code> and <code>Reviewed-by</code> reflect the PR itself (its link, its reviewers and its approvals), which GitHub shows as part of the PR, and <code>spr land</code> adds them to the commit that lands, from the PR’s current state. <code>Spr-Id</code> and <code>Spr-Target</code> are about your local commit, and only exist there.</p>
+<h3 id="your-own-trailers"><a class="header" href="#your-own-trailers">Your own trailers</a></h3>
+<p>All other trailers, e.g. <code>Co-authored-by</code>, <code>Signed-off-by</code> or <code>Fixes</code>, mean nothing to spr: they are your content, like the rest of the commit message. So spr treats them like the description:</p>
+<ul>
+<li><code>spr diff</code> puts them at the end of the PR’s description, so reviewers see them too (e.g. who co-authored the change).</li>
+<li><code>spr land</code> lands the PR with its description, so they end up in the landed commit, in one block with spr’s trailers, where git (and GitHub, e.g. for co-authors) recognises them.</li>
+<li>If they are changed on GitHub (e.g. someone adds <code>Co-authored-by</code> to the PR’s description), <code>spr amend</code> brings the change into your local commit, like any other change to the description.</li>
+</ul>
+<p>For example, this local commit:</p>
+<pre><code>Add feature
+
+This is a really cool feature! It's going to be great.
+
+Co-authored-by: Jane Doe &lt;jane@example.com&gt;
+Reviewers: user-a, coworker-b
+Pull-request: https://github.com/example/my-thing/pull/123
+</code></pre>
+<p>has this PR description:</p>
+<pre><code>This is a really cool feature! It's going to be great.
+
+Co-authored-by: Jane Doe &lt;jane@example.com&gt;
+</code></pre>
 <h3 id="backwards-compatibility"><a class="header" href="#backwards-compatibility">Backwards compatibility</a></h3>
 <p>Older versions of spr didn’t use trailers, and wrote these lines with spaces instead of hyphens (<code>Pull Request:</code> instead of <code>Pull-request:</code>, and <code>Reviewed By:</code> instead of <code>Reviewed-by:</code>). Current versions of spr can read commit messages written by older versions and will automatically recognize these old-style lines. When spr updates a commit message (e.g., when running <code>spr diff</code> or <code>spr land</code>), it will rewrite them as trailers.</p>
 <p>If you have old commits in the previous format, they will continue to work seamlessly — spr will read them correctly and update them to the new format when it next modifies the commit message.</p>
