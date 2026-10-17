@@ -11,6 +11,37 @@ pub const SPR_ID_TRAILER: &str = "Spr-Id";
 /// neither in the Pull Request's description nor in the landed commit.
 pub const SPR_TARGET_TRAILER: &str = "Spr-Target";
 
+/// The trailers spr maintains based on the Pull Request: its URL, the
+/// requested reviewers and who approved it. On GitHub, that information is
+/// part of the Pull Request itself, so these trailers aren't in its
+/// description; the landed commit gets them from the Pull Request.
+const PULL_REQUEST_TRAILERS: [&str; 3] =
+    ["Pull-request", "Reviewers", "Reviewed-by"];
+
+/// The trailers that only exist in local commits
+const LOCAL_ONLY_TRAILERS: [&str; 2] = [SPR_ID_TRAILER, SPR_TARGET_TRAILER];
+
+/// Whether spr manages the trailer with this key: it either reflects the
+/// Pull Request, or only exists locally. All other trailers (e.g.
+/// `Co-authored-by`, `Signed-off-by`) mean nothing to spr: they are the
+/// user's content, like the rest of the commit message, so they go into the
+/// Pull Request's description and from there into the landed commit.
+fn is_spr_trailer(key: &str) -> bool {
+    is_pull_request_trailer(key) || is_local_only_trailer(key)
+}
+
+fn is_pull_request_trailer(key: &str) -> bool {
+    PULL_REQUEST_TRAILERS
+        .iter()
+        .any(|trailer| trailer.eq_ignore_ascii_case(key))
+}
+
+fn is_local_only_trailer(key: &str) -> bool {
+    LOCAL_ONLY_TRAILERS
+        .iter()
+        .any(|trailer| trailer.eq_ignore_ascii_case(key))
+}
+
 /// A new random ID for a local commit: 128 bits, as 32 hex digits.
 ///
 /// It identifies a unit of work (a local commit and its Pull Request)
@@ -64,6 +95,18 @@ impl CommitMessage {
             body,
             trailers: Vec::new(),
         }
+    }
+
+    /// The message of a Pull Request, from its title and description. The
+    /// trailers at the end of the description (see `to_github_body`) become
+    /// the message's trailers. Trailers that spr manages are ignored: the
+    /// caller sets the ones that reflect the Pull Request from GitHub's data,
+    /// and the local-only ones don't belong there.
+    pub fn from_pull_request(title: String, description: &str) -> Self {
+        let mut message = Self::parse(&format!("{title}\n\n{description}"));
+        message.title = title;
+        message.trailers.retain(|(key, _)| !is_spr_trailer(key));
+        message
     }
 
     /// Parse a commit message from a string.
@@ -336,26 +379,48 @@ impl CommitMessage {
     }
 
     /// Update this (local) commit message from the message of its Pull
-    /// Request on GitHub: take the title, the description, and the trailers
-    /// spr maintains based on the Pull Request (`Pull-request`, `Reviewers`,
-    /// `Reviewed-by`) from there. Other trailers (e.g. `Signed-off-by`) only
-    /// exist locally, and are kept.
+    /// Request on GitHub: take the title, the description and the trailers
+    /// from there, i.e. both the user's trailers (from the description) and
+    /// the ones spr maintains based on the Pull Request (`Pull-request`,
+    /// `Reviewers`, `Reviewed-by`). Only the local-only trailers (`Spr-Id`,
+    /// `Spr-Target`) are kept.
+    ///
+    /// If the trailers are the same apart from their order, their local
+    /// order is kept, so that the commit isn't rewritten for no reason.
     pub fn update_from_pull_request(&mut self, pull_request: &CommitMessage) {
-        const PULL_REQUEST_TRAILERS: [&str; 3] =
-            ["pull-request", "reviewers", "reviewed-by"];
-        let is_pull_request_trailer = |key: &str| {
-            PULL_REQUEST_TRAILERS.contains(&key.to_lowercase().as_str())
-        };
-
         self.title = pull_request.title.clone();
         self.body = pull_request.body.clone();
-        self.trailers
-            .retain(|(key, _)| !is_pull_request_trailer(key));
-        for (key, value) in &pull_request.trailers {
-            if is_pull_request_trailer(key) {
-                self.set_trailer(key.clone(), value.clone());
-            }
+
+        let mut pull_request_trailers: Vec<(String, String)> = pull_request
+            .trailers
+            .iter()
+            .filter(|(key, _)| !is_local_only_trailer(key))
+            .cloned()
+            .collect();
+        let mut current_trailers: Vec<(String, String)> = self
+            .trailers
+            .iter()
+            .filter(|(key, _)| !is_local_only_trailer(key))
+            .cloned()
+            .collect();
+        pull_request_trailers.sort();
+        current_trailers.sort();
+        if pull_request_trailers == current_trailers {
+            return;
         }
+
+        let local_only_trailers = self
+            .trailers
+            .iter()
+            .filter(|(key, _)| is_local_only_trailer(key))
+            .cloned();
+        self.trailers = pull_request
+            .trailers
+            .iter()
+            .filter(|(key, _)| !is_local_only_trailer(key))
+            .cloned()
+            .chain(local_only_trailers)
+            .collect();
     }
 
     /// Get all trailers as a slice.
@@ -382,24 +447,31 @@ impl CommitMessage {
         Ok(())
     }
 
-    /// Build a GitHub PR body from this message.
+    /// The description of the Pull Request: the body, followed by the
+    /// user's trailers (those that spr doesn't manage, see `is_spr_trailer`).
+    /// Hiding them would hide information from reviewers (e.g. who
+    /// co-authored the change), and edits to them on GitHub can make their
+    /// way back into the local commit (see `from_pull_request`).
     pub fn to_github_body(&self) -> String {
-        self.body.clone()
+        self.body_with_trailers(|key| !is_spr_trailer(key))
     }
 
-    /// Build a GitHub PR body for merging: the body of the commit that
-    /// lands. Includes the trailers that belong in the landed commit, as one
-    /// block after the body, so Git recognises all of them as trailers.
+    /// The body of the commit that lands when the Pull Request is merged:
+    /// the description, with the trailers of the Pull Request's message
+    /// (built by `from_pull_request`, plus the ones that reflect the Pull
+    /// Request) as one block after it, so Git recognises all of them as
+    /// trailers. Local-only trailers are left out.
     pub fn to_github_body_for_merging(&self) -> String {
+        self.body_with_trailers(|key| !is_local_only_trailer(key))
+    }
+
+    /// The body, followed by the trailers for which `include` returns true,
+    /// as one block, unfolded
+    fn body_with_trailers(&self, include: impl Fn(&str) -> bool) -> String {
         let trailers: Vec<String> = self
             .trailers
             .iter()
-            .filter(|(key, _)| {
-                let key_lower = key.to_lowercase();
-                key_lower == "reviewers"
-                    || key_lower == "reviewed-by"
-                    || key_lower == "pull-request"
-            })
+            .filter(|(key, _)| include(key))
             .map(|(key, value)| format!("{}: {}", key, unfold(value)))
             .collect();
 
@@ -666,6 +738,20 @@ mod tests {
         assert!(serialized.contains("D: word1   word2 word3\n"));
     }
 
+    /// The Pull Request's message as `GitHub::get_pull_request` builds it
+    fn pull_request_message(
+        title: &str,
+        description: &str,
+        pull_request_trailers: &[(&str, &str)],
+    ) -> CommitMessage {
+        let mut message =
+            CommitMessage::from_pull_request(title.into(), description);
+        for (key, value) in pull_request_trailers {
+            message.set_trailer(key.to_string(), value.to_string());
+        }
+        message
+    }
+
     #[test]
     fn test_update_from_pull_request() {
         let mut local = CommitMessage::parse(
@@ -675,34 +761,138 @@ mod tests {
              Pull-request: https://github.com/o/r/pull/1\n\
              Co-Authored-By: Carol <carol@example.com>",
         );
-        let mut github =
-            CommitMessage::new("New title".into(), "New body".into());
-        github.set_trailer(
-            "Pull-request".into(),
-            "https://github.com/o/r/pull/1".into(),
+        let github = pull_request_message(
+            "New title",
+            "New body\n\n\
+             Signed-off-by: Alice <alice@example.com>\n\
+             Co-Authored-By: Carol <carol@example.com>\n\
+             Co-Authored-By: Dave <dave@example.com>",
+            &[
+                ("Pull-request", "https://github.com/o/r/pull/1"),
+                ("Reviewers", "bob, dave"),
+                ("Reviewed-by", "dave"),
+            ],
         );
-        github.set_trailer("Reviewers".into(), "bob, dave".into());
-        github.set_trailer("Reviewed-by".into(), "dave".into());
 
         local.update_from_pull_request(&github);
 
         assert_eq!(local.title(), "New title");
         assert_eq!(local.body(), "New body");
-        // Local-only trailers are kept, spr's come from GitHub
+        // The user's trailers come from the description, spr's from GitHub
         assert_eq!(
-            local.get_trailer("Signed-off-by"),
-            Some("Alice <alice@example.com>")
+            local.to_string(),
+            "New title\n\nNew body\n\n\
+             Signed-off-by: Alice <alice@example.com>\n\
+             Co-Authored-By: Carol <carol@example.com>\n\
+             Co-Authored-By: Dave <dave@example.com>\n\
+             Pull-request: https://github.com/o/r/pull/1\n\
+             Reviewers: bob, dave\n\
+             Reviewed-by: dave\n"
         );
+    }
+
+    #[test]
+    fn test_update_from_pull_request_removes_trailer_removed_on_github() {
+        let mut local = CommitMessage::parse(
+            "Title\n\nBody\n\n\
+             Signed-off-by: Alice <alice@example.com>\n\
+             Pull-request: https://github.com/o/r/pull/1",
+        );
+        let github = pull_request_message(
+            "Title",
+            "Body",
+            &[("Pull-request", "https://github.com/o/r/pull/1")],
+        );
+
+        local.update_from_pull_request(&github);
+
+        assert_eq!(local.get_trailer("Signed-off-by"), None);
+        assert!(local.get_trailer("Pull-request").is_some());
+    }
+
+    #[test]
+    fn test_update_from_pull_request_keeps_order_of_same_trailers() {
+        let text = "Title\n\nBody\n\n\
+                    Pull-request: https://github.com/o/r/pull/1\n\
+                    Signed-off-by: Alice <alice@example.com>\n\
+                    Reviewers: bob";
+        let mut local = CommitMessage::parse(text);
+        let github = pull_request_message(
+            "Title",
+            &local.to_github_body(),
+            &[
+                ("Pull-request", "https://github.com/o/r/pull/1"),
+                ("Reviewers", "bob"),
+            ],
+        );
+
+        local.update_from_pull_request(&github);
+
+        assert_eq!(local, CommitMessage::parse(text));
+    }
+
+    #[test]
+    fn test_pull_request_round_trip() {
+        // A local commit, its Pull Request's description, and the message
+        // that spr builds from the Pull Request: updating the local commit
+        // from it changes nothing
+        let mut local = CommitMessage::parse(
+            "Title\n\nBody\n\n\
+             Co-authored-by: Carol <carol@example.com>\n\
+             Signed-off-by: Alice <alice@example.com>\n\
+             Reviewers: bob\n\
+             Spr-Target: github:o/r:release\n\
+             Pull-request: https://github.com/o/r/pull/1",
+        );
+        local.ensure_spr_id();
+        let description = local.to_github_body();
         assert_eq!(
-            local.get_trailer("Co-Authored-By"),
-            Some("Carol <carol@example.com>")
+            description,
+            "Body\n\n\
+             Co-authored-by: Carol <carol@example.com>\n\
+             Signed-off-by: Alice <alice@example.com>"
         );
-        assert_eq!(local.get_trailer("Reviewers"), Some("bob, dave"));
-        assert_eq!(local.get_trailer("Reviewed-by"), Some("dave"));
+
+        let github = pull_request_message(
+            "Title",
+            &description,
+            &[
+                ("Pull-request", "https://github.com/o/r/pull/1"),
+                ("Reviewers", "bob"),
+            ],
+        );
+        let before = local.clone();
+        local.update_from_pull_request(&github);
+        assert_eq!(local, before);
+    }
+
+    #[test]
+    fn test_from_pull_request() {
+        // The trailers at the end of the description are the user's
+        // trailers; ones that spr manages are ignored
+        let message = CommitMessage::from_pull_request(
+            "Title".into(),
+            "Body\n\nMore body\n\n\
+             Co-authored-by: Carol <carol@example.com>\n\
+             Reviewed-by: mallory\n\
+             Spr-Id: 7f3a91c0d2e84b5f9a6c1e0b3d7f2a48",
+        );
+        assert_eq!(message.title(), "Title");
+        assert_eq!(message.body(), "Body\n\nMore body");
         assert_eq!(
-            local.get_trailer("Pull-request"),
-            Some("https://github.com/o/r/pull/1")
+            message.trailers(),
+            [(
+                "Co-authored-by".to_string(),
+                "Carol <carol@example.com>".to_string()
+            )]
         );
+
+        // Without trailers, the description is the body
+        let message = CommitMessage::from_pull_request(
+            "Title".into(),
+            "Body\n\nNot: a trailer block, because\nmost of its lines\naren't trailers",
+        );
+        assert!(message.trailers().is_empty());
     }
 
     #[test]
@@ -714,10 +904,10 @@ mod tests {
              Pull-request: https://github.com/o/r/pull/1",
         );
         // The Pull Request has no reviewers anymore, and isn't approved
-        let mut github = CommitMessage::new("Title".into(), "Body".into());
-        github.set_trailer(
-            "Pull-request".into(),
-            "https://github.com/o/r/pull/1".into(),
+        let github = pull_request_message(
+            "Title",
+            "Body",
+            &[("Pull-request", "https://github.com/o/r/pull/1")],
         );
 
         local.update_from_pull_request(&github);
@@ -802,12 +992,13 @@ mod tests {
         );
         message.set_trailer("Reviewed-by".into(), "alice".into());
 
-        // The trailers that belong in the landed commit, as one block (so
-        // Git sees all of them as trailers), unfolded
+        // All trailers but the local-only ones, as one block (so Git sees
+        // all of them as trailers), unfolded
         assert_eq!(
             message.to_github_body_for_merging(),
             "Body\n\n\
              Reviewers: alice, bob\n\
+             Signed-off-by: Carol <carol@example.com>\n\
              Pull-request: https://github.com/o/r/pull/1\n\
              Reviewed-by: alice"
         );

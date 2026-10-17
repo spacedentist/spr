@@ -350,7 +350,7 @@ impl Forge for GitHub {
             pr_title.clone()
         };
 
-        let mut message = CommitMessage::new(title, body.clone());
+        let mut message = CommitMessage::from_pull_request(title, &body);
 
         message.set_trailer(
             "Pull-request".to_string(),

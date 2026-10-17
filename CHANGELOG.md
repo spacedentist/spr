@@ -4,6 +4,15 @@
 
 ### Fixes
 
+- trailers that spr doesn't manage, like `Co-authored-by` and
+  `Signed-off-by`, are part of the pull request's description, and so of
+  the landed commit (before, they only stayed in the local commit, and
+  went missing on landing); `spr amend` takes them from the pull request,
+  like the description. Pull requests created before have a description
+  without them, so `spr diff` warns that it differs from the local commit
+  message, and `spr amend` would remove them from the local commit: run
+  `spr diff --update-message` to add them to the description first
+  (thanks to @justinbaltazar for pointing this out in #248)
 - `spr diff` no longer asks GitHub to request reviewers for a new pull
   request without a `Reviewers` trailer: that request could fail (e.g. in
   organisations that restrict OAuth apps' access), and spr warned

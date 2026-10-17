@@ -46,6 +46,8 @@ pub struct PullRequest {
     pub head_ref: String,
     pub head_sha: String,
     pub base_ref: String,
+    /// The description (empty if there is none)
+    pub body: String,
 }
 
 impl PullRequest {
@@ -67,6 +69,7 @@ impl PullRequest {
             head_ref: string("/head/ref")?,
             head_sha: string("/head/sha")?,
             base_ref: string("/base/ref")?,
+            body: value["body"].as_str().unwrap_or_default().to_string(),
         })
     }
 

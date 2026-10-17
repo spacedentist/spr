@@ -11,7 +11,7 @@ This describes the change you are making with this commit.
 Reviewers: github-username-a, github-username-b
 ```
 
-The first line will be the title of the PR created by `spr diff`, and the rest of the message except for the `Reviewers` line will be the PR description (i.e. the content of the first comment). The GitHub users named on the `Reviewers` line will be added to the PR as reviewers. That line is a [git trailer](https://git-scm.com/docs/git-interpret-trailers): a key-value line in the last paragraph of the commit message.
+The first line will be the title of the PR created by `spr diff`, and the rest of the message except for the `Reviewers` line will be the PR description (i.e. the content of the first comment). The GitHub users named on the `Reviewers` line will be added to the PR as reviewers. That line is a [git trailer](https://git-scm.com/docs/git-interpret-trailers): a key-value line in the last paragraph of the commit message. Other trailers, like `Co-authored-by` or `Signed-off-by`, are part of the PR description (see [Your own trailers](#your-own-trailers)).
 
 ## Updating the commit message
 
@@ -64,6 +64,36 @@ At various stages of a commit's lifecycle, `spr` will add trailers to the commit
   It tells spr where the commit's PR gets merged, so later commands don't need `--target`. You can also write it yourself, with a branch name alone for a branch in the default target's repository (`Spr-Target: release/1.2`). Like `Spr-Id`, it only appears in your local commit message. See [Target Another Branch](targets.md).
 
 All of these (`Pull-request`, `Reviewers`, `Reviewed-by`, `Spr-Id`, `Spr-Target`) follow git's trailer conventions, so you can also read and edit them with tools like [`git interpret-trailers`](https://git-scm.com/docs/git-interpret-trailers).
+
+These are the trailers spr manages. None of them appear in the PR's description: `Pull-request`, `Reviewers` and `Reviewed-by` reflect the PR itself (its link, its reviewers and its approvals), which GitHub shows as part of the PR, and `spr land` adds them to the commit that lands, from the PR's current state. `Spr-Id` and `Spr-Target` are about your local commit, and only exist there.
+
+### Your own trailers
+
+All other trailers, e.g. `Co-authored-by`, `Signed-off-by` or `Fixes`, mean nothing to spr: they are your content, like the rest of the commit message. So spr treats them like the description:
+
+- `spr diff` puts them at the end of the PR's description, so reviewers see them too (e.g. who co-authored the change).
+- `spr land` lands the PR with its description, so they end up in the landed commit, in one block with spr's trailers, where git (and GitHub, e.g. for co-authors) recognises them.
+- If they are changed on GitHub (e.g. someone adds `Co-authored-by` to the PR's description), `spr amend` brings the change into your local commit, like any other change to the description.
+
+For example, this local commit:
+
+```
+Add feature
+
+This is a really cool feature! It's going to be great.
+
+Co-authored-by: Jane Doe <jane@example.com>
+Reviewers: user-a, coworker-b
+Pull-request: https://github.com/example/my-thing/pull/123
+```
+
+has this PR description:
+
+```
+This is a really cool feature! It's going to be great.
+
+Co-authored-by: Jane Doe <jane@example.com>
+```
 
 ### Backwards compatibility
 

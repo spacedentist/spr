@@ -19,15 +19,25 @@ pub const MERGE: Scenario = Scenario {
     only_on_github_com: None,
 };
 
+/// A trailer that spr doesn't manage: it goes into the Pull Request's
+/// description, and from there into the landed commit
+const CO_AUTHOR: &str = "Co-authored-by: Test Author <test@example.com>";
+
 /// Create a Pull Request and land it. Returns its number, and the landed
 /// commit (the target branch's new head).
 fn create_and_land(ctx: &Ctx, name: &str) -> Result<(u64, String)> {
     ctx.commit(
         &[(&format!("{name}.txt"), "landed\n")],
-        &format!("Test {name}\n\nTo be landed."),
+        &format!("Test {name}\n\nTo be landed.\n\n{CO_AUTHOR}"),
     )?;
     ctx.env.spr_ok(&["diff"])?;
     let number = ctx.pr_number("HEAD")?;
+    let pr = ctx.api.pull_request(number)?;
+    check_eq(
+        format!("PR #{number}'s description ends with the {CO_AUTHOR} trailer"),
+        pr.body.as_str(),
+        format!("To be landed.\n\n{CO_AUTHOR}").as_str(),
+    )?;
     let local_tree = ctx.tree("HEAD")?;
     ctx.env.spr_ok(&["land"])?;
 
@@ -79,6 +89,17 @@ fn land_squash(ctx: &Ctx) -> Result<()> {
              #{number})"
         ),
         trailers.ends_with(&format!("/pull/{number}")),
+    )?;
+    let co_authors = ctx.env.git(&[
+        "log",
+        "-1",
+        "--format=%(trailers:key=Co-authored-by,valueonly)",
+        &landed,
+    ])?;
+    check_eq(
+        "Git sees the Co-authored-by trailer of the landed commit",
+        co_authors.trim(),
+        "Test Author <test@example.com>",
     )
 }
 
