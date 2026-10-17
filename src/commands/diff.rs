@@ -1252,12 +1252,13 @@ async fn diff_impl(
         message.set_trailer("Pull-request".to_string(), pull_request_url);
         local_commit.pull_request_number = Some(pull_request_number);
 
-        let result = gh
-            .request_reviewers(pull_request_number, requested_reviewers)
-            .await;
-        match result {
-            Ok(()) => (),
-            Err(report) => {
+        // Without reviewers, the request would be pointless, and could fail
+        // (e.g. where an organisation restricts OAuth apps' access, #255)
+        if !requested_reviewers.is_empty() {
+            let result = gh
+                .request_reviewers(pull_request_number, requested_reviewers)
+                .await;
+            if let Err(report) = result {
                 output("⚠️", "Requesting reviewers failed")?;
                 for message in report.chain() {
                     output("  ", &message.to_string())?;

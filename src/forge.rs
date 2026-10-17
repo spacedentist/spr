@@ -101,6 +101,12 @@ pub struct PullRequestRequestReviewers {
     pub team_reviewers: Vec<String>,
 }
 
+impl PullRequestRequestReviewers {
+    pub fn is_empty(&self) -> bool {
+        self.reviewers.is_empty() && self.team_reviewers.is_empty()
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
 #[serde(rename_all = "lowercase")]
 pub enum PullRequestState {

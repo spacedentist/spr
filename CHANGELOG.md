@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+### Fixes
+
+- `spr diff` no longer asks GitHub to request reviewers for a new pull
+  request without a `Reviewers` trailer: that request could fail (e.g. in
+  organisations that restrict OAuth apps' access), and spr warned
+  "Requesting reviewers failed" (#255)
+
 ### Other
 
 - GitHub releases get a macOS binary again (universal: Apple silicon and
