@@ -97,7 +97,7 @@ Co-authored-by: Jane Doe <jane@example.com>
 
 ### Backwards compatibility
 
-Older versions of spr didn't use trailers, and wrote these lines with spaces instead of hyphens (`Pull Request:` instead of `Pull-request:`, and `Reviewed By:` instead of `Reviewed-by:`). Current versions of spr can read commit messages written by older versions and will automatically recognize these old-style lines. When spr updates a commit message (e.g., when running `spr diff` or `spr land`), it will rewrite them as trailers.
+Older versions of spr didn't use trailers, and wrote these lines with spaces instead of hyphens (`Pull Request:` instead of `Pull-request:`, and `Reviewed By:` instead of `Reviewed-by:`). Current versions of spr can read commit messages written by older versions: spr 1.x wrote these lines as a block of sections at the end of the message, and a block like that is recognized as spr's fields — these lines anywhere else in the message are part of the description, like any other body text. When spr updates a commit message (e.g., when running `spr diff` or `spr land`), it will rewrite them as trailers.
 
 If you have old commits in the previous format, they will continue to work seamlessly — spr will read them correctly and update them to the new format when it next modifies the commit message.
 

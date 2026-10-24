@@ -4,6 +4,21 @@
 
 ### Fixes
 
+- lines that look like spr 1.x's message fields, like "Pull Request:"
+  or "Reviewers:", are body text when they appear in the middle of a
+  commit message: before, spr read them as its fields wherever they
+  appeared, so a line like "Pull Request: requests are handled by
+  triage now." made every spr command on the commit fail until the
+  message was edited. The old fields are only read where spr 1.x wrote
+  them, as a block of sections at the end of the message
+- a line like "Pull Request: …" at the end of a Pull Request's
+  description is kept when spr takes the description into the commit
+  message (`spr amend`, `spr land`): before, spr dropped it
+- a URL on a line of its own in the trailers at the end of a message
+  doesn't become a bogus trailer with the key "https" anymore, which
+  broke the URL when spr rewrote the message; it is body text now
+- "Reviewed By:" sections in messages written by spr 1.x become the
+  `Reviewed-by:` trailer now, as they were meant to
 - trailers that spr doesn't manage, like `Co-authored-by` and
   `Signed-off-by`, are part of the pull request's description, and so of
   the landed commit (before, they only stayed in the local commit, and
