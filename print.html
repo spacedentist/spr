@@ -36,7 +36,7 @@
             const path_to_root = "";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "searchindex-dbb42d69.js";
+            window.path_to_searchindex_js = "searchindex-b72fe631.js";
         </script>
         <!-- Start loading toc.js asap -->
         <script src="toc-ee48e442.js"></script>
@@ -635,7 +635,7 @@ Pull-request: https://github.com/example/my-thing/pull/123
 Co-authored-by: Jane Doe &lt;jane@example.com&gt;
 </code></pre>
 <h3 id="backwards-compatibility"><a class="header" href="#backwards-compatibility">Backwards compatibility</a></h3>
-<p>Older versions of spr didn’t use trailers, and wrote these lines with spaces instead of hyphens (<code>Pull Request:</code> instead of <code>Pull-request:</code>, and <code>Reviewed By:</code> instead of <code>Reviewed-by:</code>). Current versions of spr can read commit messages written by older versions and will automatically recognize these old-style lines. When spr updates a commit message (e.g., when running <code>spr diff</code> or <code>spr land</code>), it will rewrite them as trailers.</p>
+<p>Older versions of spr didn’t use trailers, and wrote these lines with spaces instead of hyphens (<code>Pull Request:</code> instead of <code>Pull-request:</code>, and <code>Reviewed By:</code> instead of <code>Reviewed-by:</code>). Current versions of spr can read commit messages written by older versions: spr 1.x wrote these lines as a block of sections at the end of the message, and a block like that is recognized as spr’s fields — these lines anywhere else in the message are part of the description, like any other body text. When spr updates a commit message (e.g., when running <code>spr diff</code> or <code>spr land</code>), it will rewrite them as trailers.</p>
 <p>If you have old commits in the previous format, they will continue to work seamlessly — spr will read them correctly and update them to the new format when it next modifies the commit message.</p>
 <h3 id="example-commit-message-lifecycle"><a class="header" href="#example-commit-message-lifecycle">Example commit message lifecycle</a></h3>
 <p>This is what a commit message should look like when you first commit it, before running <code>spr</code> at all:</p>
